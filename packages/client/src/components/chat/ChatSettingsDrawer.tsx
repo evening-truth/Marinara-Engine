@@ -5001,7 +5001,7 @@ export function ChatSettingsDrawer({
                   <select
                     value={metadata.translationConnectionId ?? ""}
                     onChange={(e) =>
-                      updateMeta.mutate({ id: chat.id, translationConnectionId: e.target.value || undefined })
+                      updateMeta.mutate({ id: chat.id, translationConnectionId: e.target.value })
                     }
                     className="mt-0.5 w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
                   >
