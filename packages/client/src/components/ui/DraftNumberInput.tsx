@@ -28,9 +28,12 @@ export function DraftNumberInput({
   }, [value]);
 
   const parseDraft = (raw: string) => {
-    const parsed = integer ? parseInt(raw, 10) : parseFloat(raw);
-    const inRange =
-      !Number.isNaN(parsed) && (min === undefined || parsed >= min) && (max === undefined || parsed <= max);
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+
+    const parsed = Number(trimmed);
+    const validNumber = Number.isFinite(parsed) && (!integer || Number.isInteger(parsed));
+    const inRange = validNumber && (min === undefined || parsed >= min) && (max === undefined || parsed <= max);
 
     return inRange ? parsed : null;
   };
