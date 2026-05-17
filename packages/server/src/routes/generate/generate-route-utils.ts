@@ -19,6 +19,7 @@ export type PromptAttachment = {
 };
 
 const TEXT_ATTACHMENT_CHAR_LIMIT = 60_000;
+const IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT = 6 * 1024 * 1024;
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
   "json",
@@ -36,10 +37,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function shouldAbortOnPassiveGenerationDisconnect(args: {
-  chatMode: string;
-  impersonate?: boolean;
-}): boolean {
+export function shouldAbortOnPassiveGenerationDisconnect(args: { chatMode: string; impersonate?: boolean }): boolean {
   return args.chatMode !== "conversation" || args.impersonate === true;
 }
 
@@ -90,7 +88,7 @@ export function shouldPreferLatestVisibleGameState(input: {
   userMessage?: string | null;
 }): boolean {
   if (input.impersonate === true || !!input.regenerateMessageId) return true;
-  return !input.userMessage?.trim() && !(input.attachments?.length);
+  return !input.userMessage?.trim() && !input.attachments?.length;
 }
 
 export function resolveVisibleGameStateAnchor(
@@ -145,7 +143,26 @@ export function extractImageAttachmentDataUrls(attachments: PromptAttachment[] |
   return (attachments ?? [])
     .filter((attachment) => typeof attachment.type === "string" && attachment.type.startsWith("image/"))
     .map((attachment) => attachment.data)
-    .filter((data): data is string => typeof data === "string" && data.length > 0);
+    .filter((data): data is string => typeof data === "string" && data.length > 0)
+    .filter((data) => estimateDataUrlBytes(data) <= IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT);
+}
+
+function estimateDataUrlBytes(dataUrl: string): number {
+  const commaIndex = dataUrl.indexOf(",");
+  if (!dataUrl.startsWith("data:") || commaIndex < 0) return Buffer.byteLength(dataUrl, "utf8");
+
+  const meta = dataUrl.slice(0, commaIndex).toLowerCase();
+  const payload = dataUrl.slice(commaIndex + 1);
+  if (!meta.includes(";base64")) {
+    try {
+      return Buffer.byteLength(decodeURIComponent(payload), "utf8");
+    } catch {
+      return Buffer.byteLength(payload, "utf8");
+    }
+  }
+
+  const padding = payload.endsWith("==") ? 2 : payload.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding);
 }
 
 function isReadableTextAttachment(attachment: PromptAttachment): boolean {

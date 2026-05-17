@@ -39,6 +39,7 @@ import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../lib
 import { parseChatMetadata } from "../../lib/chat-display";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { translateDraftText } from "../../lib/draft-translation";
+import { prepareImageAttachment } from "../../lib/chat-attachment-images";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
 import { QuickPersonaSwitcher } from "./QuickPersonaSwitcher";
 import { QuickSwitcherMobile } from "./QuickSwitcherMobile";
@@ -156,49 +157,6 @@ function readFileAsDataUrl(file: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
     reader.readAsDataURL(file);
   });
-}
-
-/** Convert a GIF (or any image) blob to PNG via canvas, returning a new Blob + data URL */
-async function convertToPng(blob: Blob): Promise<{ blob: Blob; dataUrl: string }> {
-  const bitmap = await createImageBitmap(blob);
-
-  let pngBlob: Blob;
-
-  // Prefer OffscreenCanvas when available, fall back to regular <canvas> for broader support (e.g., Safari/iOS).
-  if (typeof OffscreenCanvas !== "undefined") {
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("Failed to get 2D context from OffscreenCanvas");
-    }
-    ctx.drawImage(bitmap, 0, 0);
-    pngBlob = await canvas.convertToBlob({ type: "image/png" });
-  } else {
-    const canvas = document.createElement("canvas");
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("Failed to get 2D context from HTMLCanvasElement");
-    }
-    ctx.drawImage(bitmap, 0, 0);
-    pngBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blobResult) => {
-        if (blobResult) {
-          resolve(blobResult);
-        } else {
-          reject(new Error("Failed to convert canvas to PNG blob"));
-        }
-      }, "image/png");
-    });
-  }
-
-  const dataUrl = await new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.readAsDataURL(pngBlob);
-  });
-  return { blob: pngBlob, dataUrl };
 }
 
 interface ConversationInputProps {
@@ -457,17 +415,11 @@ export function ConversationInput({
 
       for (const file of acceptedFiles) {
         const displayName = file.name || "pasted-file";
-        // Convert GIFs to PNG (Gemini and some providers don't support image/gif)
-        if (file.type === "image/gif") {
+        if (file.type.startsWith("image/")) {
           try {
-            const { dataUrl } = await convertToPng(file);
-            appendAttachmentForChat(originChatId, {
-              type: "image/png",
-              data: dataUrl,
-              name: displayName.replace(/\.gif$/i, ".png"),
-            });
+            appendAttachmentForChat(originChatId, await prepareImageAttachment(file, displayName));
           } catch {
-            toast.error(`Failed to convert ${displayName}`);
+            toast.error(`Failed to prepare ${displayName}`);
           } finally {
             adjustPendingAttachmentReads(originChatId, -1);
           }
@@ -1262,8 +1214,8 @@ export function ConversationInput({
       try {
         const resp = await fetch(gifUrl);
         const blob = await resp.blob();
-        const { dataUrl } = await convertToPng(blob);
-        gifAttachments = [{ type: "image/png", data: dataUrl }];
+        const prepared = await prepareImageAttachment(blob, "gif.gif");
+        gifAttachments = [{ type: prepared.type, data: prepared.data }];
       } catch {
         // If fetch fails (CORS etc.), send without attachment — still shows as image in chat
       }

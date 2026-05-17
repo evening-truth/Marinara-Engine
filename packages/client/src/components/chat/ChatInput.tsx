@@ -35,6 +35,7 @@ import { createInputMacroResolverForChat, isPromptPreviewMacro } from "../../lib
 import { parseChatMetadata } from "../../lib/chat-display";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { translateDraftText } from "../../lib/draft-translation";
+import { prepareImageAttachment } from "../../lib/chat-attachment-images";
 import { EmojiPicker } from "../ui/EmojiPicker";
 import { SpeechToTextButton } from "../ui/SpeechToTextButton";
 import { QuickConnectionSwitcher } from "./QuickConnectionSwitcher";
@@ -360,22 +361,11 @@ export const ChatInput = memo(function ChatInput({
 
       for (const file of acceptedFiles) {
         const displayName = file.name || "pasted-file";
-        // Convert GIFs to PNG (Gemini and some providers don't support image/gif)
-        if (file.type === "image/gif") {
+        if (file.type.startsWith("image/")) {
           try {
-            const bitmap = await createImageBitmap(file);
-            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-            const ctx = canvas.getContext("2d")!;
-            ctx.drawImage(bitmap, 0, 0);
-            const pngBlob = await canvas.convertToBlob({ type: "image/png" });
-            const data = await readFileAsDataUrl(pngBlob);
-            appendAttachmentForChat(originChatId, {
-              type: "image/png",
-              data,
-              name: displayName.replace(/\.gif$/i, ".png"),
-            });
+            appendAttachmentForChat(originChatId, await prepareImageAttachment(file, displayName));
           } catch {
-            toast.error(`Failed to convert ${displayName}`);
+            toast.error(`Failed to prepare ${displayName}`);
           } finally {
             adjustPendingAttachmentReads(originChatId, -1);
           }
