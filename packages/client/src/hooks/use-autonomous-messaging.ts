@@ -109,14 +109,19 @@ export function useAutonomousMessaging(
         return;
       }
 
+      const userStatus = useUIStore.getState().userStatus;
+
       // Don't trigger autonomous messages when user is DND
-      if (useUIStore.getState().userStatus === "dnd") {
+      if (userStatus === "dnd") {
         schedulePoll();
         return;
       }
 
       try {
-        const result = await api.post<AutonomousCheckResult>("/conversation/autonomous/check", { chatId });
+        const result = await api.post<AutonomousCheckResult>("/conversation/autonomous/check", {
+          chatId,
+          userStatus,
+        });
 
         // Refresh character data so sidebar status dots update
         qc.invalidateQueries({ queryKey: characterKeys.list() });

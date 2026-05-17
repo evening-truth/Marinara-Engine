@@ -2790,7 +2790,7 @@ export function ChatSettingsDrawer({
             <Section
               label="Autonomous Messaging"
               icon={<Bot size="0.875rem" />}
-              help="Characters can message you unprompted based on their personality and schedule. Chatty characters will reach out sooner when you're inactive."
+              help="Characters can message you unprompted based on their personality, your status, and optional schedules. Chatty characters will reach out sooner when you're inactive."
             >
               <div className="space-y-2">
                 {/* Enable autonomous messages toggle */}
@@ -2808,7 +2808,7 @@ export function ChatSettingsDrawer({
                   <div className="flex-1 min-w-0">
                     <span className="text-xs font-medium">Autonomous Messages</span>
                     <p className="text-[0.625rem] text-[var(--muted-foreground)]">
-                      Characters message you when you&apos;re inactive
+                      Characters message you when you&apos;re inactive, even without schedules
                     </p>
                   </div>
                   <div
@@ -2825,6 +2825,13 @@ export function ChatSettingsDrawer({
                     />
                   </div>
                 </button>
+
+                {metadata.autonomousMessages && !conversationSchedulesEnabled && (
+                  <div className="rounded-lg bg-[var(--primary)]/8 px-3 py-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)] ring-1 ring-[var(--primary)]/20">
+                    Schedules are off. Autonomous messages still use character talkativeness and your active or idle
+                    status; schedules only add routines, availability, and response delays.
+                  </div>
+                )}
 
                 {/* Character exchanges toggle (group chats only) */}
                 {chatCharIds.length > 1 && (
@@ -2904,7 +2911,7 @@ export function ChatSettingsDrawer({
                   <div className="flex-1 min-w-0">
                     <span className="text-[0.6875rem] leading-snug text-[var(--muted-foreground)]">
                       {!conversationSchedulesEnabled
-                        ? "Schedules are off — autonomous messages will not create routines."
+                        ? "Schedules are off: autonomy uses talkativeness and your status."
                         : hasGeneratedConversationSchedules
                           ? "Schedules generated — status is derived from character routines."
                           : "Schedules enabled — generate routines when you're ready."}
@@ -2912,7 +2919,7 @@ export function ChatSettingsDrawer({
                     <p className="text-[0.59375rem] text-[var(--muted-foreground)]/60 mt-0.5">
                       {conversationSchedulesEnabled
                         ? "Schedules refresh only after you enable or regenerate them."
-                        : "Turn schedules on if you want character availability to matter."}
+                        : "Turn schedules on if you want availability and busy delays to matter."}
                     </p>
                   </div>
                   <button

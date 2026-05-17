@@ -53,6 +53,50 @@ function getEnabledConversationSchedules(meta: Record<string, unknown>): Charact
   return areConversationSchedulesEnabled(meta) && hasSchedules(meta.characterSchedules) ? meta.characterSchedules : {};
 }
 
+type AutonomousUserStatus = "active" | "idle" | "dnd";
+
+function normalizeAutonomousUserStatus(value: unknown): AutonomousUserStatus {
+  return value === "idle" || value === "dnd" ? value : "active";
+}
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+function getCharacterCardTalkativeness(data: unknown): number {
+  let parsed: CharacterData | null = null;
+  if (typeof data === "string") {
+    try {
+      parsed = JSON.parse(data) as CharacterData;
+    } catch {
+      return 50;
+    }
+  } else if (data && typeof data === "object") {
+    parsed = data as CharacterData;
+  }
+
+  const raw = parsed?.extensions?.talkativeness;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(value)) return 50;
+  return clampPercent(value <= 1 ? Math.round(value * 100) : Math.round(value));
+}
+
+function getSchedulelessInactivityThresholdMinutes(talkativeness: number, userStatus: AutonomousUserStatus): number {
+  const chatty = clampPercent(talkativeness) / 100;
+  const minMinutes = userStatus === "idle" ? 10 : 30;
+  const maxMinutes = userStatus === "idle" ? 180 : 360;
+  return Math.round(maxMinutes - (maxMinutes - minMinutes) * chatty);
+}
+
+function createSchedulelessAutonomySchedule(talkativeness: number, userStatus: AutonomousUserStatus): WeekSchedule {
+  return {
+    weekStart: getMonday().toISOString(),
+    days: {},
+    inactivityThresholdMinutes: getSchedulelessInactivityThresholdMinutes(talkativeness, userStatus),
+    talkativeness,
+  };
+}
+
 type SummaryEntry = { summary: string; keyDetails: string[] };
 type CharacterMemoryEntry = { from?: string; summary?: string; createdAt?: string };
 type ConnectionsStorage = ReturnType<typeof createConnectionsStorage>;
@@ -228,7 +272,10 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (chat.mode !== "conversation") return reply.status(400).send({ error: "Not a conversation chat" });
 
     // Resolve connection (need decrypted API key; "random" is a sentinel, not a persisted connection id)
-    const { conn, error: connectionError } = await resolveConversationScheduleConnection(connections, chat.connectionId);
+    const { conn, error: connectionError } = await resolveConversationScheduleConnection(
+      connections,
+      chat.connectionId,
+    );
     if (!conn) return reply.status(400).send({ error: connectionError ?? "No connection configured" });
     const baseUrl = resolveBaseUrl(conn);
     if (!baseUrl) return reply.status(400).send({ error: "No base URL" });
@@ -516,9 +563,10 @@ export async function conversationRoutes(app: FastifyInstance) {
   // POST /autonomous/check — Check if autonomous message should trigger
   // ─────────────────────────────────────────────
   app.post<{
-    Body: { chatId: string };
+    Body: { chatId: string; userStatus?: AutonomousUserStatus };
   }>("/autonomous/check", async (req, reply) => {
     const { chatId } = req.body;
+    const userStatus = normalizeAutonomousUserStatus(req.body.userStatus);
     const chat = await chats.getById(chatId);
     if (!chat) return reply.status(404).send({ error: "Chat not found" });
 
@@ -529,10 +577,25 @@ export async function conversationRoutes(app: FastifyInstance) {
       return reply.send({ shouldTrigger: false, characterIds: [], reason: "disabled", inactivityMs: 0 });
     }
 
+    if (userStatus === "dnd") {
+      return reply.send({ shouldTrigger: false, characterIds: [], reason: "user_dnd", inactivityMs: 0 });
+    }
+
     const schedules: CharacterSchedules = await chats.inheritFreshConversationSchedules(chatId);
     const characterIds: string[] =
       typeof chat.characterIds === "string" ? JSON.parse(chat.characterIds) : chat.characterIds;
     const isGroup = characterIds.length > 1;
+    const hasRoutineSchedules = hasSchedules(schedules);
+
+    const autonomySchedules: CharacterSchedules = { ...schedules };
+    const schedulelessCharacterIds = characterIds.filter((cid) => !autonomySchedules[cid]);
+    for (const cid of schedulelessCharacterIds) {
+      const charRow = await chars.getById(cid);
+      autonomySchedules[cid] = createSchedulelessAutonomySchedule(
+        getCharacterCardTalkativeness(charRow?.data),
+        userStatus,
+      );
+    }
 
     // Update each character's conversationStatus to match current schedule
     for (const cid of characterIds) {
@@ -558,7 +621,7 @@ export async function conversationRoutes(app: FastifyInstance) {
 
     // Filter out characters busy in an active scene
     const sceneBusyCharIds: string[] = meta.sceneBusyCharIds ?? [];
-    const filteredSchedules = { ...schedules };
+    const filteredSchedules = { ...autonomySchedules };
     for (const busyId of sceneBusyCharIds) {
       delete filteredSchedules[busyId];
     }
@@ -578,25 +641,27 @@ export async function conversationRoutes(app: FastifyInstance) {
     // ── Offline catch-up: if any character is now online and last messages are from user ──
     // This catches the case where user sent messages while character was offline.
     // Now that they're online, trigger a catch-up generation.
-    const onlineCharIds = characterIds.filter((cid) => {
-      const schedule = schedules[cid];
-      if (!schedule) return true; // No schedule = assume online
-      const { status } = getCurrentStatus(schedule);
-      return status !== "offline";
-    });
+    if (hasRoutineSchedules) {
+      const onlineCharIds = characterIds.filter((cid) => {
+        const schedule = schedules[cid];
+        if (!schedule) return true; // No schedule = assume online
+        const { status } = getCurrentStatus(schedule);
+        return status !== "offline";
+      });
 
-    if (onlineCharIds.length > 0 && messages.length > 0) {
-      // Check if the last message (or consecutive last messages) are all from the user
-      const last = messages[messages.length - 1]!;
-      if (last.role === "user") {
-        // Character is online but hasn't responded — trigger catch-up
-        markGenerationInProgress(chatId);
-        return reply.send({
-          shouldTrigger: true,
-          characterIds: onlineCharIds.slice(0, 1), // Pick first online character
-          reason: "user_inactivity",
-          inactivityMs: 0,
-        });
+      if (onlineCharIds.length > 0 && messages.length > 0) {
+        // Check if the last message (or consecutive last messages) are all from the user
+        const last = messages[messages.length - 1]!;
+        if (last.role === "user") {
+          // Character is online but hasn't responded — trigger catch-up
+          markGenerationInProgress(chatId);
+          return reply.send({
+            shouldTrigger: true,
+            characterIds: onlineCharIds.slice(0, 1), // Pick first online character
+            reason: "user_inactivity",
+            inactivityMs: 0,
+          });
+        }
       }
     }
 

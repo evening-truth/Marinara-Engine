@@ -104,8 +104,10 @@ export function useBackgroundAutonomousPolling() {
         }
       });
 
+      const userStatus = useUIStore.getState().userStatus;
+
       // Don't trigger autonomous messages when user is DND
-      if (useUIStore.getState().userStatus === "dnd" || backgroundChats.length === 0) {
+      if (userStatus === "dnd" || backgroundChats.length === 0) {
         schedulePoll();
         return;
       }
@@ -116,7 +118,10 @@ export function useBackgroundAutonomousPolling() {
         if (useChatStore.getState().abortControllers.has(chat.id)) continue;
 
         try {
-          const result = await api.post<AutonomousCheckResult>("/conversation/autonomous/check", { chatId: chat.id });
+          const result = await api.post<AutonomousCheckResult>("/conversation/autonomous/check", {
+            chatId: chat.id,
+            userStatus,
+          });
 
           if (result.shouldTrigger && result.characterIds.length > 0) {
             const characterId = result.characterIds[0]!;
