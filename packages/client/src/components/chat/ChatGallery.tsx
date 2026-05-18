@@ -2,7 +2,18 @@
 // Chat Gallery — Image grid for per-chat generated images
 // ──────────────────────────────────────────────
 import { useState, useRef } from "react";
-import { ImagePlus, Paintbrush, Trash2, X, ZoomIn, Download, Sparkles, Pin, Minimize2 } from "lucide-react";
+import {
+  ImagePlus,
+  Paintbrush,
+  Trash2,
+  X,
+  ZoomIn,
+  Download,
+  Sparkles,
+  Pin,
+  Minimize2,
+  Loader2,
+} from "lucide-react";
 import {
   useGalleryImages,
   useUploadGalleryImage,
@@ -15,7 +26,7 @@ import { ImagePromptPanel } from "./ImagePromptPanel";
 interface ChatGalleryProps {
   chatId: string;
   /** Manually trigger the Illustrator agent */
-  onIllustrate?: () => void;
+  onIllustrate?: () => void | Promise<void>;
 }
 
 function formatImageMeta(image: ChatImage) {
@@ -33,7 +44,9 @@ export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [lightbox, setLightbox] = useState<ChatImage | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const isIllustrating = useGalleryStore((s) => s.illustratingChatIds.has(chatId));
   const pinImage = useGalleryStore((s) => s.pinImage);
+  const setChatIllustrating = useGalleryStore((s) => s.setChatIllustrating);
   const lightboxPrompt = lightbox?.prompt.trim() ?? "";
   const lightboxMeta = lightbox ? formatImageMeta(lightbox) : "";
 
@@ -54,17 +67,41 @@ export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
     if (lightbox?.id === id) setLightbox(null);
   };
 
+  const handleIllustrate = async () => {
+    if (!onIllustrate || useGalleryStore.getState().illustratingChatIds.has(chatId)) return;
+
+    setChatIllustrating(chatId, true);
+    try {
+      await onIllustrate();
+    } finally {
+      setChatIllustrating(chatId, false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-3 p-4">
       {/* Illustrate button */}
       {onIllustrate && (
         <button
-          onClick={onIllustrate}
-          className="flex items-center justify-center gap-2 rounded-xl bg-[var(--primary)]/15 px-4 py-3 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25"
+          type="button"
+          onClick={() => void handleIllustrate()}
+          disabled={isIllustrating}
+          aria-busy={isIllustrating}
+          className="flex items-center justify-center gap-2 rounded-xl bg-[var(--primary)]/15 px-4 py-3 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25 disabled:cursor-wait disabled:opacity-75"
         >
-          <Paintbrush size="1rem" />
-          Illustrate
+          {isIllustrating ? <Loader2 size="1rem" className="animate-spin" /> : <Paintbrush size="1rem" />}
+          {isIllustrating ? "Generating image..." : "Illustrate"}
         </button>
+      )}
+
+      {isIllustrating && (
+        <div
+          className="rounded-xl border border-[var(--primary)]/25 bg-[var(--primary)]/10 px-3 py-2 text-xs text-[var(--primary)]"
+          role="status"
+          aria-live="polite"
+        >
+          AI image generation is running. The new image will appear here when it finishes.
+        </div>
       )}
 
       {/* Upload button */}
