@@ -3,7 +3,28 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api-client";
+import {
+  parseTrackerCardColorConfig,
+  serializeTrackerCardColorConfig,
+  TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD,
+} from "../lib/tracker-card-colors";
 import type { CharacterCardVersion } from "@marinara-engine/shared";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeTrackerCardPortraitFields(baseRaw: unknown, portraitRaw: unknown) {
+  const baseConfig = parseTrackerCardColorConfig(baseRaw);
+  const portraitConfig = parseTrackerCardColorConfig(portraitRaw);
+
+  return serializeTrackerCardColorConfig({
+    ...baseConfig,
+    portraitFocusX: portraitConfig.portraitFocusX,
+    portraitFocusY: portraitConfig.portraitFocusY,
+    portraitZoom: portraitConfig.portraitZoom,
+  });
+}
 
 export const characterKeys = {
   all: ["characters"] as const,
@@ -61,10 +82,26 @@ export function useUpdateCharacter() {
       versionReason?: string;
       skipVersionSnapshot?: boolean;
     }) => api.patch(`/characters/${id}`, data),
-    onSuccess: (_data, variables) => {
+    onSuccess: (updatedCharacter, variables) => {
+      const updatedRow = isRecord(updatedCharacter) ? updatedCharacter : null;
+      const updatedId = typeof updatedRow?.id === "string" ? updatedRow.id : variables.id;
+      if (updatedRow) {
+        qc.setQueryData<unknown[] | undefined>(characterKeys.list(), (old) => {
+          if (!Array.isArray(old)) return old;
+
+          return old.map((character) => {
+            if (!isRecord(character) || character.id !== updatedId) return character;
+            return { ...character, ...updatedRow };
+          });
+        });
+        qc.setQueryData(characterKeys.detail(updatedId), (old: unknown) => {
+          if (!isRecord(old)) return updatedRow;
+          return { ...old, ...updatedRow };
+        });
+      }
       qc.invalidateQueries({ queryKey: characterKeys.list() });
-      qc.invalidateQueries({ queryKey: characterKeys.detail(variables.id) });
-      qc.invalidateQueries({ queryKey: characterKeys.versions(variables.id) });
+      qc.invalidateQueries({ queryKey: characterKeys.detail(updatedId) });
+      qc.invalidateQueries({ queryKey: characterKeys.versions(updatedId) });
     },
   });
 }
@@ -383,7 +420,17 @@ export function useUpdatePersona() {
           const row = p as Record<string, unknown> & { id?: string };
           if (row?.id !== updatedId) return p;
           if (!updatedPersona || typeof updatedPersona !== "object") return p;
-          return { ...row, ...(updatedPersona as Record<string, unknown>) };
+          const updatedRow = updatedPersona as Record<string, unknown>;
+          const nextPersona = { ...row, ...updatedRow };
+          const previewBaseTrackerCardColors = row[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD];
+          const updatedTrackerCardColors = updatedRow.trackerCardColors;
+
+          if (typeof previewBaseTrackerCardColors === "string" && typeof updatedTrackerCardColors === "string") {
+            nextPersona[TRACKER_CARD_COLOR_PREVIEW_BASE_FIELD] = updatedTrackerCardColors;
+            nextPersona.trackerCardColors = mergeTrackerCardPortraitFields(row.trackerCardColors, updatedTrackerCardColors);
+          }
+
+          return nextPersona;
         });
       });
 

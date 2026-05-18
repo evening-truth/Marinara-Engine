@@ -81,7 +81,6 @@ import { extractColorsFromImage } from "../../lib/avatar-color-extraction";
 import { HelpTooltip } from "../ui/HelpTooltip";
 import { api } from "../../lib/api-client";
 import { ColorPicker } from "../ui/ColorPicker";
-import { TrackerCardColorControls } from "../ui/TrackerCardColorControls";
 import { ExpandedTextarea } from "../ui/ExpandedTextarea";
 import { Modal } from "../ui/Modal";
 import { SpriteFrameEditor } from "../ui/SpriteFrameEditor";
@@ -334,7 +333,7 @@ export function CharacterEditor() {
       // framing, so the prior normalized crop coords are meaningless and would
       // produce a stale framing on the new file.
       if (shouldClearAvatarCrop) {
-        setExtensionValue("avatarCrop", undefined);
+        setExtensionValue("avatarCrop", null);
       }
       if (fallbackDirty || shouldClearAvatarCrop) {
         setDirtyState(true);
@@ -388,7 +387,7 @@ export function CharacterEditor() {
 
       setAvatarPreview(avatarDataUrl);
       if (shouldClearAvatarCrop) {
-        setExtensionValue("avatarCrop", undefined);
+        setExtensionValue("avatarCrop", null);
       }
       if (fallbackDirty || shouldClearAvatarCrop) {
         setDirtyState(true);
@@ -3039,7 +3038,6 @@ function ColorsTab({
   const nameColor = (formData.extensions.nameColor as string) ?? "";
   const dialogueColor = (formData.extensions.dialogueColor as string) ?? "";
   const boxColor = (formData.extensions.boxColor as string) ?? "";
-  const trackerCardColors = parseTrackerCardColorConfig(formData.extensions.trackerCardColors);
   const [extracting, setExtracting] = useState(false);
 
   const handleExtract = async () => {
@@ -3169,13 +3167,6 @@ function ColorsTab({
         </ul>
       </div>
 
-      <TrackerCardColorControls
-        value={trackerCardColors}
-        onChange={(value) => updateExtension("trackerCardColors", value)}
-        chatColors={{ nameColor, dialogueColor, boxColor }}
-        entityLabel="Character"
-        previewName={formData.name || "Character"}
-      />
     </div>
   );
 }
