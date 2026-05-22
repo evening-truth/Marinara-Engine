@@ -684,7 +684,11 @@ export function PersonasPanel() {
                             const p = personaMap.get(pid);
                             if (!p) return null;
                             return (
-                              <div key={pid} className="flex items-center gap-2 rounded-lg px-1 py-1 text-xs">
+                              <div
+                                key={pid}
+                                onClick={() => openPersonaDetail(pid)}
+                                className="group/member flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-xs transition-all hover:bg-[var(--sidebar-accent)]"
+                              >
                                 <div className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
                                   {p.avatarPath ? (
                                     <img
@@ -699,8 +703,11 @@ export function PersonasPanel() {
                                 </div>
                                 <span className="min-w-0 flex-1 truncate">{p.name}</span>
                                 <button
-                                  onClick={() => toggleGroupMember(group.id, pid, group.memberIds)}
-                                  className="rounded p-0.5 text-[var(--muted-foreground)] hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleGroupMember(group.id, pid, group.memberIds);
+                                  }}
+                                  className="rounded p-0.5 text-[var(--muted-foreground)] opacity-0 transition-all hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)] group-hover/member:opacity-100 max-md:opacity-100"
                                   title="Remove from group"
                                 >
                                   <UserMinus size="0.625rem" />
