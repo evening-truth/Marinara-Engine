@@ -1,7 +1,7 @@
 import { LOCAL_SIDECAR_CONNECTION_ID } from "@marinara-engine/shared";
 
 export type AgentConnectionWarning = {
-  code: "local_sidecar_unavailable" | "default_agent_connection_active";
+  code: "local_sidecar_unavailable" | "default_agent_connection_active" | "dangling_agent_connection";
   severity: "warning";
   message: string;
   agentNames: string[];
@@ -62,5 +62,19 @@ export function buildDefaultAgentConnectionWarning(args: {
     connectionName: args.connectionName,
     model: args.model,
     message: `${agentList} ${noun} using the default agent connection "${args.connectionName}" (${args.model}). If this is a paid API model, agent calls may bill that provider.`,
+  };
+}
+
+export function buildDanglingAgentConnectionWarning(agentNames: string[]): AgentConnectionWarning {
+  const normalizedNames = agentNames.length > 0 ? agentNames : ["Agent"];
+  const agentList = formatAgentNameList(normalizedNames);
+  const noun = normalizedNames.length === 1 ? "this agent" : "these agents";
+
+  return {
+    code: "dangling_agent_connection",
+    severity: "warning",
+    agentNames: normalizedNames,
+    fallbackPrevented: true,
+    message: `${agentList} requested a connection that no longer exists. Marinara skipped ${noun} instead of falling back to the chat connection.`,
   };
 }

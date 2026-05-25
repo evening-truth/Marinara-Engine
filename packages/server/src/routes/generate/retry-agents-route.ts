@@ -55,6 +55,7 @@ import { filterGameInternalAgentIds } from "../../services/lorebook/game-loreboo
 import { sendSseEvent, startSseReply } from "./sse.js";
 import {
   buildDefaultAgentConnectionWarning,
+  buildDanglingAgentConnectionWarning,
   buildLocalSidecarUnavailableWarning,
   isLocalSidecarConnectionId,
   resolveAgentConnectionId,
@@ -536,6 +537,7 @@ async function resolveRetryAgents(args: {
   const chatConnectionMaxParallelJobs = Number(conn.maxParallelJobs) || 1;
   const resolvedAgents: ResolvedRetryAgent[] = [];
   const skippedLocalSidecarAgents: string[] = [];
+  const danglingConnectionAgents = new Set<string>();
   const defaultAgentConnectionAgents: string[] = [];
   const defaultAgentConn = await conns.getDefaultForAgents();
   const defaultAgentConnection = defaultAgentConn
@@ -590,20 +592,27 @@ async function resolveRetryAgents(args: {
         defaultAgentConnectionAgents.push(cfg.name ?? cfg.type);
       } else {
         const agentConn = await conns.getWithKey(effectiveConnectionId);
-        if (agentConn) {
-          const agentBaseUrl = resolveBaseUrl(agentConn);
-          if (agentBaseUrl) {
-            agentProvider = createLLMProvider(
-              agentConn.provider,
-              agentBaseUrl,
-              agentConn.apiKey,
-              agentConn.maxContext,
-              agentConn.openrouterProvider,
-              agentConn.maxTokensOverride,
-            );
-            agentModel = agentConn.model;
-            agentMaxParallelJobs = Number(agentConn.maxParallelJobs) || 1;
-          }
+        if (!agentConn) {
+          danglingConnectionAgents.add(cfg.name ?? cfg.type);
+          logger.warn(
+            "[retry-agents] Skipping agent %s because connection %s no longer exists",
+            cfg.type,
+            effectiveConnectionId,
+          );
+          continue;
+        }
+        const agentBaseUrl = resolveBaseUrl(agentConn);
+        if (agentBaseUrl) {
+          agentProvider = createLLMProvider(
+            agentConn.provider,
+            agentBaseUrl,
+            agentConn.apiKey,
+            agentConn.maxContext,
+            agentConn.openrouterProvider,
+            agentConn.maxTokensOverride,
+          );
+          agentModel = agentConn.model;
+          agentMaxParallelJobs = Number(agentConn.maxParallelJobs) || 1;
         }
       }
     }
@@ -627,8 +636,13 @@ async function resolveRetryAgents(args: {
     });
   }
 
-  const warnings =
-    skippedLocalSidecarAgents.length > 0 ? [buildLocalSidecarUnavailableWarning(skippedLocalSidecarAgents)] : [];
+  const warnings: AgentConnectionWarning[] = [];
+  if (skippedLocalSidecarAgents.length > 0) {
+    warnings.push(buildLocalSidecarUnavailableWarning(skippedLocalSidecarAgents));
+  }
+  if (danglingConnectionAgents.size > 0) {
+    warnings.push(buildDanglingAgentConnectionWarning(Array.from(danglingConnectionAgents)));
+  }
 
   for (const builtIn of builtInFallbackConfigs) {
     const builtInProvider = defaultAgentConnection ?? {

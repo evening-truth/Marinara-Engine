@@ -8,6 +8,10 @@ import { createLLMProvider } from "../services/llm/provider-registry.js";
 import { fetchOpenAIChatGPTModels, getOpenAIChatGPTAuth } from "../services/llm/openai-chatgpt-auth.js";
 import { buildGoogleVertexModelUrl, googleAuthHeadersForVertex } from "../services/llm/providers/google.provider.js";
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
+import {
+  deleteConnectionAndClearReferences,
+  deleteConnectionIfUnreferenced,
+} from "../services/storage/connection-references.storage.js";
 import { isImageLocalUrlsEnabled, isProviderLocalUrlsEnabled } from "../config/runtime-config.js";
 import { logDebugOverride } from "../lib/logger.js";
 import { normalizeLoopbackUrl, safeFetch } from "../utils/security.js";
@@ -219,8 +223,28 @@ export async function connectionsRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
-  app.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
-    await storage.remove(req.params.id);
+  app.delete<{ Params: { id: string }; Querystring: { force?: string | boolean } }>("/:id", async (req, reply) => {
+    const force = req.query.force === true || req.query.force === "true";
+
+    if (force) {
+      const clearedReferences = await deleteConnectionAndClearReferences(app.db, req.params.id);
+      return reply.send({
+        success: true,
+        warning:
+          "Connection deleted. Agents and chats that referenced it were cleared and will use their configured fallback connection.",
+        clearedReferences,
+      });
+    }
+
+    const result = await deleteConnectionIfUnreferenced(app.db, req.params.id);
+    if (!result.deleted) {
+      return reply.status(409).send({
+        error: "connection_in_use",
+        message: "Connection is still used by agents or chats. Repoint them first, or delete with force=true.",
+        references: result.references,
+      });
+    }
+
     return reply.status(204).send();
   });
 

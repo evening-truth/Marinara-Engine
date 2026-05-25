@@ -206,6 +206,7 @@ import { fingerprintChatSummary } from "../services/prompt/chat-summary-fingerpr
 import { sendSseEvent, startSseReply, trySendSseEvent } from "./generate/sse.js";
 import {
   buildDefaultAgentConnectionWarning,
+  buildDanglingAgentConnectionWarning,
   buildLocalSidecarUnavailableWarning,
   isLocalSidecarConnectionId,
   resolveAgentConnectionId,
@@ -3966,6 +3967,7 @@ export async function generateRoutes(app: FastifyInstance) {
 
         const agentConnectionWarnings: AgentConnectionWarning[] = [];
         const skippedLocalSidecarAgents: string[] = [];
+        const danglingConnectionAgents = new Set<string>();
         const defaultAgentConnectionAgents: string[] = [];
         let responseOrchestratorSelectorAgent: ResolvedAgent | null = null;
         let responseOrchestratorSelectorUnavailable = false;
@@ -4007,25 +4009,33 @@ export async function generateRoutes(app: FastifyInstance) {
               agentMaxParallelJobs = cached.maxParallelJobs;
             } else {
               const agentConn = await connections.getWithKey(effectiveConnectionId);
-              if (agentConn) {
-                const agentBaseUrl = resolveBaseUrl(agentConn);
-                if (agentBaseUrl) {
-                  agentProvider = createLLMProvider(
-                    agentConn.provider,
-                    agentBaseUrl,
-                    agentConn.apiKey,
-                    agentConn.maxContext,
-                    agentConn.openrouterProvider,
-                    agentConn.maxTokensOverride,
-                  );
-                  agentModel = agentConn.model;
-                  agentMaxParallelJobs = Number(agentConn.maxParallelJobs) || 1;
-                  agentProviderCache.set(effectiveConnectionId, {
-                    provider: agentProvider,
-                    model: agentModel,
-                    maxParallelJobs: agentMaxParallelJobs,
-                  });
-                }
+              if (!agentConn) {
+                danglingConnectionAgents.add(cfg.name ?? cfg.type);
+                logger.warn(
+                  "[generate] Skipping agent %s for chat %s because connection %s no longer exists",
+                  cfg.type,
+                  input.chatId,
+                  effectiveConnectionId,
+                );
+                continue;
+              }
+              const agentBaseUrl = resolveBaseUrl(agentConn);
+              if (agentBaseUrl) {
+                agentProvider = createLLMProvider(
+                  agentConn.provider,
+                  agentBaseUrl,
+                  agentConn.apiKey,
+                  agentConn.maxContext,
+                  agentConn.openrouterProvider,
+                  agentConn.maxTokensOverride,
+                );
+                agentModel = agentConn.model;
+                agentMaxParallelJobs = Number(agentConn.maxParallelJobs) || 1;
+                agentProviderCache.set(effectiveConnectionId, {
+                  provider: agentProvider,
+                  model: agentModel,
+                  maxParallelJobs: agentMaxParallelJobs,
+                });
               }
             }
           }
@@ -4153,7 +4163,15 @@ export async function generateRoutes(app: FastifyInstance) {
                     agentMaxParallelJobs = cached.maxParallelJobs;
                   } else {
                     const agentConn = await connections.getWithKey(effectiveConnectionId);
-                    if (agentConn) {
+                    if (!agentConn) {
+                      responseOrchestratorSelectorUnavailable = true;
+                      danglingConnectionAgents.add("Response Orchestrator");
+                      logger.warn(
+                        "[group-smart] Skipping Response Orchestrator for chat %s because connection %s no longer exists",
+                        input.chatId,
+                        effectiveConnectionId,
+                      );
+                    } else {
                       const agentBaseUrl = resolveBaseUrl(agentConn);
                       if (agentBaseUrl) {
                         agentProvider = createLLMProvider(
@@ -4176,24 +4194,29 @@ export async function generateRoutes(app: FastifyInstance) {
                   }
                 }
 
-                responseOrchestratorSelectorAgent = {
-                  id: "id" in cfg ? String(cfg.id) : "builtin:response-orchestrator",
-                  type: "response-orchestrator",
-                  name: "name" in cfg ? String(cfg.name) : "Response Orchestrator",
-                  phase: "phase" in cfg ? String(cfg.phase) : "pre_generation",
-                  promptTemplate: "promptTemplate" in cfg ? String(cfg.promptTemplate ?? "") : "",
-                  connectionId: effectiveConnectionId,
-                  settings,
-                  provider: agentProvider,
-                  model: agentModel,
-                  maxParallelJobs: agentMaxParallelJobs,
-                };
+                if (!responseOrchestratorSelectorUnavailable) {
+                  responseOrchestratorSelectorAgent = {
+                    id: "id" in cfg ? String(cfg.id) : "builtin:response-orchestrator",
+                    type: "response-orchestrator",
+                    name: "name" in cfg ? String(cfg.name) : "Response Orchestrator",
+                    phase: "phase" in cfg ? String(cfg.phase) : "pre_generation",
+                    promptTemplate: "promptTemplate" in cfg ? String(cfg.promptTemplate ?? "") : "",
+                    connectionId: effectiveConnectionId,
+                    settings,
+                    provider: agentProvider,
+                    model: agentModel,
+                    maxParallelJobs: agentMaxParallelJobs,
+                  };
+                }
               }
             }
           }
         }
 
         if (defaultAgentConn && defaultAgentConnectionAgents.length > 0) {
+          if (danglingConnectionAgents.size > 0) {
+            agentConnectionWarnings.push(buildDanglingAgentConnectionWarning(Array.from(danglingConnectionAgents)));
+          }
           agentConnectionWarnings.push(
             buildDefaultAgentConnectionWarning({
               agentNames: defaultAgentConnectionAgents,
@@ -4201,6 +4224,8 @@ export async function generateRoutes(app: FastifyInstance) {
               model: defaultAgentConn.model,
             }),
           );
+        } else if (danglingConnectionAgents.size > 0) {
+          agentConnectionWarnings.push(buildDanglingAgentConnectionWarning(Array.from(danglingConnectionAgents)));
         }
 
         logger.info(
