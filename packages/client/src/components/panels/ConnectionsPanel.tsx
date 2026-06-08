@@ -48,6 +48,7 @@ import {
   Pencil,
   Camera,
   Sparkles,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { toast } from "sonner";
@@ -376,7 +377,10 @@ type ConnectionRowData = {
 function DefaultAgentConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
   const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
   const defaultConnection =
-    connectionsList.find((conn) => conn.defaultForAgents === true || conn.defaultForAgents === "true") ?? null;
+    connectionsList.find(
+      (conn) =>
+        conn.provider !== "image_generation" && (conn.defaultForAgents === true || conn.defaultForAgents === "true"),
+    ) ?? null;
 
   return (
     <div className="rounded-xl border border-sky-400/20 bg-gradient-to-br from-sky-400/5 to-blue-500/5 p-3">
@@ -398,6 +402,43 @@ function DefaultAgentConnectionCard({ connectionsList }: { connectionsList: Conn
             onClick={() => openConnectionDetail(defaultConnection.id)}
             className="rounded-lg p-1.5 text-sky-400 transition-all hover:bg-sky-400/15 active:scale-90"
             title="Open default agent connection"
+          >
+            <Settings2 size="0.8125rem" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DefaultIllustratorConnectionCard({ connectionsList }: { connectionsList: ConnectionRowData[] }) {
+  const openConnectionDetail = useUIStore((s) => s.openConnectionDetail);
+  const defaultConnection =
+    connectionsList.find(
+      (conn) =>
+        conn.provider === "image_generation" && (conn.defaultForAgents === true || conn.defaultForAgents === "true"),
+    ) ?? null;
+
+  return (
+    <div className="rounded-xl border border-sky-400/20 bg-gradient-to-br from-sky-400/5 to-blue-500/5 p-3">
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-500 text-white shadow-sm">
+          <ImageIcon size="1rem" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">Default for Illustrator</div>
+          <div className="truncate text-[0.6875rem] text-[var(--muted-foreground)]">
+            {defaultConnection
+              ? `${defaultConnection.name} • ${defaultConnection.model || "Image generation"}`
+              : "No default Illustrator connection set"}
+          </div>
+        </div>
+        {defaultConnection && (
+          <button
+            type="button"
+            onClick={() => openConnectionDetail(defaultConnection.id)}
+            className="rounded-lg p-1.5 text-sky-400 transition-all hover:bg-sky-400/15 active:scale-90"
+            title="Open default Illustrator connection"
           >
             <Settings2 size="0.8125rem" />
           </button>
@@ -864,6 +905,7 @@ export function ConnectionsPanel() {
       <TTSConfigCard />
 
       <DefaultAgentConnectionCard connectionsList={connectionsList} />
+      <DefaultIllustratorConnectionCard connectionsList={connectionsList} />
 
       <div className="flex items-center gap-1">
         <button

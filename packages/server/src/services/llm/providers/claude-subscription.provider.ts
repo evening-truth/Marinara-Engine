@@ -345,8 +345,8 @@ export class ClaudeSubscriptionProvider extends BaseLLMProvider {
     if (options.enableThinking) {
       sdkOptions.thinking = { type: "adaptive" };
       // EffortLevel covers low|medium|high|xhigh|max; reasoningEffort matches
-      // four of those, so a runtime cast is safe.
-      sdkOptions.effort = (options.reasoningEffort ?? "high") as "low" | "medium" | "high" | "xhigh";
+      // that provider-facing set.
+      sdkOptions.effort = (options.reasoningEffort ?? "high") as "low" | "medium" | "high" | "xhigh" | "max";
     } else if (isAdaptiveOnly) {
       // Opus 4.7 always thinks; let the SDK pick a default effort.
       sdkOptions.thinking = { type: "adaptive" };

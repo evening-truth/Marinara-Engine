@@ -279,6 +279,20 @@ export function useDeleteSprite() {
   });
 }
 
+export function useExportSprites() {
+  return useMutation({
+    mutationFn: ({
+      characterId,
+      expressions,
+      folderName,
+    }: {
+      characterId: string;
+      expressions: string[];
+      folderName: string;
+    }) => api.downloadPost(`/sprites/${characterId}/export`, { expressions, folderName }, `${folderName}.zip`),
+  });
+}
+
 export function useCleanupSavedSprites() {
   const qc = useQueryClient();
   return useMutation({

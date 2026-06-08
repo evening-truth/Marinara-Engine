@@ -22,6 +22,7 @@ import {
   useDeleteCharacterGalleryImage,
   useUploadSprite,
   useDeleteSprite,
+  useExportSprites,
   useCleanupSavedSprites,
   useRestoreSpriteCleanupBackup,
   useSpriteCapabilities,
@@ -999,6 +1000,7 @@ export function CharacterEditor() {
             {activeTab === "sprites" && characterId && (
               <SpritesTab
                 characterId={characterId}
+                characterName={formData.name}
                 defaultAppearance={(formData.extensions.appearance as string) ?? formData.description}
                 defaultAvatarUrl={avatarPreview}
               />
@@ -2041,12 +2043,24 @@ const DEFAULT_EXPRESSIONS = [
   "hurt",
 ];
 
+function sanitizeSpriteExportFolderName(value: string, fallback: string): string {
+  const sanitized = value
+    .replace(/[\\/]/g, "_")
+    .replace(/[^a-z0-9._ -]+/gi, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[.\s_-]+|[.\s_-]+$/g, "");
+  return sanitized || fallback;
+}
+
 function SpritesTab({
   characterId,
+  characterName,
   defaultAppearance,
   defaultAvatarUrl,
 }: {
   characterId: string;
+  characterName?: string;
   defaultAppearance?: string;
   defaultAvatarUrl?: string | null;
 }) {
@@ -2056,6 +2070,7 @@ function SpritesTab({
   const { data: spriteCapabilities } = useSpriteCapabilities();
   const uploadSprite = useUploadSprite();
   const deleteSprite = useDeleteSprite();
+  const exportSprites = useExportSprites();
   const cleanupSavedSprites = useCleanupSavedSprites();
   const restoreSpriteCleanupBackup = useRestoreSpriteCleanupBackup();
   const queryClient = useQueryClient();
@@ -2226,36 +2241,32 @@ function SpritesTab({
   }, []);
 
   const handleExportSprites = useCallback(
-    async (spritesToExport: SpriteInfo[], modeLabel: string) => {
+    async (spritesToExport: SpriteInfo[], modeLabel: "visible" | "all") => {
       if (spritesToExport.length === 0) return;
 
       setExporting(true);
-      let successCount = 0;
 
       try {
-        for (const sprite of spritesToExport) {
-          try {
-            await downloadSpriteFile(sprite);
-            successCount += 1;
-          } catch {
-            // Continue exporting remaining sprites.
-          }
-        }
-
-        if (successCount > 0) {
-          toast.success(
-            modeLabel === "all"
-              ? `Exported ${successCount} sprite${successCount === 1 ? "" : "s"}.`
-              : `Exported ${successCount} ${category === "full-body" ? "full-body" : "expression"} sprite${successCount === 1 ? "" : "s"}.`,
-          );
-        } else {
-          toast.error("No sprites were exported. Please try again.");
-        }
+        const scopeLabel =
+          modeLabel === "all" ? "sprites" : category === "full-body" ? "full-body-sprites" : "expressions";
+        const folderName = sanitizeSpriteExportFolderName(`${characterName || "character"}-${scopeLabel}`, "sprites");
+        await exportSprites.mutateAsync({
+          characterId,
+          expressions: spritesToExport.map((sprite) => sprite.expression),
+          folderName,
+        });
+        toast.success(
+          modeLabel === "all"
+            ? `Exported ${spritesToExport.length} sprite${spritesToExport.length === 1 ? "" : "s"} as a folder.`
+            : `Exported ${spritesToExport.length} ${category === "full-body" ? "full-body" : "expression"} sprite${spritesToExport.length === 1 ? "" : "s"} as a folder.`,
+        );
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "No sprites were exported. Please try again.");
       } finally {
         setExporting(false);
       }
     },
-    [category, downloadSpriteFile],
+    [category, characterId, characterName, exportSprites],
   );
 
   const handleCleanVisibleSprites = useCallback(async () => {

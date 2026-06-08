@@ -365,6 +365,7 @@ const CREATE_TABLES: string[] = [
     placement TEXT NOT NULL DEFAULT '["ai_output"]',
     flags TEXT NOT NULL DEFAULT 'gi',
     prompt_only TEXT NOT NULL DEFAULT 'false',
+    target_character_ids TEXT NOT NULL DEFAULT '[]',
     "order" INTEGER NOT NULL DEFAULT 0,
     min_depth INTEGER,
     max_depth INTEGER,
@@ -615,6 +616,11 @@ const COLUMN_MIGRATIONS: ColumnMigration[] = [
     table: "api_connections",
     column: "image_generation_source",
     definition: "TEXT",
+  },
+  {
+    table: "regex_scripts",
+    column: "target_character_ids",
+    definition: "TEXT NOT NULL DEFAULT '[]'",
   },
   {
     table: "api_connections",

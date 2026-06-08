@@ -1478,7 +1478,14 @@ export async function chatsRoutes(app: FastifyInstance) {
       }
 
       if (cached) {
-        return { messages: cached.messages, parameters: null, generationInfo: cached.generationInfo ?? null };
+        return {
+          messages: cached.messages,
+          parameters: null,
+          source: "cached",
+          exact: true,
+          generationInfo: cached.generationInfo ?? null,
+          agentNote: "This is the cached text prompt saved after provider preparation for the active assistant swipe.",
+        };
       }
     }
 
@@ -1978,7 +1985,15 @@ export async function chatsRoutes(app: FastifyInstance) {
             }
           }
 
-          return { messages: assembled.messages, parameters: assembled.parameters, generationInfo: null };
+          return {
+            messages: assembled.messages,
+            parameters: assembled.parameters,
+            source: "live_preview",
+            exact: false,
+            generationInfo: null,
+            agentNote:
+              "No saved model request was available, so this is a live best-effort preview assembled without sending.",
+          };
         }
       } catch (e) {
         logger.error(e, "[peek-prompt] Assembler failed, falling through to cached/raw messages");
@@ -1994,7 +2009,14 @@ export async function chatsRoutes(app: FastifyInstance) {
       mappedMessages.pop();
     }
 
-    return { messages: mappedMessages, parameters: null, generationInfo: null };
+    return {
+      messages: mappedMessages,
+      parameters: null,
+      source: "raw_messages",
+      exact: false,
+      generationInfo: null,
+      agentNote: "Prompt assembly was unavailable, so only visible raw chat messages are shown.",
+    };
   });
 
   // ── Swipes ──

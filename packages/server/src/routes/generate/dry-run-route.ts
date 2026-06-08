@@ -42,8 +42,10 @@ import {
   mergeCustomParameters,
   parseExtra,
   parseStoredGenerationParameters,
+  prefixGroupIndividualHistorySpeakers,
   resolveActiveCharacterIds,
   resolvePromptCharacterIdsForTarget,
+  resolveCharacterNameMap,
   resolveRegenerationGameStateAnchor,
   resolveProviderTopK,
   normalizeServiceTier,
@@ -601,9 +603,9 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     const knownModelContext = normalizeMaxContext(findKnownModel(conn.provider as APIProvider, conn.model)?.context);
 
     // Minimal, safe parameter defaults (still allow chat-level overrides)
-    let temperature = 1;
+    let temperature: number | undefined = 1;
     let maxTokens = 2048;
-    let topP = 1;
+    let topP: number | undefined = 1;
     let topK = 0;
     let frequencyPenalty = 0;
     let presencePenalty = 0;
@@ -707,6 +709,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       return {
         role: m.role === "narrator" ? ("system" as const) : (m.role as "user" | "assistant" | "system"),
         content: appendReadableAttachmentsToContent((m.content as string) ?? "", attachments),
+        characterId: typeof m.characterId === "string" && m.characterId ? m.characterId : null,
         ...(images?.length ? { images } : {}),
         ...geminiParts,
       };
@@ -738,10 +741,11 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       mode: chatMode,
       allowEmpty: true,
     });
-    const promptCharacterIds = resolvePromptCharacterIdsForTarget(
-      characterIds,
-      typeof body.forCharacterId === "string" ? body.forCharacterId : null,
-    );
+    const promptTargetCharacterId =
+      typeof body.forCharacterId === "string" && characterIds.includes(body.forCharacterId)
+        ? body.forCharacterId
+        : null;
+    const promptCharacterIds = resolvePromptCharacterIdsForTarget(characterIds, promptTargetCharacterId);
 
     // Persona resolution (same strategy as generation; read-only)
     let personaId: string | null = null;
@@ -861,10 +865,25 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     // Apply regex scripts to prompt messages (mirrors main /generate, but stays read-only).
     applyRegexScriptsToPromptMessages(mappedMessages, await regexScriptsStore.list(), {
       resolveMacros: (value) => resolveMacros(value, promptMacroContext, { trimResult: false }),
+      targetCharacterId: promptTargetCharacterId,
     });
 
     for (const msg of mappedMessages) {
       msg.content = msg.content.replace(/\n([ \t]*\n){2,}/g, "\n\n");
+    }
+    const dryRunGroupChatMode = ((chatMeta.groupChatMode as string) ?? "merged") as string;
+    const shouldPrefixGroupHistorySpeakers =
+      chatMeta.groupSpeakerNamesInHistory === true &&
+      characterIds.length > 1 &&
+      chatMode !== "conversation" &&
+      chatMode !== "game" &&
+      dryRunGroupChatMode === "individual";
+    if (shouldPrefixGroupHistorySpeakers) {
+      const characterNamesById = await resolveCharacterNameMap(allCharacterIds, (id) => chars.getById(id));
+      mappedMessages = prefixGroupIndividualHistorySpeakers(mappedMessages, {
+        personaName,
+        characterNamesById,
+      });
     }
     promptMacroContext.lastInput = [...mappedMessages].reverse().find((message) => message.role === "user")?.content;
 
@@ -1425,21 +1444,26 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     }
 
     // ── Parameter normalization (mirror /api/generate) ──
-    // Resolve "maximum" reasoning effort to the highest level for the current model.
-    // GPT-5.4 and Claude Opus 4.7+ support "xhigh" — all others get "high".
-    let resolvedEffort: "low" | "medium" | "high" | "xhigh" | null =
+    const modelLower = (conn.model ?? "").toLowerCase();
+    const providerLower = (conn.provider ?? "").toLowerCase();
+
+    // Resolve "maximum" reasoning effort to the highest provider-facing level.
+    // Native Anthropic/Claude subscription Opus 4.7+ uses "max"; OpenAI-compatible
+    // Claude routes keep "xhigh". All other models get "high".
+    let resolvedEffort: "low" | "medium" | "high" | "xhigh" | "max" | null =
       reasoningEffort !== "maximum" ? reasoningEffort : null;
     if (reasoningEffort === "maximum") {
-      const modelLower = (conn.model ?? "").toLowerCase();
+      const isNativeAnthropicAdaptiveOnly =
+        (providerLower === "anthropic" || providerLower === "claude_subscription") &&
+        /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLower);
       const supportsXhigh =
+        modelLower.startsWith("gpt-5.5") ||
         modelLower.startsWith("gpt-5.4") ||
         modelLower === "grok-4.20-multi-agent" ||
         /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLower);
-      resolvedEffort = supportsXhigh ? "xhigh" : "high";
+      resolvedEffort = isNativeAnthropicAdaptiveOnly ? "max" : supportsXhigh ? "xhigh" : "high";
     }
 
-    const modelLower = (conn.model ?? "").toLowerCase();
-    const providerLower = (conn.provider ?? "").toLowerCase();
     const isXaiAutoReasoningModel =
       (providerLower === "xai" && (modelLower.startsWith("grok-4.3") || modelLower.startsWith("grok-4-1-fast"))) ||
       (providerLower === "openrouter" && modelLower.startsWith("x-ai/grok-"));
@@ -1461,7 +1485,8 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     // Claude Opus 4.7+: ALL sampling params removed except max_tokens (provider returns 400 otherwise).
     const isClaudeNoSampling = /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLc);
     if (isClaudeNoSampling) {
-      topP = undefined as any;
+      temperature = undefined;
+      topP = undefined;
       topK = 0;
       frequencyPenalty = 0;
       presencePenalty = 0;
@@ -1472,7 +1497,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       !isClaudeNoSampling &&
       (/claude-(opus|sonnet)-4-[56]/.test(modelLc) || /claude-(opus|sonnet)-4\.[56]/.test(modelLc));
     if (isClaudeTemperatureOnly) {
-      topP = undefined as any;
+      topP = undefined;
       topK = 0;
       frequencyPenalty = 0;
       presencePenalty = 0;

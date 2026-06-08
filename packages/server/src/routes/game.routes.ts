@@ -110,6 +110,7 @@ import type {
   GameMap,
   GameNpc,
   GenerationParameters,
+  APIProvider,
   SceneIllustrationRequest,
   QuestProgress,
   SessionSummary,
@@ -1350,9 +1351,14 @@ function resolveStoredGameGenerationParameters(
 function resolveGameReasoningEffort(
   model: string,
   reasoningEffort: GenerationParameters["reasoningEffort"] | ChatOptions["reasoningEffort"] | null | undefined,
+  provider?: APIProvider | string | null,
 ): ChatOptions["reasoningEffort"] | undefined {
   if (!reasoningEffort) return undefined;
   const modelLower = model.toLowerCase();
+  const providerLower = (provider ?? "").toLowerCase();
+  const isOpus47Plus = /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLower);
+  const isNativeAnthropicAdaptiveOnly =
+    (providerLower === "anthropic" || providerLower === "claude_subscription") && isOpus47Plus;
   if (
     modelLower.startsWith("grok-4.3") ||
     modelLower.startsWith("grok-4-1-fast") ||
@@ -1360,6 +1366,7 @@ function resolveGameReasoningEffort(
   ) {
     return undefined;
   }
+  if (reasoningEffort === "max") return isNativeAnthropicAdaptiveOnly ? "max" : "high";
   if (reasoningEffort === "xhigh") return reasoningEffort;
   if (reasoningEffort !== "maximum") return reasoningEffort;
 
@@ -1367,8 +1374,8 @@ function resolveGameReasoningEffort(
     modelLower.startsWith("gpt-5.5") ||
     modelLower.startsWith("gpt-5.4") ||
     modelLower === "grok-4.20-multi-agent" ||
-    /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLower);
-  return supportsXhigh ? "xhigh" : "high";
+    isOpus47Plus;
+  return isNativeAnthropicAdaptiveOnly ? "max" : supportsXhigh ? "xhigh" : "high";
 }
 
 /** Build model-aware generation options for game calls. */
@@ -1376,13 +1383,18 @@ function gameGenOptions(
   model: string,
   overrides: Partial<ChatOptions> = {},
   parameters: StoredGenerationParameters | null = null,
+  provider?: APIProvider | string | null,
 ): ChatOptions {
   const m = model.toLowerCase();
-  // Opus 4.7+ and GPT-5.4/5.5 accept the strongest reasoning tier ("xhigh").
+  const providerLower = (provider ?? "").toLowerCase();
+  // Opus 4.7+ and GPT-5.4/5.5 accept the strongest reasoning tier
+  // (native Anthropic uses "max"; OpenAI-compatible routes use "xhigh").
   // Opus 4.7+ also forbids sampling parameters entirely; the Anthropic
   // provider strips them on the wire, but we omit them here so the
   // logged options match what is actually sent.
   const isOpus47Plus = /claude-opus-4-(?:[7-9]|\d{2,})/.test(m);
+  const isNativeAnthropicAdaptiveOnly =
+    (providerLower === "anthropic" || providerLower === "claude_subscription") && isOpus47Plus;
   const isGrokAutoReasoning = m.startsWith("grok-4.3") || m.startsWith("grok-4-1-fast") || m.startsWith("x-ai/grok-");
   const supportsXhigh =
     m.startsWith("gpt-5.5") || m.startsWith("gpt-5.4") || m === "grok-4.20-multi-agent" || isOpus47Plus;
@@ -1392,7 +1404,7 @@ function gameGenOptions(
     verbosity: "high",
   };
   if (!isGrokAutoReasoning) {
-    base.reasoningEffort = supportsXhigh ? "xhigh" : "high";
+    base.reasoningEffort = isNativeAnthropicAdaptiveOnly ? "max" : supportsXhigh ? "xhigh" : "high";
     // Required for providers that actually attach thinking config to the request body.
     base.enableThinking = true;
   }
@@ -1406,14 +1418,14 @@ function gameGenOptions(
     if (typeof parameters.maxTokens === "number") base.maxTokens = parameters.maxTokens;
     if (typeof parameters.maxContext === "number") base.maxContext = parameters.maxContext;
     if (typeof parameters.topP === "number" && !isOpus47Plus) base.topP = parameters.topP;
-    if (typeof parameters.topK === "number") base.topK = parameters.topK;
+    if (typeof parameters.topK === "number" && !isOpus47Plus) base.topK = parameters.topK;
     if (typeof parameters.frequencyPenalty === "number") base.frequencyPenalty = parameters.frequencyPenalty;
     if (typeof parameters.presencePenalty === "number") base.presencePenalty = parameters.presencePenalty;
     if (parameters.customParameters) {
       base.customParameters = mergeCustomParameters(base.customParameters, parameters.customParameters);
     }
     if (parameters.reasoningEffort !== undefined) {
-      const resolvedReasoningEffort = resolveGameReasoningEffort(model, parameters.reasoningEffort);
+      const resolvedReasoningEffort = resolveGameReasoningEffort(model, parameters.reasoningEffort, provider);
       if (resolvedReasoningEffort) {
         base.reasoningEffort = resolvedReasoningEffort;
         base.enableThinking = true;
@@ -1437,7 +1449,7 @@ function gameGenOptions(
     merged.customParameters = mergedCustomParameters;
   }
   if (Object.prototype.hasOwnProperty.call(overrides, "reasoningEffort")) {
-    const resolvedReasoningEffort = resolveGameReasoningEffort(model, overrides.reasoningEffort ?? null);
+    const resolvedReasoningEffort = resolveGameReasoningEffort(model, overrides.reasoningEffort ?? null, provider);
     if (resolvedReasoningEffort) {
       merged.reasoningEffort = resolvedReasoningEffort;
       if (!Object.prototype.hasOwnProperty.call(overrides, "enableThinking")) {
@@ -2103,6 +2115,7 @@ async function runGameLorebookKeeperAfterConclusion(args: {
         ...(streaming ? { onToken: () => {} } : {}),
       },
       generationParameters,
+      conn.provider,
     );
 
     const messages = await chats.listMessages(args.chatId);
@@ -3349,6 +3362,7 @@ export async function gameRoutes(app: FastifyInstance) {
           : {}),
       },
       setupGenerationParameters,
+      conn.provider,
     );
     if (debugLogsEnabled) {
       debugLog(
@@ -3721,9 +3735,14 @@ export async function gameRoutes(app: FastifyInstance) {
 
           const result = await provider.chatComplete(
             recapMessages,
-            gameGenOptions(conn.model, {
-              temperature: 0.7,
-            }),
+            gameGenOptions(
+              conn.model,
+              {
+                temperature: 0.7,
+              },
+              null,
+              conn.provider,
+            ),
           );
           const recapExtraction = extractLeadingThinkingBlocks(result.content ?? "");
           recapText = recapExtraction.content;
@@ -3876,6 +3895,7 @@ export async function gameRoutes(app: FastifyInstance) {
         ...(streaming ? { onToken: () => {} } : {}),
       },
       conclusionGenerationParameters,
+      conn.provider,
     );
     const { messages: conclusionMessages, transcriptTruncated } = fitSessionConclusionMessages({
       sessionNumber,
@@ -4242,6 +4262,7 @@ export async function gameRoutes(app: FastifyInstance) {
         ...(streaming ? { onToken: () => {} } : {}),
       },
       conclusionGenerationParameters,
+      conn.provider,
     );
     const { messages: conclusionMessages, transcriptTruncated } = fitSessionConclusionMessages({
       sessionNumber,
@@ -4485,6 +4506,7 @@ export async function gameRoutes(app: FastifyInstance) {
         ...(streaming ? { onToken: () => {} } : {}),
       },
       progressionGenerationParameters,
+      conn.provider,
     );
     const userLines = [
       `Session ${sessionNumber} journal recap:`,
@@ -4841,7 +4863,7 @@ export async function gameRoutes(app: FastifyInstance) {
             { role: "system", content: prompt },
             { role: "user", content: `Create the recruited companion card for ${recruitName} now.` },
           ],
-          gameGenOptions(conn.model, { temperature: 0.6, maxTokens: 1200 }, generationParameters),
+          gameGenOptions(conn.model, { temperature: 0.6, maxTokens: 1200 }, generationParameters, conn.provider),
         );
         const recruitExtraction = extractLeadingThinkingBlocks(result.content ?? "");
         const cardContent = recruitExtraction.content;
@@ -5186,9 +5208,14 @@ export async function gameRoutes(app: FastifyInstance) {
 
     const result = await provider.chatComplete(
       messages,
-      gameGenOptions(conn.model, {
-        temperature: 0.6,
-      }),
+      gameGenOptions(
+        conn.model,
+        {
+          temperature: 0.6,
+        },
+        null,
+        conn.provider,
+      ),
     );
     const mapExtraction = extractLeadingThinkingBlocks(result.content ?? "");
     const mapContent = mapExtraction.content;
@@ -5949,6 +5976,7 @@ export async function gameRoutes(app: FastifyInstance) {
           maxTokens: 8192,
         },
         gameGenerationParameters,
+        conn.provider,
       ),
     );
     const partyTurnExtraction = extractLeadingThinkingBlocks(result.content || "");
@@ -6259,6 +6287,7 @@ export async function gameRoutes(app: FastifyInstance) {
         responseFormat: { type: "json_object" },
       },
       gameGenerationParameters,
+      conn.provider,
     );
     const result = await provider.chatComplete(messages, sceneWrapOptions);
 

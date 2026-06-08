@@ -1194,7 +1194,7 @@ export function AgentEditor() {
                   </p>
                   {!localImageConnectionId && !defaultAgentImageConn && (
                     <p className="rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[0.625rem] text-amber-300">
-                      Add an image generation connection here or mark one as the default for agents in Connections.
+                      Add an image generation connection here or mark one as the default for Illustrator in Connections.
                     </p>
                   )}
                 </div>

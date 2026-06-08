@@ -177,13 +177,13 @@ export class GoogleProvider extends BaseLLMProvider {
     let thinkingConfig: Record<string, unknown> | undefined;
     if (supportsThinking && (options.enableThinking || options.reasoningEffort)) {
       if (isGemini3) {
-        const levelMap = { low: "low", medium: "medium", high: "high", xhigh: "high" } as const;
+        const levelMap = { low: "low", medium: "medium", high: "high", xhigh: "high", max: "high" } as const;
         thinkingConfig = {
           thinkingLevel: options.reasoningEffort ? levelMap[options.reasoningEffort] : "high",
           includeThoughts: true,
         };
       } else {
-        const budgetMap = { low: 1024, medium: 8192, high: 24576, xhigh: 24576 } as const;
+        const budgetMap = { low: 1024, medium: 8192, high: 24576, xhigh: 24576, max: 24576 } as const;
         thinkingConfig = {
           thinkingBudget: options.reasoningEffort ? budgetMap[options.reasoningEffort] : 8192,
           includeThoughts: true,

@@ -2,6 +2,7 @@
 // Routes: Character Sprite Upload, List & Serving
 // ──────────────────────────────────────────────
 import type { FastifyInstance } from "fastify";
+import AdmZip from "adm-zip";
 import { existsSync, mkdirSync, createReadStream, readdirSync, unlinkSync, statSync, readFileSync } from "fs";
 import { randomUUID } from "crypto";
 import { writeFile, mkdir, readdir, unlink, copyFile, rm } from "fs/promises";
@@ -79,6 +80,7 @@ const CLIENT_PUBLIC_DIR = resolve(ROUTE_DIR, "../../../client/public");
 const CLIENT_DIST_DIR = resolve(ROUTE_DIR, "../../../client/dist");
 const SPRITE_FILE_RE = /\.(png|jpg|jpeg|gif|webp|avif|svg)$/i;
 const CLEANUP_INPUT_FILE_RE = /\.(png|jpg|jpeg|webp|avif)$/i;
+const SPRITE_EXPORT_NAME_RE = /[^a-z0-9._ -]+/gi;
 
 type SpriteCleanupEngine = "auto" | "backgroundremover" | "builtin";
 type UsedSpriteCleanupEngine = "backgroundremover" | "builtin";
@@ -262,6 +264,17 @@ function normalizeSpriteExpression(raw: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "_");
+}
+
+function sanitizeSpriteExportName(raw: unknown, fallback: string): string {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  const sanitized = value
+    .replace(/[\\/]/g, "_")
+    .replace(SPRITE_EXPORT_NAME_RE, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[.\s_-]+|[.\s_-]+$/g, "");
+  return sanitized || fallback;
 }
 
 function normalizeSpriteCleanupEngine(raw: unknown): SpriteCleanupEngine {
@@ -1123,6 +1136,50 @@ export async function spritesRoutes(app: FastifyInstance) {
   app.get<{ Params: { characterId: string } }>("/:characterId", async (req, reply) => {
     const { characterId } = req.params;
     return listSpriteInfos(characterId);
+  });
+
+  /**
+   * POST /api/sprites/:characterId/export
+   * Export selected sprite expressions as one zip with a folder inside.
+   * Body: { expressions?: string[], folderName?: string }
+   */
+  app.post<{ Params: { characterId: string } }>("/:characterId/export", async (req, reply) => {
+    const { characterId } = req.params;
+
+    if (characterId.includes("..") || characterId.includes("/") || characterId.includes("\\")) {
+      return reply.status(400).send({ error: "Invalid character ID" });
+    }
+
+    const dir = join(SPRITES_ROOT, characterId);
+    if (!existsSync(dir)) {
+      return reply.status(404).send({ error: "No sprites found" });
+    }
+
+    const body = req.body as { expressions?: unknown; folderName?: unknown };
+    const requestedExpressions =
+      Array.isArray(body.expressions) && body.expressions.length > 0
+        ? new Set(body.expressions.map((expr) => normalizeSpriteExpression(String(expr))).filter(Boolean))
+        : null;
+    const files = readdirSync(dir).filter((filename) => SPRITE_FILE_RE.test(filename));
+    const targets = files.filter((filename) => {
+      const expression = filename.slice(0, -extname(filename).length);
+      return !requestedExpressions || requestedExpressions.has(normalizeSpriteExpression(expression));
+    });
+
+    if (targets.length === 0) {
+      return reply.status(404).send({ error: "No matching sprites found" });
+    }
+
+    const folderName = sanitizeSpriteExportName(body.folderName, `sprites-${characterId}`);
+    const zip = new AdmZip();
+    for (const filename of targets) {
+      zip.addFile(`${folderName}/${filename}`, readFileSync(join(dir, filename)));
+    }
+
+    return reply
+      .header("Content-Type", "application/zip")
+      .header("Content-Disposition", `attachment; filename="${folderName}.zip"`)
+      .send(zip.toBuffer());
   });
 
   /**

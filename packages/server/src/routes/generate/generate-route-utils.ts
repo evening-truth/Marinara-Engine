@@ -7,6 +7,11 @@ import {
 import { wrapContent } from "../../services/prompt/format-engine.js";
 
 export type SimpleMessage = { role: "system" | "user" | "assistant"; content: string; images?: string[] };
+export type SpeakerPrefixMessage = SimpleMessage & {
+  characterId?: string | null;
+  name?: string | null;
+  providerMetadata?: Record<string, unknown>;
+};
 export type StoredGenerationParameters = Partial<GenerationParameters>;
 export type PromptAttachment = {
   type?: string | null;
@@ -126,6 +131,70 @@ export function parseExtra(extra: unknown): Record<string, unknown> {
 
 export function isMessageHiddenFromAI(message: { extra?: unknown }): boolean {
   return parseExtra(message.extra).hiddenFromAI === true;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function readCharacterName(data: unknown): string | null {
+  try {
+    const parsed = typeof data === "string" ? JSON.parse(data) : data;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const name = (parsed as { name?: unknown }).name;
+    return typeof name === "string" && name.trim() ? name.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveCharacterNameMap(
+  characterIds: string[],
+  getCharacterById: (id: string) => Promise<{ data?: unknown } | null | undefined>,
+): Promise<Map<string, string>> {
+  const entries = await Promise.all(
+    characterIds.map(async (id) => {
+      const row = await getCharacterById(id);
+      const name = readCharacterName(row?.data);
+      return name ? ([id, name] as const) : null;
+    }),
+  );
+
+  return new Map(entries.filter((entry): entry is readonly [string, string] => !!entry));
+}
+
+function prefixSpeakerName(content: string, speakerName: string): string {
+  const speaker = speakerName.trim();
+  if (!speaker) return content;
+  const trimmed = content.trim();
+  const alreadyPrefixed = new RegExp(`^${escapeRegex(speaker)}\\s*:`, "i").test(trimmed);
+  if (alreadyPrefixed) return trimmed;
+  return trimmed ? `${speaker}: ${trimmed}` : `${speaker}:`;
+}
+
+export function prefixGroupIndividualHistorySpeakers<T extends SpeakerPrefixMessage>(
+  messages: T[],
+  options: {
+    personaName: string;
+    characterNamesById: ReadonlyMap<string, string>;
+  },
+): T[] {
+  const personaName = options.personaName.trim() || "User";
+
+  return messages.map((message) => {
+    let speakerName: string | null = null;
+    if (message.role === "user") {
+      speakerName = personaName;
+    } else if (message.role === "assistant") {
+      speakerName =
+        (message.characterId ? (options.characterNamesById.get(message.characterId) ?? null) : null) ??
+        (typeof message.name === "string" && message.name.trim() ? message.name.trim() : null);
+    }
+
+    if (!speakerName) return message;
+    const content = prefixSpeakerName(message.content, speakerName);
+    return content === message.content ? message : { ...message, content };
+  });
 }
 
 export function canUseMessageForUserRegeneration(input: {

@@ -661,10 +661,6 @@ export function ChatArea() {
     [chat?.id, hasCustomSpritePlacements, spritePlacements, spritePosition, updateMeta],
   );
 
-  const handleToggleSpritePosition = useCallback(() => {
-    handleSetSpritePosition(spritePosition === "left" ? "right" : "left");
-  }, [handleSetSpritePosition, spritePosition]);
-
   // Set of enabled agent type IDs (respects both global enableAgents toggle and per-chat agent list)
   const enabledAgentTypes = useMemo(() => {
     const set = new Set<string>();
@@ -1921,7 +1917,6 @@ export function ChatArea() {
           spritePlacements={spritePlacements}
           spriteScale={spriteScale}
           spriteOpacity={spriteOpacity}
-          hasCustomSpritePlacements={hasCustomSpritePlacements}
           spriteArrangeMode={spriteArrangeMode}
           enabledAgentTypes={enabledAgentTypes}
           chatCharIds={chatCharIds}
@@ -1987,7 +1982,6 @@ export function ChatArea() {
           onResetSpritePlacements={handleResetSpritePlacements}
           onSpriteSideChange={handleSetSpritePosition}
           onToggleSpriteArrange={() => setSpriteArrangeMode((prev) => !prev)}
-          onToggleSpritePosition={handleToggleSpritePosition}
           onExpressionChange={handleExpressionChange}
           onSpritePlacementChange={handleSpritePlacementChange}
           onDeleteConfirm={handleDeleteConfirm}

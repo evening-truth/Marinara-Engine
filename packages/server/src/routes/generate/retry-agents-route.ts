@@ -93,6 +93,47 @@ type ResolvedRetryAgent = {
   agentModel: string;
 };
 
+const BUILT_IN_AGENT_TYPE_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+
+function applyDefaultBuiltInAgentTools(agentType: string, settings: unknown): Record<string, unknown> {
+  const next =
+    settings && typeof settings === "object" && !Array.isArray(settings)
+      ? { ...(settings as Record<string, unknown>) }
+      : {};
+  if (!BUILT_IN_AGENT_TYPE_SET.has(agentType)) return next;
+
+  const currentTools = next.enabledTools;
+  if (!Array.isArray(currentTools)) {
+    const defaults = DEFAULT_AGENT_TOOLS[agentType] ?? [];
+    if (defaults.length > 0) next.enabledTools = [...defaults];
+    return next;
+  }
+
+  if (agentType === "spotify" && currentTools.length === 0) {
+    next.enabledTools = [...(DEFAULT_AGENT_TOOLS.spotify ?? [])];
+  }
+
+  return next;
+}
+
+function hasAgentJsonParseError(result: AgentResult): boolean {
+  return (
+    result.success &&
+    !!result.data &&
+    typeof result.data === "object" &&
+    (result.data as { parseError?: unknown }).parseError === true
+  );
+}
+
+function markInvalidJsonAgentResult(result: AgentResult): AgentResult {
+  if (!hasAgentJsonParseError(result)) return result;
+  return {
+    ...result,
+    success: false,
+    error: `Agent returned invalid JSON instead of the requested ${result.type} format. Check this agent's model/connection settings and try again.`,
+  };
+}
+
 type ResolvedRetryAgents = {
   conn: any;
   enabledConfigs: any[];
@@ -608,6 +649,7 @@ async function resolveRetryAgents(args: {
         }
       }
     }
+    const rawSettings = typeof cfg.settings === "string" ? JSON.parse(cfg.settings) : (cfg.settings ?? {});
 
     resolvedAgents.push({
       cfg,
@@ -618,7 +660,7 @@ async function resolveRetryAgents(args: {
         phase: cfg.phase as string,
         promptTemplate: cfg.promptTemplate as string,
         connectionId: effectiveConnectionId,
-        settings: typeof cfg.settings === "string" ? JSON.parse(cfg.settings) : (cfg.settings ?? {}),
+        settings: applyDefaultBuiltInAgentTools(cfg.type, rawSettings),
         provider: agentProvider,
         model: agentModel,
         maxParallelJobs: agentMaxParallelJobs,
@@ -651,7 +693,7 @@ async function resolveRetryAgents(args: {
         phase: builtIn.phase,
         promptTemplate: "",
         connectionId: builtInProvider.connectionId,
-        settings: getDefaultBuiltInAgentSettings(builtIn.id),
+        settings: applyDefaultBuiltInAgentTools(builtIn.id, getDefaultBuiltInAgentSettings(builtIn.id)),
         provider: builtInProvider.provider,
         model: builtInProvider.model,
         maxParallelJobs: builtInProvider.maxParallelJobs,
@@ -2145,16 +2187,23 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       for (const warning of warnings) {
         sendSseEvent(reply, { type: "agent_warning", data: warning });
       }
+      if (resolvedAgents.length === 0) {
+        logger.warn("[retry-agents] No runnable agents resolved for chatId=%s agentTypes=%j", chatId, agentTypes);
+        throw new Error(
+          "No runnable agents were found for this retry. Add tracker agents to this chat or check their connection settings.",
+        );
+      }
       const lorebookKeeperAgent = resolvedAgents.find((entry) => entry.resolved.type === "lorebook-keeper") ?? null;
       const nonLorebookAgents = resolvedAgents.filter((entry) => entry.resolved.type !== "lorebook-keeper");
       if (cyoaAgentWillRun) {
         logger.info("[retry-agents] CYOA re-roll chatId=%s assistantMessageId=%s", chatId, lastAssistant?.id ?? "none");
       }
-      const results =
+      const rawResults =
         nonLorebookAgents.length > 0
           ? await executeRetryBatches(agentContext, nonLorebookAgents, preGenerationAgentContext)
           : [];
-      const lorebookKeeperRunEntries = lorebookKeeperAgent
+      const results = rawResults.map(markInvalidJsonAgentResult);
+      const rawLorebookKeeperRunEntries = lorebookKeeperAgent
         ? await executeLorebookKeeperRetries({
             lorebookKeeperAgent,
             baseContext: agentContext,
@@ -2168,6 +2217,10 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
             chatName: (chat as any).name,
           })
         : [];
+      const lorebookKeeperRunEntries = rawLorebookKeeperRunEntries.map((entry) => ({
+        ...entry,
+        result: markInvalidJsonAgentResult(entry.result),
+      }));
 
       // ── Pre-validate expression results before sending SSE events ──
       // Validation must happen before the SSE send, otherwise the client receives

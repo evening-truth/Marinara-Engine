@@ -793,6 +793,8 @@ export function usePeekPrompt() {
       api.post<{
         messages: Array<{ role: string; content: string }>;
         parameters: unknown;
+        source?: "cached" | "live_preview" | "raw_messages";
+        exact?: boolean;
         generationInfo: {
           model?: string;
           provider?: string;

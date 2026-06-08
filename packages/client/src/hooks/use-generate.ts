@@ -12,6 +12,7 @@ import { agentKeys } from "./use-agents";
 import type { PendingCardUpdate } from "../stores/agent.store";
 import {
   applyQuestUpdatesToPlayerStats,
+  BUILT_IN_AGENTS,
   EDITABLE_CHARACTER_CARD_FIELDS,
   type CharacterCardFieldUpdate,
   type EditableCharacterCardField,
@@ -47,6 +48,10 @@ function showAgentFailuresError(failures: AgentFailure[], onRetry?: () => void) 
 }
 
 const shownAgentWarnings = new Set<string>();
+const BUILT_IN_AGENT_TYPE_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
+const BUILT_IN_TRACKER_AGENT_TYPE_SET = new Set(
+  BUILT_IN_AGENTS.filter((agent) => agent.category === "tracker").map((agent) => agent.id),
+);
 
 function showAgentWarning(raw: unknown) {
   const data = raw && typeof raw === "object" ? (raw as { code?: unknown; message?: unknown }) : null;
@@ -444,6 +449,7 @@ function shouldRefreshGameStateAfterGeneration(qc: QueryClient, chatId: string) 
 }
 
 const pendingVisibleGameStateRefreshes = new Map<string, Promise<void>>();
+const activeGenerateLocks = new Set<string>();
 
 async function refreshVisibleGameStateAfterGeneration(chatId: string) {
   const existing = pendingVisibleGameStateRefreshes.get(chatId);
@@ -611,18 +617,23 @@ export function useGenerate() {
       // keep generating in the background while the user navigates elsewhere.
       // Uses the shared abortControllers map as the source of truth so ALL callers
       // of useGenerate() coordinate (the old per-instance useRef could diverge).
-      if (useChatStore.getState().abortControllers.has(params.chatId)) {
+      if (activeGenerateLocks.has(params.chatId) || useChatStore.getState().abortControllers.has(params.chatId)) {
         console.warn("[Generate] Skipped — generation already in progress for this chat");
         return false;
       }
+      activeGenerateLocks.add(params.chatId);
 
       // Abort any in-progress generation for the SAME chat before starting a new one.
       const prev = useChatStore.getState().abortControllers.get(params.chatId);
       if (prev) prev.abort();
 
-      // Create an AbortController so the stop button can cancel this generation
+      // Create an AbortController so the stop button can cancel this generation.
       const abortController = new AbortController();
-      useChatStore.getState().setAbortController(params.chatId, abortController);
+      try {
+        useChatStore.getState().setAbortController(params.chatId, abortController);
+      } finally {
+        activeGenerateLocks.delete(params.chatId);
+      }
       useChatStore.getState().clearThinkingBuffer(params.chatId);
 
       // Helper: returns true when this generation's chat is the one the user is viewing.
@@ -1889,6 +1900,11 @@ export function useGenerate() {
         }
 
         let hasError = false;
+        let agentResultCount = 0;
+        let trackerPatchCount = 0;
+        const isTrackerRetry = agentTypes.some(
+          (agentType) => BUILT_IN_TRACKER_AGENT_TYPE_SET.has(agentType) || !BUILT_IN_AGENT_TYPE_SET.has(agentType),
+        );
         const failedRetryFailures: Array<ReturnType<typeof toAgentFailure>> = [];
         for await (const event of api.streamEvents(
           "/generate/retry-agents",
@@ -1918,6 +1934,7 @@ export function useGenerate() {
                 error: string | null;
                 durationMs: number;
               };
+              agentResultCount += 1;
 
               // Log agent results (same as main generate handler)
               if (result.success) {
@@ -1965,7 +1982,7 @@ export function useGenerate() {
                 result.agentType,
                 result.agentName,
                 result.success ? result.data : { error: result.error ?? "Agent failed" },
-              );
+              ) ?? formatRetryAgentActivityBubble(result, isTrackerRetry);
               if (bubble) addThoughtBubble(result.agentType, result.agentName, bubble);
 
               if (result.success && result.data) {
@@ -2041,6 +2058,7 @@ export function useGenerate() {
             case "game_state_patch": {
               const patch = event.data as Record<string, unknown>;
               console.warn(`[Retry] ${event.type} received:`, patch);
+              if (patch && Object.keys(patch).length > 0) trackerPatchCount += 1;
               if (!isActiveChat()) break;
               applyGameStatePatchToStore(chatId, patch);
               break;
@@ -2081,9 +2099,15 @@ export function useGenerate() {
           }
         }
         if (!hasError) {
-          toast.success(
-            options?.lorebookKeeperBackfill ? "Lorebook Keeper backfill completed" : "Agent retry completed",
-          );
+          if (options?.lorebookKeeperBackfill) {
+            toast.success("Lorebook Keeper backfill completed");
+          } else if (agentResultCount === 0) {
+            toast.warning("No agents ran. Add tracker agents to this chat or check their connection settings.");
+          } else if (isTrackerRetry && trackerPatchCount === 0) {
+            toast.warning("Agent run finished, but no tracker changes were returned.");
+          } else {
+            toast.success("Agent retry completed");
+          }
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -2125,9 +2149,37 @@ export function useGenerate() {
  * Format agent result data into a human-readable thought bubble string.
  * Returns null if the result shouldn't generate a bubble.
  */
+function formatRetryAgentActivityBubble(
+  result: {
+    success: boolean;
+    resultType: string;
+    error: string | null;
+    data?: unknown;
+  },
+  isTrackerRetry: boolean,
+): string | null {
+  if (
+    result.data &&
+    typeof result.data === "object" &&
+    (result.data as { parseError?: unknown }).parseError === true
+  ) {
+    return "Failed: agent returned invalid JSON instead of the requested format.";
+  }
+  if (!result.success) {
+    return result.error ? `Failed: ${result.error}` : "Failed.";
+  }
+  if (isTrackerRetry) {
+    return "Completed, but no tracker changes were returned.";
+  }
+  return "Completed.";
+}
+
 function formatAgentBubble(agentType: string, agentName: string, data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
+  if (d.parseError === true) {
+    return "Failed: agent returned invalid JSON instead of the requested format.";
+  }
 
   switch (agentType) {
     case "continuity": {

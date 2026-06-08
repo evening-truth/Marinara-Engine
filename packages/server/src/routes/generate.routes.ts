@@ -168,8 +168,10 @@ import {
   parseStoredGenerationParameters,
   parseGameStateRow,
   preserveTrackerCharacterUiFields,
+  prefixGroupIndividualHistorySpeakers,
   resolveActiveCharacterIds,
   resolveBaseUrl,
+  resolveCharacterNameMap,
   resolvePromptCharacterIdsForTarget,
   resolveRegenerationGameStateFallbackMessageIds,
   resolveRegenerationGameStateAnchor,
@@ -2189,6 +2191,11 @@ export async function generateRoutes(app: FastifyInstance) {
           : null;
       const chatChoices: Record<string, string | string[]> =
         overrideDefaultChoices ?? ((chatMeta.presetChoices ?? {}) as Record<string, string | string[]>);
+      let groupHistoryCharacterNamesByIdPromise: Promise<Map<string, string>> | null = null;
+      const getGroupHistoryCharacterNamesById = () => {
+        groupHistoryCharacterNamesByIdPromise ??= resolveCharacterNameMap(allCharacterIds, (id) => chars.getById(id));
+        return groupHistoryCharacterNamesByIdPromise;
+      };
 
       // ── Professor Mari fetch follow-up loop ──
       // After Mari executes a [fetch:], the fetched data is persisted to
@@ -2224,7 +2231,7 @@ export async function generateRoutes(app: FastifyInstance) {
         let finalMessages: GenerationPromptMessage[] = [...runningMessagesForFollowUp];
         let conversationCommandsReminder: string | null = null;
         const conversationCommandsEnabled = chatMode === "conversation" && chatMeta.characterCommands !== false;
-        let temperature = 1;
+        let temperature: number | undefined = 1;
         let maxTokens = 4096;
         let topP: number | undefined = 1;
         let topK = 0;
@@ -2309,6 +2316,12 @@ export async function generateRoutes(app: FastifyInstance) {
           promptGroupChatMode === "individual" &&
           promptGroupResponseOrder !== "manual" &&
           input.impersonate !== true;
+        const shouldPrefixGroupHistorySpeakers =
+          chatMeta.groupSpeakerNamesInHistory === true &&
+          characterIds.length > 1 &&
+          chatMode !== "conversation" &&
+          chatMode !== "game" &&
+          promptGroupChatMode === "individual";
         const promptMacroContext = await buildPromptMacroContext({
           db: app.db,
           characterIds: promptCharacterIds,
@@ -2331,6 +2344,11 @@ export async function generateRoutes(app: FastifyInstance) {
             promptMacroContext,
             deferCharacterMacros ? { deferCharacterMacros: "names" } : undefined,
           );
+        let promptRegexScripts: Awaited<ReturnType<typeof regexScriptsStore.list>> | null = null;
+        const getPromptRegexScripts = async () => {
+          promptRegexScripts ??= await regexScriptsStore.list();
+          return promptRegexScripts;
+        };
 
         // ── Apply regex scripts to prompt message content ──
         // Macro context is available now, so regex find/replace/trim fields can use prompt macros.
@@ -2341,14 +2359,16 @@ export async function generateRoutes(app: FastifyInstance) {
         // before it lands in runningMessagesForFollowUp, so each message still
         // gets exactly one pass.
         if (followUpIteration === 0) {
-          const regexScripts = await regexScriptsStore.list();
+          const regexScripts = await getPromptRegexScripts();
           applyRegexScriptsToPromptMessages(mappedMessages, regexScripts, {
             resolveMacros: (value) => resolveMacros(value, promptMacroContext, { trimResult: false }),
+            targetCharacterId: promptTargetCharacterId,
           });
           if (regenerateUserSourceMessage) {
             const sourceMessages = [regenerateUserSourceMessage];
             applyRegexScriptsToPromptMessages(sourceMessages, regexScripts, {
               resolveMacros: (value) => resolveMacros(value, promptMacroContext, { trimResult: false }),
+              targetCharacterId: promptTargetCharacterId,
             });
           }
 
@@ -2364,6 +2384,21 @@ export async function generateRoutes(app: FastifyInstance) {
               "\n\n",
             );
           }
+          if (shouldPrefixGroupHistorySpeakers) {
+            const characterNamesById = await getGroupHistoryCharacterNamesById();
+            mappedMessages.splice(
+              0,
+              mappedMessages.length,
+              ...prefixGroupIndividualHistorySpeakers(mappedMessages, {
+                personaName,
+                characterNamesById,
+              }),
+            );
+          }
+        }
+        if (followUpIteration === 0) {
+          runningMessagesForFollowUp = [...mappedMessages];
+          finalMessages = [...runningMessagesForFollowUp];
         }
         if (regenerateUserSourceMessage) {
           regenerateUserMessage = buildUserMessageRegenerationPromptFromSource(regenerateUserSourceMessage);
@@ -3849,22 +3884,26 @@ export async function generateRoutes(app: FastifyInstance) {
         applyParameterOverrides(connectionParams);
         applyParameterOverrides(chatParams);
 
-        // Resolve "maximum" reasoning effort to the highest level for the current model.
-        // GPT-5.4/5.5 and Claude Opus 4.7+ support "xhigh" — all others get "high".
-        let resolvedEffort: "low" | "medium" | "high" | "xhigh" | null =
+        const modelLower = (conn.model ?? "").toLowerCase();
+        const providerLower = (conn.provider ?? "").toLowerCase();
+
+        // Resolve "maximum" reasoning effort to the highest provider-facing level.
+        // Native Anthropic/Claude subscription Opus 4.7+ uses "max"; OpenAI-compatible
+        // Claude routes keep "xhigh". All other models get "high".
+        let resolvedEffort: "low" | "medium" | "high" | "xhigh" | "max" | null =
           reasoningEffort !== "maximum" ? reasoningEffort : null;
         if (reasoningEffort === "maximum") {
-          const modelLower = (conn.model ?? "").toLowerCase();
+          const isNativeAnthropicAdaptiveOnly =
+            (providerLower === "anthropic" || providerLower === "claude_subscription") &&
+            /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLower);
           const supportsXhigh =
             modelLower.startsWith("gpt-5.5") ||
             modelLower.startsWith("gpt-5.4") ||
             modelLower === "grok-4.20-multi-agent" ||
             /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLower);
-          resolvedEffort = supportsXhigh ? "xhigh" : "high";
+          resolvedEffort = isNativeAnthropicAdaptiveOnly ? "max" : supportsXhigh ? "xhigh" : "high";
         }
 
-        const modelLower = (conn.model ?? "").toLowerCase();
-        const providerLower = (conn.provider ?? "").toLowerCase();
         const isXaiAutoReasoningModel =
           (providerLower === "xai" && (modelLower.startsWith("grok-4.3") || modelLower.startsWith("grok-4-1-fast"))) ||
           (providerLower === "openrouter" && modelLower.startsWith("x-ai/grok-"));
@@ -3891,6 +3930,7 @@ export async function generateRoutes(app: FastifyInstance) {
         // return 400). Strip everything regardless of provider (covers reverse proxies).
         const isClaudeNoSampling = /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLc);
         if (isClaudeNoSampling) {
+          temperature = undefined;
           topP = undefined;
           topK = 0;
           frequencyPenalty = 0;
@@ -7254,7 +7294,18 @@ export async function generateRoutes(app: FastifyInstance) {
             isGroupChat && groupChatMode === "individual" && chatMode !== "conversation" && targetCharId
               ? scopeIndividualGroupMessagesForTarget(messagesForGen, targetCharId, charInfo)
               : messagesForGen;
-          const preparedMessagesForGen = scopedMessagesForGen.map((message) => ({
+          const targetScopedMessagesForGen =
+            !promptTargetCharacterId && targetCharId
+              ? scopedMessagesForGen.map((message) => ({ ...message }))
+              : scopedMessagesForGen;
+          if (!promptTargetCharacterId && targetCharId) {
+            applyRegexScriptsToPromptMessages(targetScopedMessagesForGen, await getPromptRegexScripts(), {
+              resolveMacros: (value) => resolveMacros(value, promptMacroContext, { trimResult: false }),
+              targetCharacterId: targetCharId,
+              targetedOnly: true,
+            });
+          }
+          const preparedMessagesForGen = targetScopedMessagesForGen.map((message) => ({
             ...message,
             content: (targetCharacterProfile
               ? resolveDeferredCharacterMacros(message.content, targetCharacterProfile, promptMacroContext)
@@ -7354,7 +7405,8 @@ export async function generateRoutes(app: FastifyInstance) {
               const effModel = conn.model.toLowerCase();
               const tempSuppressed =
                 (conn.provider === "openai" || conn.provider === "openrouter") &&
-                (/^(o1|o3|o4)/.test(effModel) || (effModel.startsWith("gpt-5") && !!resolvedEffort));
+                (/^(o1|o3|o4)/.test(effModel) || (effModel.startsWith("gpt-5") && !!resolvedEffort)) ||
+                isClaudeNoSampling;
               const effTemp = tempSuppressed ? "N/A" : temperature;
               const effTopP = tempSuppressed ? "N/A" : topP;
 
@@ -7872,13 +7924,14 @@ export async function generateRoutes(app: FastifyInstance) {
             // ── Strip character name prefix in individual group mode ──
             // LLMs often prefix the response with the character name even when told not to.
             // Also strip any leftover <speaker> tags from individual mode responses.
-            if (chatMode === "conversation" && isGroupChat && groupChatMode === "individual" && targetCharId) {
+            if (isGroupChat && groupChatMode === "individual" && targetCharId) {
               const charRow = charInfo.find((c) => c.id === targetCharId);
               if (charRow) {
                 const cName = charRow.name;
+                const escapedName = cName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
                 // Strip <speaker="Name">...</speaker> wrapper if present
                 const speakerWrap = new RegExp(
-                  `^\\s*<speaker="${cName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}">[\\s\\S]*?<\\/speaker>\\s*$`,
+                  `^\\s*<speaker="${escapedName}">[\\s\\S]*?<\\/speaker>\\s*$`,
                   "i",
                 );
                 const speakerMatch = fullResponse.match(speakerWrap);
@@ -7889,10 +7942,13 @@ export async function generateRoutes(app: FastifyInstance) {
                     .trim();
                   contentReplaced = true;
                 }
-                // Strip plain name prefix: "Dottore\n", "Dottore:\n", "Dottore: "
-                const namePrefix = new RegExp(`^\\s*${cName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:?\\s*\n`, "i");
-                if (namePrefix.test(fullResponse)) {
-                  fullResponse = fullResponse.replace(namePrefix, "");
+                // Strip plain name prefixes: "Dottore: text" or "Dottore\ntext".
+                const beforeNamePrefixStrip = fullResponse;
+                fullResponse = fullResponse
+                  .replace(new RegExp(`^\\s*${escapedName}\\s*:\\s*`, "i"), "")
+                  .replace(new RegExp(`^\\s*${escapedName}\\s*\\n+`, "i"), "")
+                  .trimStart();
+                if (fullResponse !== beforeNamePrefixStrip) {
                   contentReplaced = true;
                 }
               }

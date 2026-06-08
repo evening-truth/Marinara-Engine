@@ -366,6 +366,9 @@ export async function connectionsRoutes(app: FastifyInstance) {
       if (conn.provider === "google_vertex") {
         Object.assign(headers, await googleAuthHeadersForVertex(conn.apiKey));
       }
+      if (conn.provider === "anthropic") {
+        headers["anthropic-version"] = "2023-06-01";
+      }
 
       const imageSource =
         conn.provider === "image_generation" ? resolveImageGenerationSource(conn as any, baseUrl) : "";

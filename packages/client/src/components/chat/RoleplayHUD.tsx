@@ -11,13 +11,12 @@ import {
   Users,
   Package,
   Scroll,
-  Trash2,
   Sparkles,
-  MessageCircle,
   Swords,
   RefreshCw,
   BarChart3,
   SlidersHorizontal,
+  Loader2,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api } from "../../lib/api-client";
@@ -448,6 +447,10 @@ function DeferredActionsFallback({ isAgentProcessing }: { isAgentProcessing: boo
   );
 }
 
+function customAgentRunIdentity(run: { agentType?: string | null; id?: string | null }) {
+  return run.agentType?.trim() || run.id?.trim() || "custom-agent";
+}
+
 function TrackerPanelToggleButton({ onToggle }: { onToggle: () => void }) {
   return (
     <button
@@ -567,9 +570,12 @@ function ActionsGroup({
   }, [agentsOpen, setAgentsOpen]);
 
   // Badge count — unique agent types that produced results
-  const uniqueAgentCount = new Set(thoughtBubbles.map((b) => b.agentId)).size;
-  const badgeCount = uniqueAgentCount + customAgentRuns.length + (echoMessages.length > 0 ? 1 : 0);
-  const showIllustratorRetry = failedAgentTypes.includes("illustrator") && !!onRetryFailedAgents;
+  const generatedAgentIds = new Set([
+    ...thoughtBubbles.map((bubble) => bubble.agentId),
+    ...customAgentRuns.map(customAgentRunIdentity),
+  ]);
+  if (echoMessages.length > 0 && !generatedAgentIds.has("echo-chamber")) generatedAgentIds.add("echo-chamber");
+  const generatedAgentCount = generatedAgentIds.size;
 
   // ── Shared dropdown portal (used by both desktop & mobile) ──
   const dropdownContent =
@@ -578,7 +584,7 @@ function ActionsGroup({
     createPortal(
       <div
         ref={dropdownRef}
-        className="fixed min-h-24 w-72 min-w-64 max-w-[calc(100vw-1rem)] max-h-[calc(100vh-1rem)] resize overflow-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] backdrop-blur-xl shadow-xl z-[9999] animate-message-in dark:border-foreground/10 dark:bg-black/80"
+        className="fixed w-72 max-w-[calc(100vw-1rem)] max-h-80 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--popover)] backdrop-blur-xl shadow-xl z-[9999] animate-message-in dark:border-foreground/10 dark:bg-black/80"
         style={{ top: pos.top, left: pos.left }}
       >
         <Suspense fallback={<DeferredActionsFallback isAgentProcessing={isAgentProcessing} />}>
@@ -621,35 +627,29 @@ function ActionsGroup({
           "group flex items-center gap-1.5 md:gap-1 rounded-lg border border-[var(--border)] bg-[var(--card)]/80 backdrop-blur-md px-2 py-1.5 md:px-2 md:py-2 md:h-10 transition-all hover:bg-[var(--card)] dark:border-foreground/10 dark:bg-black/40 dark:hover:bg-black/60 cursor-pointer select-none",
           agentsOpen && "bg-[var(--card)] border-[var(--border)] dark:bg-black/60 dark:border-foreground/20",
         )}
-        title="Agents & Actions"
+        title={`Agents & Actions${generatedAgentCount > 0 ? ` - ${generatedAgentCount} generated` : ""}${
+          failedAgentTypes.length > 0 ? ` - ${failedAgentTypes.length} failed` : ""
+        }`}
       >
-        <Sparkles
-          size="0.875rem"
-          strokeWidth={2.5}
-          className={cn(
-            "shrink-0 transition-colors group-hover:text-foreground/75",
-            agentsOpen || isAgentProcessing ? "text-foreground/75" : "text-foreground/55",
-            isAgentProcessing && "animate-pulse",
-          )}
-        />
-        {showEcho && (
-          <MessageCircle
-            size="0.8125rem"
+        {isAgentProcessing ? (
+          <Loader2
+            size="0.875rem"
+            strokeWidth={2.5}
+            className="shrink-0 animate-spin text-foreground/75 transition-colors group-hover:text-foreground/80"
+          />
+        ) : (
+          <Sparkles
+            size="0.875rem"
             strokeWidth={2.5}
             className={cn(
-              "shrink-0 transition-colors group-hover:text-foreground/70",
-              echoChamberOpen ? "text-foreground/75" : "text-foreground/45",
+              "shrink-0 transition-colors group-hover:text-foreground/75",
+              agentsOpen ? "text-foreground/75" : "text-foreground/55",
             )}
           />
         )}
-        <Trash2
-          size="0.8125rem"
-          strokeWidth={2.5}
-          className="shrink-0 text-foreground/45 transition-colors group-hover:text-foreground/70"
-        />
-        {badgeCount > 0 && (
+        {generatedAgentCount > 0 && (
           <span className="hidden md:flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-foreground/15 px-1 text-[0.5rem] font-bold text-foreground/80 ring-1 ring-foreground/10">
-            {badgeCount}
+            {generatedAgentCount}
           </span>
         )}
         {failedAgentTypes.length > 0 && (
@@ -658,19 +658,6 @@ function ActionsGroup({
           </span>
         )}
       </button>
-      {showIllustratorRetry && (
-        <button
-          type="button"
-          onClick={() => onRetryFailedAgents?.()}
-          disabled={isAgentProcessing}
-          className="flex h-8 items-center justify-center gap-1 rounded-lg border border-amber-400/30 bg-amber-500/15 px-2 text-[0.625rem] font-semibold text-amber-200 transition-colors hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50 md:h-10"
-          title="Try Illustrator again"
-          aria-label="Try Illustrator again"
-        >
-          <RefreshCw size="0.75rem" className={cn("shrink-0", isAgentProcessing && "animate-spin")} />
-          <span className="hidden md:inline">{isAgentProcessing ? "Retrying..." : "Try again"}</span>
-        </button>
-      )}
       {dropdownContent}
     </div>
   );

@@ -22,6 +22,21 @@ function resolveCacheControlMessageIndex(messages: ChatMessage[], cachingAtDepth
   return Math.max(0, messages.length - 1 - cachingAtDepth);
 }
 
+function isClaudeOpusAdaptiveOnlyModel(model: string): boolean {
+  return /claude-opus-4-(?:[7-9]|\d{2,})/.test(model.toLowerCase());
+}
+
+function stripAnthropicSamplingParameters(body: Record<string, unknown>): void {
+  delete body.temperature;
+  delete body.top_k;
+  delete body.top_p;
+}
+
+function applyAdaptiveThinkingConfig(body: Record<string, unknown>, options: ChatOptions): void {
+  body.thinking = { type: "adaptive", display: "summarized" };
+  body.output_config = { effort: options.reasoningEffort ?? "high" };
+}
+
 /**
  * Handles Anthropic Claude API (Messages API).
  */
@@ -99,25 +114,18 @@ export class AnthropicProvider extends BaseLLMProvider {
     // Opus 4.7+: sampling parameters are forbidden (400 error).
     // Strip temperature, top_k, top_p regardless of thinking mode.
     const modelLower = options.model.toLowerCase();
-    const isAdaptiveOnly = /claude-opus-4-(?:[7-9]|\d{2,})/.test(modelLower);
+    const isAdaptiveOnly = isClaudeOpusAdaptiveOnlyModel(options.model);
     if (isAdaptiveOnly) {
-      delete body.temperature;
-      delete body.top_k;
-      delete body.top_p;
+      stripAnthropicSamplingParameters(body);
     }
 
     // Enable extended thinking for reasoning models
     if (options.enableThinking) {
       if (isAdaptiveOnly) {
         // Opus 4.7+: adaptive thinking (budget_tokens removed).
-        // display defaults to "omitted" on 4.7 — set "summarized" when
-        // the caller wants to surface thinking content to the user.
-        const thinking: Record<string, unknown> = { type: "adaptive" };
-        if (options.onThinking) {
-          thinking.display = "summarized";
-        }
-        body.thinking = thinking;
-        body.output_config = { effort: options.reasoningEffort ?? "high" };
+        // display defaults to "omitted" on 4.7+; summarized is what the UI
+        // can safely capture and render in View Thoughts.
+        applyAdaptiveThinkingConfig(body, options);
       } else {
         // Opus 4.6 / Sonnet 4.6: prefer adaptive thinking (budget_tokens deprecated).
         const supportsAdaptive = /claude-(opus|sonnet)-4-[56]/.test(modelLower);
@@ -138,6 +146,12 @@ export class AnthropicProvider extends BaseLLMProvider {
     }
 
     this.applyCustomParameters(body, options);
+    if (isAdaptiveOnly) {
+      stripAnthropicSamplingParameters(body);
+      if (options.enableThinking) {
+        applyAdaptiveThinkingConfig(body, options);
+      }
+    }
 
     const response = await llmFetch(url, {
       method: "POST",

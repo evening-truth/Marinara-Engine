@@ -179,6 +179,7 @@ export async function executeAgent(
 
     // Parse the result based on agent type
     const parsed = parseAgentResponse(config, responseText);
+    const invalidJson = shouldFailInvalidJsonResult(config, parsed.data);
 
     return {
       agentId: config.id,
@@ -187,8 +188,8 @@ export async function executeAgent(
       data: parsed.data,
       tokensUsed: result.usage?.totalTokens ?? 0,
       durationMs,
-      success: true,
-      error: null,
+      success: !invalidJson,
+      error: invalidJson ? invalidJsonAgentError(parsed.type) : null,
     };
   } catch (err) {
     return makeError(config, extractErrorMessage(err), startTime);
@@ -232,6 +233,7 @@ async function executeAgentWithTools(
     if (!result.toolCalls || result.toolCalls.length === 0) {
       const responseText = result.content?.trim() ?? "";
       const parsed = parseAgentResponse(config, responseText);
+      const invalidJson = shouldFailInvalidJsonResult(config, parsed.data);
       return {
         agentId: config.id,
         agentType: config.type,
@@ -239,8 +241,8 @@ async function executeAgentWithTools(
         data: parsed.data,
         tokensUsed: totalTokens,
         durationMs: Date.now() - startTime,
-        success: true,
-        error: null,
+        success: !invalidJson,
+        error: invalidJson ? invalidJsonAgentError(parsed.type) : null,
       };
     }
 
@@ -288,6 +290,7 @@ async function executeAgentWithTools(
   totalTokens += finalResult.usage?.totalTokens ?? 0;
   const responseText = finalResult.content?.trim() ?? "";
   const parsed = parseAgentResponse(config, responseText);
+  const invalidJson = shouldFailInvalidJsonResult(config, parsed.data);
   return {
     agentId: config.id,
     agentType: config.type,
@@ -295,8 +298,8 @@ async function executeAgentWithTools(
     data: parsed.data,
     tokensUsed: totalTokens,
     durationMs: Date.now() - startTime,
-    success: true,
-    error: null,
+    success: !invalidJson,
+    error: invalidJson ? invalidJsonAgentError(parsed.type) : null,
   };
 }
 
@@ -575,6 +578,7 @@ function parseBatchResponse(
 
     if (matchedOutput !== null) {
       const parsedResult = parseAgentResponse(config, matchedOutput);
+      const invalidJson = shouldFailInvalidJsonResult(config, parsedResult.data);
       parsed.push({
         agentId: config.id,
         agentType: config.type,
@@ -582,8 +586,8 @@ function parseBatchResponse(
         data: parsedResult.data,
         tokensUsed: perAgentTokens,
         durationMs: perAgentDuration,
-        success: true,
-        error: null,
+        success: !invalidJson,
+        error: invalidJson ? invalidJsonAgentError(parsedResult.type) : null,
       });
     } else {
       // Could not find this agent's output — mark for individual retry
@@ -611,6 +615,19 @@ function makeError(config: AgentExecConfig, error: string, startTime: number): A
     success: false,
     error,
   };
+}
+
+function shouldFailInvalidJsonResult(config: Pick<AgentExecConfig, "type">, data: unknown): boolean {
+  return (
+    config.type !== "spotify" &&
+    !!data &&
+    typeof data === "object" &&
+    (data as { parseError?: unknown }).parseError === true
+  );
+}
+
+function invalidJsonAgentError(resultType: AgentResultType): string {
+  return `Agent returned invalid JSON instead of the requested ${resultType} format. Check this agent's model/connection settings and try again.`;
 }
 
 function shouldRunAgentIndividually(config: Pick<AgentExecConfig, "type">): boolean {

@@ -24,12 +24,21 @@ function parseScript(row: RegexScriptRow) {
       return [];
     }
   })();
+  const targetCharacterIds: string[] = (() => {
+    try {
+      const parsed = JSON.parse(row.targetCharacterIds);
+      return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
+    } catch {
+      return [];
+    }
+  })();
   return {
     ...row,
     enabledBool: row.enabled === "true",
     promptOnlyBool: row.promptOnly === "true",
     placements,
     trimStrings,
+    targetCharacterIds,
   };
 }
 
@@ -42,7 +51,13 @@ function applyScripts(
   text: string,
   scripts: ReturnType<typeof parseScript>[],
   placement: RegexPlacement,
-  options?: { promptOnly?: boolean; depth?: number; resolveMacros?: (value: string) => string },
+  options?: {
+    promptOnly?: boolean;
+    depth?: number;
+    resolveMacros?: (value: string) => string;
+    targetCharacterId?: string | null;
+    targetedOnly?: boolean;
+  },
 ): string {
   let result = text;
   for (const script of scripts) {
@@ -53,6 +68,12 @@ function applyScripts(
       if (!script.promptOnlyBool) continue;
     } else if (script.promptOnlyBool) {
       continue;
+    }
+
+    if (options?.targetedOnly && script.targetCharacterIds.length === 0) continue;
+    if (script.targetCharacterIds.length > 0) {
+      if (!options?.promptOnly) continue;
+      if (!options.targetCharacterId || !script.targetCharacterIds.includes(options.targetCharacterId)) continue;
     }
 
     // Depth range filtering
@@ -114,7 +135,12 @@ export function useApplyRegex() {
     (
       text: string,
       placement: RegexPlacement,
-      options?: { depth?: number; resolveMacros?: (value: string) => string },
+      options?: {
+        depth?: number;
+        resolveMacros?: (value: string) => string;
+        targetCharacterId?: string | null;
+        targetedOnly?: boolean;
+      },
     ) => applyScripts(text, parsedScripts, placement, { promptOnly: true, ...options }),
     [parsedScripts],
   );
