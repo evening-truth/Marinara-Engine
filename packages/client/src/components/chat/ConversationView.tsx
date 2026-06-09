@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import {
   Suspense,
   lazy,
+  memo,
   useRef,
   useEffect,
   useLayoutEffect,
@@ -1014,14 +1015,18 @@ export function ConversationView({
                 groupItems.push(filtered[j]! as typeof item);
                 j++;
               }
+              // Only the regenerating group consumes the per-token buffers; feed
+              // "" to every other group so their props stay byte-stable across the
+              // ~60 streamBuffer updates/sec and the memo() wrapper can bail out.
+              const isRegenGroup = regenerateMessageId === groupItems[0]!.msg.id;
               elements.push(
                 <SplitMessageGroup
                   key={`split-${baseId}`}
                   items={groupItems}
                   isStreaming={hasLiveStream}
                   regenerateMessageId={regenerateMessageId}
-                  streamBuffer={streamBuffer}
-                  thinkingBuffer={thinkingBuffer}
+                  streamBuffer={isRegenGroup ? streamBuffer : ""}
+                  thinkingBuffer={isRegenGroup ? thinkingBuffer : ""}
                   lastAssistantMessageId={lastAssistantMessageId}
                   characterMap={characterMap}
                   personaInfo={personaInfo}
@@ -1192,7 +1197,11 @@ export function ConversationView({
 }
 
 // ── Split-line group wrapper — manages shared tap-to-show-actions state ──
-function SplitMessageGroup({
+// Memoized (like ConversationMessage) so non-regenerating groups skip re-render
+// during streaming. The render site (above) only passes live streamBuffer/
+// thinkingBuffer to the regenerating group, so every other group's props are
+// stable and this memo() bails for the full duration of a generation.
+const SplitMessageGroup = memo(function SplitMessageGroup({
   items,
   isStreaming,
   regenerateMessageId,
@@ -1408,4 +1417,4 @@ function SplitMessageGroup({
       })()}
     </div>
   );
-}
+});
