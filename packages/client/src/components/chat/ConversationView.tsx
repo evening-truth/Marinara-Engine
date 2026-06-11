@@ -678,7 +678,7 @@ export function ConversationView({
     conversationMessageStyle,
   ]);
 
-  const liveStreamCharacterId = streamingCharacterId ?? (chatCharIds.length === 1 ? chatCharIds[0]! : (chatCharIds[0] ?? null));
+  const liveStreamCharacterId = streamingCharacterId ?? (chatCharIds.length === 1 ? chatCharIds[0]! : null);
   const liveStreamMessage = useMemo<Message | null>(() => {
     if (!shouldRenderLiveStreamMessage) return null;
     return {
@@ -770,7 +770,7 @@ export function ConversationView({
   const globalSeenKeysRef = useRef(globalSeenKeys);
   // Persist stagger timers in a ref so they survive effect re-runs caused by
   // query refetches arriving shortly after the initial message_saved upsert.
-  const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const staggerTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({});
 
   // Reset stagger state when the active chat changes so no cross-chat leakage
   const prevChatIdRef = useRef(chatId);
@@ -779,8 +779,8 @@ export function ConversationView({
     initialLoadSettledRef.current = false;
     prevRenderedKeysRef.current = new Set();
     renderedMessageKeysRef.current = new Set();
-    staggerTimersRef.current.forEach(clearTimeout);
-    staggerTimersRef.current = [];
+    Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
+    staggerTimersRef.current = {};
     setVisiblePartCounts({});
   }
 
@@ -788,6 +788,12 @@ export function ConversationView({
     const messageItems = renderedItems.filter((item) => item.type === "message");
     const currentKeys = new Set(messageItems.map((item) => item.key));
     renderedMessageKeysRef.current = currentKeys;
+    for (const key of Object.keys(staggerTimersRef.current)) {
+      if (!currentKeys.has(key)) {
+        staggerTimersRef.current[key]?.forEach(clearTimeout);
+        delete staggerTimersRef.current[key];
+      }
+    }
     setVisiblePartCounts((prev) => {
       let changed = false;
       const next: Record<string, number> = {};
@@ -860,9 +866,10 @@ export function ConversationView({
 
     if (newPartMessages.length === 0) return;
 
-    // Cancel any previous stagger before starting a new one
-    staggerTimersRef.current.forEach(clearTimeout);
-    staggerTimersRef.current = [];
+    for (const { key } of newPartMessages) {
+      staggerTimersRef.current[key]?.forEach(clearTimeout);
+      delete staggerTimersRef.current[key];
+    }
 
     setVisiblePartCounts((prev) => {
       const next = { ...prev };
@@ -873,18 +880,23 @@ export function ConversationView({
     newPartMessages.forEach(({ key, count }) => {
       for (let partIndex = 2; partIndex <= count; partIndex++) {
         const delay = (partIndex - 1) * 1500;
-        staggerTimersRef.current.push(
-          setTimeout(() => {
-            if (!renderedMessageKeysRef.current.has(key)) return;
-            setVisiblePartCounts((prev) => ({ ...prev, [key]: partIndex }));
-            if (useUIStore.getState().convoNotificationSound) {
-              playNotificationPing();
-            }
-            if (partIndex === count) {
-              staggerTimersRef.current = staggerTimersRef.current.filter(Boolean);
-            }
-          }, delay),
-        );
+        const timer = setTimeout(() => {
+          if (!renderedMessageKeysRef.current.has(key)) {
+            staggerTimersRef.current[key]?.forEach(clearTimeout);
+            delete staggerTimersRef.current[key];
+            return;
+          }
+          setVisiblePartCounts((prev) => ({ ...prev, [key]: partIndex }));
+          if (useUIStore.getState().convoNotificationSound) {
+            playNotificationPing();
+          }
+          staggerTimersRef.current[key] = (staggerTimersRef.current[key] ?? []).filter((activeTimer) => activeTimer !== timer);
+          if (partIndex === count) {
+            staggerTimersRef.current[key]?.forEach(clearTimeout);
+            delete staggerTimersRef.current[key];
+          }
+        }, delay);
+        (staggerTimersRef.current[key] ??= []).push(timer);
       }
     });
     // No cleanup return here — timers are managed via staggerTimersRef and
@@ -895,8 +907,8 @@ export function ConversationView({
   // Clean up stagger timers on unmount only (empty deps = unmount cleanup)
   useEffect(() => {
     return () => {
-      staggerTimersRef.current.forEach(clearTimeout);
-      staggerTimersRef.current = [];
+      Object.values(staggerTimersRef.current).forEach((timers) => timers.forEach(clearTimeout));
+      staggerTimersRef.current = {};
     };
   }, []);
 

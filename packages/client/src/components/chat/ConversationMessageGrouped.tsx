@@ -7,6 +7,7 @@ import {
   HiddenFromAIConversationSummary,
   MessageContent,
   ConversationMessageAttachments,
+  ConversationMessageTranslation,
   ConversationMessageSwipes,
   nameColorStyle,
   formatTimestamp,
@@ -52,6 +53,7 @@ export function ConversationMessageGrouped({
     handleMobileTap,
     copied,
     translatedText,
+    isTranslating,
     isHiddenFromAI,
     canRegenerate,
     isLastAssistantMessage,
@@ -195,6 +197,12 @@ export function ConversationMessageGrouped({
       {/* Streaming cursor */}
       {isStreaming && (
         <span className="ml-14 inline-block h-4 w-[0.125rem] animate-pulse rounded-full bg-[var(--foreground)]/50" />
+      )}
+
+      {!isHiddenCollapsed && (
+        <div className="ml-14">
+          <ConversationMessageTranslation translatedText={translatedText} isTranslating={isTranslating} />
+        </div>
       )}
 
       {/* Image attachments */}

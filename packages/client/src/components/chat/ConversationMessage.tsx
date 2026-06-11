@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { Brain, Trash2, X } from "lucide-react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { formatTextQuotes, type Message } from "@marinara-engine/shared";
+import { toast } from "sonner";
 import { useUIStore, type ConversationMessageStyle } from "../../stores/ui.store";
 import { useChatStore } from "../../stores/chat.store";
 import { cn, copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../lib/utils";
@@ -231,6 +232,7 @@ export const ConversationMessage = memo(function ConversationMessage({
       const current = (extra.attachments as any[]) ?? [];
       const updated = current.filter((_: any, i: number) => i !== index);
       const msgKey = chatKeys.messages(message.chatId);
+      const previous = qc.getQueryData<InfiniteData<Message[]>>(msgKey);
       qc.setQueryData<InfiniteData<Message[]>>(msgKey, (old) => {
         if (!old) return old;
         return {
@@ -244,8 +246,15 @@ export const ConversationMessage = memo(function ConversationMessage({
           ),
         };
       });
-      await api.patch(`/chats/${message.chatId}/messages/${message.id}/extra`, { attachments: updated });
-      qc.invalidateQueries({ queryKey: msgKey });
+      try {
+        await api.patch(`/chats/${message.chatId}/messages/${message.id}/extra`, { attachments: updated });
+        await qc.invalidateQueries({ queryKey: msgKey });
+      } catch (err) {
+        qc.setQueryData(msgKey, previous);
+        toast.error(err instanceof Error ? err.message : "Failed to remove attachment.");
+      } finally {
+        await qc.invalidateQueries({ queryKey: msgKey });
+      }
     },
     [extra.attachments, message.chatId, message.id, qc],
   );
@@ -377,13 +386,13 @@ export const ConversationMessage = memo(function ConversationMessage({
   // ── Mobile tap (show actions / multi-select) ──
   const handleMobileTap = useCallback(
     (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("button, a, textarea")) return;
       if (multiSelectMode) {
         onToggleSelect?.({ messageId: message.id, orderIndex: messageOrderIndex ?? 0, checked: !isSelected, shiftKey: e.shiftKey });
         return;
       }
       if (!matchMedia("(pointer: coarse)").matches) return;
-      const target = e.target as HTMLElement;
-      if (target.closest("button, a, textarea")) return;
       setShowActions((v) => !v);
     },
     [isSelected, message.id, messageOrderIndex, multiSelectMode, onToggleSelect],

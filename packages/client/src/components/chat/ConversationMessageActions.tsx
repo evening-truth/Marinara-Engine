@@ -77,10 +77,10 @@ export function ConversationMessageActions({
         className={translatedText ? "text-blue-400" : undefined}
       />
       <MsgAction icon={<Pencil size="0.75rem" />} onClick={onEdit} title="Edit" />
-      {canRegenerate && (
+      {canRegenerate && onRegenerate && (
         <MsgAction
           icon={<RefreshCw size="0.75rem" />}
-          onClick={() => onRegenerate?.()}
+          onClick={onRegenerate}
           title={regenerateButtonTitle}
           className={regenerateGuidedClass}
         />
@@ -93,8 +93,8 @@ export function ConversationMessageActions({
           className={isHiddenFromAI ? "text-amber-400" : undefined}
         />
       )}
-      {isLastAssistantMessage && !isUser && (
-        <MsgAction icon={<Search size="0.75rem" />} onClick={() => onPeekPrompt?.()} title="Peek prompt" />
+      {isLastAssistantMessage && !isUser && onPeekPrompt && (
+        <MsgAction icon={<Search size="0.75rem" />} onClick={onPeekPrompt} title="Peek prompt" />
       )}
       {generationReplay && (
         <MsgAction icon={<ScrollText size="0.75rem" />} onClick={onShowGenerationReplay} title="Stored guidance" />
@@ -102,12 +102,14 @@ export function ConversationMessageActions({
       {thinking && !isUser && (
         <MsgAction icon={<Brain size="0.75rem" />} onClick={onShowThinking} title="View thoughts" />
       )}
-      <MsgAction
-        icon={<Trash2 size="0.75rem" />}
-        onClick={() => onDelete?.()}
-        title="Delete"
-        className="hover:text-[var(--destructive)]"
-      />
+      {onDelete && (
+        <MsgAction
+          icon={<Trash2 size="0.75rem" />}
+          onClick={onDelete}
+          title="Delete"
+          className="hover:text-[var(--destructive)]"
+        />
+      )}
     </div>
   );
 }
