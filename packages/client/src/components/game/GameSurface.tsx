@@ -1998,10 +1998,10 @@ export function GameSurface({
   const fetchManifest = useGameAssetStore((s) => s.fetchManifest);
 
   useEffect(() => {
-    if (!useSpotifyGameMusic) return;
+    if (!useSpotifyGameMusic && !useYoutubeGameMusic) return;
     audioManager.stopMusic();
     useGameAssetStore.getState().setCurrentMusic(null);
-  }, [useSpotifyGameMusic]);
+  }, [useSpotifyGameMusic, useYoutubeGameMusic]);
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
@@ -3285,6 +3285,7 @@ export function GameSurface({
     hasCombatResultAfterMessage,
     handlePartyChangeCommands,
     useSpotifyGameMusic,
+    useYoutubeGameMusic,
   ]);
 
   // ── Restore party dialogue from the last [party-chat] message on page load ──

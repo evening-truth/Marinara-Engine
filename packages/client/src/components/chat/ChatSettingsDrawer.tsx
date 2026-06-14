@@ -1421,7 +1421,8 @@ export function ChatSettingsDrawer({
         enableAgents: true,
         gameUseSpotifyMusic: true,
         gameSpotifySourceType,
-        activeAgentIds: Array.from(new Set([...activeAgentIds, "spotify"])),
+        // Mutually exclusive with YouTube DJ — only one music source at a time.
+        activeAgentIds: Array.from(new Set([...activeAgentIds.filter((id) => id !== "youtube"), "spotify"])),
       });
     } catch (error) {
       await showAlertDialog({
@@ -1475,7 +1476,9 @@ export function ChatSettingsDrawer({
       await updateMeta.mutateAsync({
         id: chat.id,
         enableAgents: true,
-        activeAgentIds: Array.from(new Set([...activeAgentIds, "youtube"])),
+        // Mutually exclusive with Spotify DJ — only one music source at a time.
+        gameUseSpotifyMusic: false,
+        activeAgentIds: Array.from(new Set([...activeAgentIds.filter((id) => id !== "spotify"), "youtube"])),
       });
     } catch (error) {
       await showAlertDialog({
