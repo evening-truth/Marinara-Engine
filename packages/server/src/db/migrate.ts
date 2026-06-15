@@ -394,6 +394,33 @@ const CREATE_TABLES: string[] = [
     height INTEGER,
     created_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS persona_images (
+    id TEXT PRIMARY KEY NOT NULL,
+    persona_id TEXT NOT NULL REFERENCES personas(id) ON DELETE CASCADE,
+    file_path TEXT NOT NULL,
+    prompt TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    width INTEGER,
+    height INTEGER,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS gallery_folders (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS global_images (
+    id TEXT PRIMARY KEY NOT NULL,
+    folder_id TEXT REFERENCES gallery_folders(id) ON DELETE SET NULL,
+    file_path TEXT NOT NULL,
+    prompt TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    width INTEGER,
+    height INTEGER,
+    created_at TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS ooc_influences (
     id TEXT PRIMARY KEY NOT NULL,
     source_chat_id TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
