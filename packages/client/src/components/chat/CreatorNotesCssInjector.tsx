@@ -33,9 +33,10 @@ const SCOPE_SELECTOR = ".mari-card-css";
 /**
  * Pulls `<style>` blocks out of every active character's `creator_notes`,
  * sanitizes + scopes them per the selected mode, and injects the combined CSS
- * into the document head inside an `@layer card-css` so it loses specificity
- * ties to app styles. A single shared `<style>` node is reused/cleared as the
- * active set or mode changes.
+ * into the document head. The CSS is injected unlayered so its scoped selectors
+ * can override the app's own (partly unlayered) message styling; the sanitizer
+ * and per-card scope keep it from reaching anything outside the chat. A single
+ * shared `<style>` node is reused/cleared as the active set or mode changes.
  */
 export function CreatorNotesCssInjector({ characterIds, allCharacters, mode, chatMode }: CreatorNotesCssInjectorProps) {
   const scopedCss = useMemo(() => {
@@ -81,7 +82,13 @@ export function CreatorNotesCssInjector({ characterIds, allCharacters, mode, cha
     }
 
     if (cssChunks.length === 0) return "";
-    return `@layer card-css {\n${cssChunks.join("\n")}\n}`;
+    // Injected unlayered (not wrapped in @layer): the app styles some message
+    // elements with unlayered rules (e.g. `.mari-message-content { color }` in
+    // globals.css), and any @layer always loses to unlayered rules — which would
+    // silently neuter most card theming. The scoped selectors above are specific
+    // enough to win on their own, while the sanitizer + per-card scope keep card
+    // CSS contained to the chat.
+    return cssChunks.join("\n");
   }, [characterIds, allCharacters, mode, chatMode]);
 
   useEffect(() => {
