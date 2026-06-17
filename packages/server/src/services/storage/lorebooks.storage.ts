@@ -19,7 +19,7 @@ import type {
   CreateLorebookFolderInput,
   UpdateLorebookFolderInput,
 } from "@marinara-engine/shared";
-import { collectEffectivelyDisabledFolderIds } from "@marinara-engine/shared";
+import { collectEffectivelyDisabledFolderIds, collectFolderSubtreeIds } from "@marinara-engine/shared";
 import { normalizeTimestampOverrides, type TimestampOverrides } from "../import/import-timestamps.js";
 
 function resolveTimestamps(overrides?: TimestampOverrides | null) {
@@ -798,10 +798,24 @@ export function createLorebooksStorage(db: DB) {
      * `/lorebooks/A/folders/B` cannot reach a folder belonging to lorebook
      * `X` and accidentally reparent that other lorebook's entries.
      */
-    async removeFolder(folderId: string, lorebookId?: string) {
+    async removeFolder(folderId: string, lorebookId?: string, cascade = false) {
       const folder = (await this.getFolder(folderId, lorebookId)) as Record<string, unknown> | null;
       if (!folder) return;
       const ownerLorebookId = folder.lorebookId as string;
+      // Cascade: delete the folder, every descendant folder, and all their entries.
+      if (cascade) {
+        const subtreeIds = collectFolderSubtreeIds(
+          (await this.listFolders(ownerLorebookId)) as unknown as Array<{ id: string; parentFolderId: string | null }>,
+          folderId,
+        );
+        await db
+          .delete(lorebookEntries)
+          .where(and(eq(lorebookEntries.lorebookId, ownerLorebookId), inArray(lorebookEntries.folderId, subtreeIds)));
+        await db
+          .delete(lorebookFolders)
+          .where(and(eq(lorebookFolders.lorebookId, ownerLorebookId), inArray(lorebookFolders.id, subtreeIds)));
+        return;
+      }
       // Entries in this folder fall back to root...
       await db
         .update(lorebookEntries)

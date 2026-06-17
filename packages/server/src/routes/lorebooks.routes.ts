@@ -580,12 +580,17 @@ export async function lorebooksRoutes(app: FastifyInstance) {
     return updated;
   });
 
-  app.delete<{ Params: { id: string; folderId: string } }>("/:id/folders/:folderId", async (req, reply) => {
-    // Scope by lorebookId so a request to /lorebooks/A/folders/B cannot
-    // reach a folder belonging to lorebook X and reparent its entries.
-    await storage.removeFolder(req.params.folderId, req.params.id);
-    return reply.status(204).send();
-  });
+  app.delete<{ Params: { id: string; folderId: string }; Querystring: { cascade?: string } }>(
+    "/:id/folders/:folderId",
+    async (req, reply) => {
+      // Scope by lorebookId so a request to /lorebooks/A/folders/B cannot
+      // reach a folder belonging to lorebook X and reparent its entries.
+      // `?cascade=true` deletes the folder's whole subtree instead of promoting it.
+      const cascade = req.query.cascade === "true";
+      await storage.removeFolder(req.params.folderId, req.params.id, cascade);
+      return reply.status(204).send();
+    },
+  );
 
   app.post<{ Params: { id: string; folderId: string } }>("/:id/folders/:folderId/clone", async (req, reply) => {
     // Deep-clone the folder, its entries, and its whole sub-folder subtree into

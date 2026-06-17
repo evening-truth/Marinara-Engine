@@ -21,9 +21,9 @@ import {
 } from "react";
 import { ChevronDown, Copy, Folder, GripVertical, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { showConfirmDialog } from "../../lib/app-dialogs";
+import { showConfirmDialog, showConfirmWithCheckbox } from "../../lib/app-dialogs";
 import { useUpdateLorebookFolder, useDeleteLorebookFolder, useCloneLorebookFolder } from "../../hooks/use-lorebooks";
-import { canReparentFolder, type LorebookFolder } from "@marinara-engine/shared";
+import { canReparentFolder, collectFolderSubtreeIds, type LorebookFolder } from "@marinara-engine/shared";
 
 interface Props {
   folder: LorebookFolder;
@@ -157,6 +157,21 @@ export function LorebookFolderRow({
   const handleDelete = useCallback(
     async (e: ReactMouseEvent) => {
       e.stopPropagation();
+      const descendantCount = collectFolderSubtreeIds(folders, folder.id).length - 1;
+      if (descendantCount > 0) {
+        // Nested subfolders present — offer to delete the whole subtree, or (the
+        // default) just remove this folder and lift its contents up a level.
+        const { confirmed, checked } = await showConfirmWithCheckbox({
+          title: "Delete Folder",
+          message: "Delete this folder? Its entries and subfolders move up to the top level.",
+          confirmLabel: "Delete",
+          tone: "destructive",
+          checkboxLabel: `Also delete the ${descendantCount} nested subfolder${descendantCount === 1 ? "" : "s"} and everything in them`,
+        });
+        if (!confirmed) return;
+        deleteFolder.mutate({ lorebookId, folderId: folder.id, cascade: checked });
+        return;
+      }
       const confirmed = await showConfirmDialog({
         title: "Delete Folder",
         message:
@@ -169,7 +184,7 @@ export function LorebookFolderRow({
       if (!confirmed) return;
       deleteFolder.mutate({ lorebookId, folderId: folder.id });
     },
-    [entryCount, lorebookId, folder.id, deleteFolder],
+    [entryCount, lorebookId, folder.id, folders, deleteFolder],
   );
 
   return (

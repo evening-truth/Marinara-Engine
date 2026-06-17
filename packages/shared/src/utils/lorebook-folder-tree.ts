@@ -77,6 +77,37 @@ export function collectHiddenFolderIds(
 }
 
 /**
+ * All folder ids in the subtree rooted at `rootId` — the root itself plus every
+ * descendant. Used to cascade-delete a folder together with its sub-folders, and
+ * to count how many would be removed. Cycle-safe via `seen`.
+ */
+export function collectFolderSubtreeIds(
+  folders: Pick<LorebookFolder, "id" | "parentFolderId">[],
+  rootId: string,
+): string[] {
+  const childrenByParent = new Map<string, string[]>();
+  for (const folder of folders) {
+    const parentId = folder.parentFolderId;
+    if (!parentId) continue;
+    const siblings = childrenByParent.get(parentId);
+    if (siblings) siblings.push(folder.id);
+    else childrenByParent.set(parentId, [folder.id]);
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    const children = childrenByParent.get(id);
+    if (children) stack.push(...children);
+  }
+  return ids;
+}
+
+/**
  * A folder is *effectively* disabled if it — or any ancestor — is disabled, so a
  * disabled parent gates the entries living in its enabled children too. Walks
  * each folder's parent chain upward with a per-walk `seen` cycle guard.
