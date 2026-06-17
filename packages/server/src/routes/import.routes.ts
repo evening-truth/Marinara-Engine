@@ -315,6 +315,19 @@ function readMultipartTagImportMode(file: { fields?: Record<string, any> } | nul
   return readTagImportMode(rawValue);
 }
 
+function readRegexScriptScope(value: unknown): "character" | "global" | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "character" || normalized === "global") return normalized;
+  return undefined;
+}
+
+function readMultipartRegexScriptScope(file: { fields?: Record<string, any> } | null | undefined) {
+  const field = file?.fields?.regexScriptScope;
+  const rawValue = Array.isArray(field) ? field.at(-1)?.value : field?.value;
+  return readRegexScriptScope(rawValue);
+}
+
 function invalidTagImportModeResponse() {
   return {
     success: false,
@@ -351,6 +364,7 @@ async function importCharacterBuffer(
   importEmbeddedLorebook?: boolean,
   tagImportMode?: STCharacterTagImportMode,
   existingTagKeys?: ReadonlySet<string>,
+  regexScriptScope?: "character" | "global",
 ) {
   if (fileName.toLowerCase().endsWith(".png")) {
     const charData = extractCharaFromPng(buffer);
@@ -369,6 +383,7 @@ async function importCharacterBuffer(
         importEmbeddedLorebook,
         tagImportMode,
         existingTagKeys,
+        regexScriptScope,
       });
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -376,7 +391,13 @@ async function importCharacterBuffer(
   }
 
   if (fileName.toLowerCase().endsWith(".charx")) {
-    return importCharX(buffer, db, { timestampOverrides, importEmbeddedLorebook, tagImportMode, existingTagKeys });
+    return importCharX(buffer, db, {
+      timestampOverrides,
+      importEmbeddedLorebook,
+      tagImportMode,
+      existingTagKeys,
+      regexScriptScope,
+    });
   }
 
   let json: Record<string, unknown>;
@@ -390,7 +411,13 @@ async function importCharacterBuffer(
     };
   }
   try {
-    return await importSTCharacter(json, db, { timestampOverrides, importEmbeddedLorebook, tagImportMode, existingTagKeys });
+    return await importSTCharacter(json, db, {
+      timestampOverrides,
+      importEmbeddedLorebook,
+      tagImportMode,
+      existingTagKeys,
+      regexScriptScope,
+    });
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -675,6 +702,7 @@ export async function importRoutes(app: FastifyInstance) {
         : rawTagImportModeField?.value;
       const tagImportMode = readMultipartTagImportMode(file as any);
       if (rawTagImportMode !== undefined && tagImportMode === undefined) return invalidTagImportModeResponse();
+      const regexScriptScope = readMultipartRegexScriptScope(file as any);
       return importCharacterBuffer(
         file.filename ?? "",
         await file.toBuffer(),
@@ -682,6 +710,8 @@ export async function importRoutes(app: FastifyInstance) {
         timestampOverrides,
         importEmbeddedLorebook,
         tagImportMode,
+        undefined,
+        regexScriptScope,
       );
     }
 
@@ -691,13 +721,16 @@ export async function importRoutes(app: FastifyInstance) {
     const rawTagImportMode = body.tagImportMode;
     const tagImportMode = readTagImportMode(rawTagImportMode);
     if (rawTagImportMode !== undefined && tagImportMode === undefined) return invalidTagImportModeResponse();
+    const regexScriptScope = readRegexScriptScope(body.regexScriptScope);
     delete body.importEmbeddedLorebook;
     delete body.tagImportMode;
+    delete body.regexScriptScope;
     try {
       return await importSTCharacter(body, app.db, {
         timestampOverrides: readTimestampOverridesFromBody(body),
         importEmbeddedLorebook,
         tagImportMode,
+        regexScriptScope,
       });
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -739,6 +772,7 @@ export async function importRoutes(app: FastifyInstance) {
     let importEmbeddedLorebook: boolean | undefined;
     let tagImportMode: STCharacterTagImportMode | undefined;
     let invalidTagImportMode = false;
+    let regexScriptScope: "character" | "global" | undefined;
 
     for await (const part of parts) {
       if (part.type === "file") {
@@ -767,6 +801,10 @@ export async function importRoutes(app: FastifyInstance) {
       if (part.fieldname === "tagImportMode") {
         tagImportMode = readTagImportMode(part.value);
         invalidTagImportMode ||= part.value !== undefined && tagImportMode === undefined;
+      }
+
+      if (part.fieldname === "regexScriptScope") {
+        regexScriptScope = readRegexScriptScope(part.value);
       }
     }
 
@@ -802,6 +840,7 @@ export async function importRoutes(app: FastifyInstance) {
           importEmbeddedLorebook,
           tagImportMode,
           existingTagKeys,
+          regexScriptScope,
         );
         results.push({ filename: file.filename, ...result });
       } catch (error) {
@@ -865,6 +904,10 @@ export async function importRoutes(app: FastifyInstance) {
       return reply.send(invalidTagImportModeResponse());
     }
     if (characterTagImportMode) options.characterTagImportMode = characterTagImportMode;
+    const bulkRegexScriptScope = readRegexScriptScope(
+      (req.body as { options?: { regexScriptScope?: unknown } }).options?.regexScriptScope,
+    );
+    if (bulkRegexScriptScope) options.regexScriptScope = bulkRegexScriptScope;
 
     // Set up SSE headers
     reply.raw.writeHead(200, {

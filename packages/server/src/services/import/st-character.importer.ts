@@ -88,6 +88,8 @@ export interface STCharacterImportOptions {
   importEmbeddedLorebook?: boolean;
   tagImportMode?: STCharacterTagImportMode;
   existingTagKeys?: ReadonlySet<string>;
+  /** Where embedded regex scripts land: scoped to the character (default) or global. */
+  regexScriptScope?: "character" | "global";
 }
 
 // SillyTavern regex placement ids → our placement strings (1 = user input, 2 = AI output).
@@ -108,7 +110,11 @@ function convertStPlacements(placement: unknown): RegexPlacement[] {
  * (or a bare source) and placements as numbers; scripts with an empty or
  * ReDoS-prone source, or one that won't compile, are skipped.
  */
-function convertStRegexScripts(stScripts: unknown, characterId: string): CreateRegexScriptInput[] {
+function convertStRegexScripts(
+  stScripts: unknown,
+  characterId: string,
+  scope: "character" | "global",
+): CreateRegexScriptInput[] {
   if (!Array.isArray(stScripts)) return [];
   const out: CreateRegexScriptInput[] = [];
   for (const entry of stScripts) {
@@ -140,7 +146,7 @@ function convertStRegexScripts(stScripts: unknown, characterId: string): CreateR
       // Imported scripts transform displayed messages, gated by the chat's Scoped
       // Regex mode — they stay opt-in per chat rather than always rewriting prompts.
       promptOnly: false,
-      targetCharacterIds: [characterId],
+      targetCharacterIds: scope === "global" ? [] : [characterId],
       order: 0,
       minDepth: typeof s.minDepth === "number" ? s.minDepth : null,
       maxDepth: typeof s.maxDepth === "number" ? s.maxDepth : null,
@@ -293,7 +299,11 @@ export async function importSTCharacter(raw: Record<string, unknown>, db: DB, op
       cardData.extensions && typeof cardData.extensions === "object"
         ? (cardData.extensions as Record<string, unknown>)
         : {};
-    const importedRegex = convertStRegexScripts(cardExtensions.regex_scripts, charId);
+    const importedRegex = convertStRegexScripts(
+      cardExtensions.regex_scripts,
+      charId,
+      options?.regexScriptScope ?? "character",
+    );
     if (importedRegex.length > 0) {
       const regexStorage = createRegexScriptsStorage(db);
       let created = 0;
