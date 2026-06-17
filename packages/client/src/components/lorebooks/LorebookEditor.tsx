@@ -801,6 +801,13 @@ export function LorebookEditor() {
     (folderId: string, e: ReactDragEvent<HTMLDivElement>) => {
       if (!canReorderEntries || draggingEntryIdx === null) return;
       e.preventDefault();
+      // Folder bodies nest — a sub-folder's body sits inside its parent's body —
+      // so stop here instead of bubbling: the INNERMOST body under the cursor
+      // claims the drop, rather than every ancestor firing and the outermost one
+      // winning. Because a sub-folder's left margin belongs to its parent, sliding
+      // the cursor left out of a nested body lands on the ancestor's body and
+      // targets that ancestor — so the indent rails let you aim at any level.
+      e.stopPropagation();
       e.dataTransfer.dropEffect = "move";
       setDropTargetContainer(folderId);
       // If hovering empty folder body, drop at end.
@@ -1139,6 +1146,9 @@ export function LorebookEditor() {
     const folderEntries = entriesByContainer.get(folder.id) ?? [];
     const isCollapsed = collapsedFolderIds.has(folder.id);
     const childFolders = folderForest.childrenByParent.get(folder.id) ?? [];
+    // Highlight this folder's body + indent rail while it's the live entry-drop
+    // target, so the user can see which nesting level they're aiming at.
+    const isEntryDropTarget = draggingEntryIdx !== null && dropTargetContainer === folder.id;
     const showFolderDropBefore =
       folderDropIdx === fIdx &&
       draggingFolderIdx !== null &&
@@ -1185,7 +1195,10 @@ export function LorebookEditor() {
         />
         {!isCollapsed && (
           <div
-            className="ml-2 space-y-1.5 border-l border-[var(--border)] pl-2 sm:ml-3 sm:pl-2.5"
+            className={cn(
+              "ml-2 space-y-1.5 border-l pl-2 transition-colors sm:ml-3 sm:pl-2.5",
+              isEntryDropTarget ? "border-amber-400 bg-amber-400/5" : "border-[var(--border)]",
+            )}
             onDragOver={(e) => handleFolderBodyDragOver(folder.id, e)}
             onDrop={(e) => {
               e.stopPropagation();
