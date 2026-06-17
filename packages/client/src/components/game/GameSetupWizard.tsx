@@ -19,8 +19,10 @@ import {
   Music2,
   Volume2,
   VolumeX,
+  Feather,
+  RotateCcw,
 } from "lucide-react";
-import type { GameSetupConfig, GameGmMode } from "@marinara-engine/shared";
+import { DEFAULT_GAME_SYSTEM_PROMPT, type GameSetupConfig, type GameGmMode } from "@marinara-engine/shared";
 import { getCharacterTitle } from "../../lib/character-display";
 import { api } from "../../lib/api-client";
 import { cn, getAvatarCropStyle, parseAvatarCropJson, type AvatarCropValue } from "../../lib/utils";
@@ -31,6 +33,11 @@ import {
   ROLEPLAY_PARAMETER_DEFAULTS,
   type EditableGenerationParameters,
 } from "../ui/GenerationParametersEditor";
+import {
+  createDefaultGameHudWidget,
+  GameWidgetSetupEditor,
+  normalizeGameHudWidgets,
+} from "./GameWidgetSetupEditor";
 import { useConnections } from "../../hooks/use-connections";
 import { usePersonas } from "../../hooks/use-characters";
 import { useSidecarStore } from "../../stores/sidecar.store";
@@ -312,6 +319,13 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
   const [activeLorebookIds, setActiveLorebookIds] = useState<string[]>([]);
   const [lbSearch, setLbSearch] = useState("");
   const [enableCustomWidgets, setEnableCustomWidgets] = useState(true);
+  const [manualWidgetSetupEnabled, setManualWidgetSetupEnabled] = useState(false);
+  const [customHudWidgets, setCustomHudWidgets] = useState(() =>
+    normalizeGameHudWidgets([createDefaultGameHudWidget("progress_bar", [])]),
+  );
+  const [gameSpecialInstructions, setGameSpecialInstructions] = useState("");
+  const [customGamePromptEnabled, setCustomGamePromptEnabled] = useState(false);
+  const [gameSystemPromptDraft, setGameSystemPromptDraft] = useState(DEFAULT_GAME_SYSTEM_PROMPT);
   const [language, setLanguage] = useState("English");
   const [startMuted, setStartMuted] = useState(false);
   const [expandedLearnedOptions, setExpandedLearnedOptions] = useState<Record<LearnedOptionGroup, boolean>>({
@@ -423,7 +437,8 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
     [personas, personaSearch],
   );
 
-  const steps = ["Connection", "World", "Party", "Goals", "Lorebooks", "Features"];
+  const steps = ["Connection", "World", "Party", "Goals", "Lorebooks", "Features", "GM"];
+  const currentStepName = steps[step] ?? steps[0]!;
   const learnedGenres = useMemo(
     () => filterLearnedOptions(learnedGameSetupOptions?.genres, [...GENRES, ...genres]),
     [genres, learnedGameSetupOptions?.genres],
@@ -515,6 +530,14 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
 
   const handleComplete = () => {
     if (isLoading || !canStart) return;
+    const trimmedGameSystemPrompt = gameSystemPromptDraft.trim();
+    const customGameSystemPrompt =
+      customGamePromptEnabled &&
+      trimmedGameSystemPrompt &&
+      trimmedGameSystemPrompt !== DEFAULT_GAME_SYSTEM_PROMPT.trim()
+        ? trimmedGameSystemPrompt
+        : null;
+    const trimmedGameSpecialInstructions = gameSpecialInstructions.trim();
     if (startMuted) {
       useGameAssetStore.getState().setAudioMuted(true);
     }
@@ -552,6 +575,8 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
         imageConnectionId: enableSpriteGeneration && imageConnectionId ? imageConnectionId : undefined,
         activeLorebookIds: activeLorebookIds.length > 0 ? activeLorebookIds : undefined,
         enableCustomWidgets,
+        customHudWidgets:
+          enableCustomWidgets && manualWidgetSetupEnabled ? normalizeGameHudWidgets(customHudWidgets) : undefined,
         enableSpotifyDj: enableSpotifyDj || undefined,
         spotifySourceType: enableSpotifyDj ? gameSpotifySourceType : undefined,
         spotifyPlaylistId:
@@ -567,6 +592,8 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
         enableLorebookKeeper: enableLorebookKeeper || undefined,
         language: normalizedLanguage || undefined,
         generationParameters: customizeParameters ? generationParameters : undefined,
+        gameSystemPrompt: customGameSystemPrompt,
+        gameSpecialInstructions: trimmedGameSpecialInstructions || null,
       },
       preferences,
       {
@@ -577,29 +604,9 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
   };
 
   return (
-    <Modal open={true} onClose={onCancel} title="New Game Setup" width="max-w-lg">
-      {/* Step indicator */}
-      <div className="mb-5 flex items-center gap-2">
-        {steps.map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
-            <button
-              onClick={() => i < step && setStep(i)}
-              className={cn(
-                "flex h-6 w-6 items-center justify-center rounded-md text-xs font-medium transition-colors ring-1 ring-[var(--border)]",
-                i <= step
-                  ? "bg-[var(--primary)] text-[var(--primary-foreground)]"
-                  : "bg-[var(--secondary)] text-[var(--muted-foreground)]",
-                i < step && "cursor-pointer hover:opacity-80",
-              )}
-            >
-              {i + 1}
-            </button>
-            <span className={cn("text-xs", i <= step ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]")}>
-              {s}
-            </span>
-            {i < steps.length - 1 && <div className="h-px w-4 bg-[var(--border)]" />}
-          </div>
-        ))}
+    <Modal open={true} onClose={onCancel} title="New Game" width="max-w-lg">
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-[var(--foreground)]">{currentStepName}</h3>
       </div>
 
       {/* Step content */}
@@ -1484,7 +1491,11 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
             {/* Custom Widgets Toggle */}
             <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
               <button
-                onClick={() => setEnableCustomWidgets(!enableCustomWidgets)}
+                onClick={() => {
+                  const nextEnabled = !enableCustomWidgets;
+                  setEnableCustomWidgets(nextEnabled);
+                  if (!nextEnabled) setManualWidgetSetupEnabled(false);
+                }}
                 className="flex w-full items-center justify-between gap-2 text-left"
               >
                 <div className="flex items-center gap-2">
@@ -1513,6 +1524,44 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
                   />
                 </div>
               </button>
+              {enableCustomWidgets && (
+                <div className="mt-3 space-y-3 border-t border-[var(--border)] pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setManualWidgetSetupEnabled((enabled) => !enabled)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-all",
+                      manualWidgetSetupEnabled
+                        ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
+                        : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
+                    )}
+                  >
+                    <div>
+                      <p className="text-xs font-medium text-[var(--foreground)]">Build Widget Setup</p>
+                      <p className="text-[0.55rem] text-[var(--muted-foreground)]">
+                        Choose the starting HUD widgets yourself.
+                      </p>
+                    </div>
+                    <div
+                      className={cn(
+                        "flex h-5 w-8 items-center rounded-full px-0.5 transition-colors",
+                        manualWidgetSetupEnabled ? "bg-[var(--primary)]" : "bg-[var(--secondary)]",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-4 w-4 rounded-full bg-white transition-transform",
+                          manualWidgetSetupEnabled && "translate-x-3.5",
+                        )}
+                      />
+                    </div>
+                  </button>
+
+                  {manualWidgetSetupEnabled && (
+                    <GameWidgetSetupEditor widgets={customHudWidgets} onChange={setCustomHudWidgets} />
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1694,47 +1743,161 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
             </div>
           </>
         )}
+
+        {step === 6 && (
+          <>
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
+                <Feather size={12} />
+                Extra Instructions
+              </label>
+              <textarea
+                value={gameSpecialInstructions}
+                onChange={(event) => setGameSpecialInstructions(event.target.value)}
+                placeholder="Write in the style of Terry Pratchett."
+                rows={4}
+                maxLength={2000}
+                className="w-full resize-y rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] transition-all placeholder:text-[var(--muted-foreground)]/50 focus:ring-[var(--primary)]/40"
+              />
+              <div className="mt-1 flex justify-end text-[0.5625rem] text-[var(--muted-foreground)]">
+                {gameSpecialInstructions.length}/2000
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+              <button
+                type="button"
+                onClick={() => setCustomGamePromptEnabled((enabled) => !enabled)}
+                className="flex w-full items-center justify-between gap-2 text-left"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <Feather
+                    size={14}
+                    className={customGamePromptEnabled ? "text-[var(--primary)]" : "text-[var(--muted-foreground)]"}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-[var(--foreground)]">GM Prompt</p>
+                    <p className="text-[0.55rem] text-[var(--muted-foreground)]">
+                      {customGamePromptEnabled ? "Custom prompt will replace the default" : "Using default game prompt"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-[0.5625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                    {customGamePromptEnabled ? "Custom" : "Default"}
+                  </span>
+                  <div
+                    className={cn(
+                      "flex h-5 w-8 items-center rounded-full px-0.5 transition-colors",
+                      customGamePromptEnabled ? "bg-[var(--primary)]" : "bg-[var(--secondary)]",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "h-4 w-4 rounded-full bg-white transition-transform",
+                        customGamePromptEnabled && "translate-x-3.5",
+                      )}
+                    />
+                  </div>
+                </div>
+              </button>
+
+              {customGamePromptEnabled && (
+                <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+                  <textarea
+                    value={gameSystemPromptDraft}
+                    onChange={(event) => setGameSystemPromptDraft(event.target.value)}
+                    rows={10}
+                    className="max-h-72 min-h-48 w-full resize-y rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs leading-relaxed text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] transition-all placeholder:text-[var(--muted-foreground)]/50 focus:ring-[var(--primary)]/40"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
+                      Resetting or leaving this unchanged keeps the built-in default.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setGameSystemPromptDraft(DEFAULT_GAME_SYSTEM_PROMPT)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                    >
+                      <RotateCcw size={11} />
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Warning when model not selected */}
-      {step === steps.length - 1 && !canStart && (
-        <p className="mb-3 text-[0.6875rem] text-[var(--destructive)]">
-          Select a connection on the first step before starting.
-        </p>
-      )}
-
       {/* Footer */}
-      <div className="flex items-center justify-between border-t border-[var(--border)]/30 pt-4">
-        <button onClick={step === 0 ? onCancel : () => setStep(step - 1)} className={GAME_SETUP_GHOST_BUTTON_CLASS}>
-          <ArrowLeft size={14} />
-          {step === 0 ? "Cancel" : "Back"}
-        </button>
+      <div className="sticky bottom-0 -mx-5 -mb-4 border-t border-[var(--border)]/30 bg-[var(--card)] px-5 pb-4 pt-3 shadow-[0_-12px_18px_rgba(0,0,0,0.18)]">
+        <div className="mb-3 flex items-center justify-center gap-1.5">
+          {steps.map((s, i) => (
+            <button
+              key={s}
+              type="button"
+              aria-label={`Go to ${s}`}
+              aria-current={i === step ? "step" : undefined}
+              disabled={i >= step}
+              onClick={() => {
+                if (i < step) setStep(i);
+              }}
+              className={cn(
+                "h-1.5 rounded-full transition-all duration-300 disabled:cursor-default",
+                i === step
+                  ? "w-5 bg-[var(--primary)]"
+                  : i < step
+                    ? "w-3 bg-[var(--primary)]/45 hover:bg-[var(--primary)]/70"
+                    : "w-1.5 bg-[var(--muted-foreground)]/25",
+              )}
+            />
+          ))}
+        </div>
 
-        {step < steps.length - 1 ? (
-          <button onClick={() => setStep(step + 1)} className={GAME_SETUP_PRIMARY_BUTTON_CLASS}>
-            Next
-            <ArrowRight size={14} />
-          </button>
-        ) : (
-          <button
-            onClick={handleComplete}
-            disabled={isLoading || !canStart}
-            className={GAME_SETUP_PRIMARY_BUTTON_CLASS}
-            title={!canStart ? "Select a connection on the first step" : undefined}
-          >
-            {isLoading ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                Generating World…
-              </>
-            ) : (
-              <>
-                <Wand2 size={14} />
-                Start Game
-              </>
-            )}
-          </button>
+        {step === steps.length - 1 && !canStart && (
+          <p className="mb-3 text-center text-[0.6875rem] text-[var(--destructive)]">
+            Select a connection on the first step before starting.
+          </p>
         )}
+
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={step === 0 ? onCancel : () => setStep(step - 1)}
+            className={GAME_SETUP_GHOST_BUTTON_CLASS}
+          >
+            <ArrowLeft size={14} />
+            {step === 0 ? "Cancel" : "Back"}
+          </button>
+
+          {step < steps.length - 1 ? (
+            <button type="button" onClick={() => setStep(step + 1)} className={GAME_SETUP_PRIMARY_BUTTON_CLASS}>
+              Next
+              <ArrowRight size={14} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleComplete}
+              disabled={isLoading || !canStart}
+              className={GAME_SETUP_PRIMARY_BUTTON_CLASS}
+              title={!canStart ? "Select a connection on the first step" : undefined}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Generating World…
+                </>
+              ) : (
+                <>
+                  <Wand2 size={14} />
+                  Start Game
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </Modal>
   );

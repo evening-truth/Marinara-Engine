@@ -8,6 +8,9 @@ import {
   Trash2,
   BookOpen,
   Theater,
+  Plus,
+  Check,
+  Download,
   GitBranch,
   AlertTriangle,
   X,
@@ -24,7 +27,6 @@ import {
   ArrowUpDown,
   Tag,
   Pencil,
-  Upload,
 } from "lucide-react";
 import { useBulkExportChats, useChats, useCreateChat, useDeleteChat, useDeleteChatGroup } from "../../hooks/use-chats";
 import { useChatPresets, useApplyChatPreset } from "../../hooks/use-chat-presets";
@@ -49,6 +51,7 @@ import { Modal } from "../ui/Modal";
 import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata } from "../../lib/chat-display";
 import { getCurrentGameGroupRepresentative } from "../../lib/game-session-resolution";
+import { SelectionActionBar } from "../ui/SelectionActionBar";
 
 type ChatSortOption = "newest" | "oldest" | "name-asc" | "name-desc";
 
@@ -205,6 +208,7 @@ export function ChatSidebar() {
 
   const [draggedChatId, setDraggedChatId] = useState<string | null>(null);
   const [isRootDropTarget, setIsRootDropTarget] = useState(false);
+  const chatImportInputRef = useRef<HTMLInputElement>(null);
   const touchDragRef = useRef<{
     chatId: string;
     timer: number | null;
@@ -217,6 +221,7 @@ export function ChatSidebar() {
   // Multi-select state
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedChatIds, setSelectedChatIds] = useState<Set<string>>(new Set());
+  const [isImportingChat, setIsImportingChat] = useState(false);
 
   const toggleSelectChat = useCallback((chatId: string) => {
     setSelectedChatIds((prev) => {
@@ -359,6 +364,7 @@ export function ChatSidebar() {
     }
     return { unfiledChats: unfiled, folderChatsMap: map };
   }, [displayChats]);
+  const chatListFilterActive = searchQuery.trim().length > 0 || activeTag !== null;
 
   const [localFolderOrder, setLocalFolderOrder] = useState<string[]>([]);
   useEffect(() => {
@@ -530,6 +536,41 @@ export function ChatSidebar() {
   const handleNewChatFromTab = useCallback(() => {
     handleNewChat(activeTab);
   }, [handleNewChat, activeTab]);
+
+  const handleImportChatFile = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) return;
+
+      setIsImportingChat(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        const res = await fetch("/api/import/st-chat", { method: "POST", body: formData });
+        const data = (await res.json().catch(() => ({}))) as {
+          success?: boolean;
+          chatId?: string;
+          error?: string;
+          messagesImported?: number;
+        };
+        if (!res.ok || data.success === false || data.error) {
+          toast.error(`Import failed: ${data.error ?? res.statusText ?? "Unknown error"}`);
+          return;
+        }
+
+        toast.success(`Imported ${data.messagesImported ?? 0} messages`);
+        await refetchChats();
+        if (data.chatId) setActiveChatId(data.chatId);
+      } catch (error) {
+        toast.error(error instanceof Error ? `Import failed: ${error.message}` : "Import failed.");
+      } finally {
+        setIsImportingChat(false);
+      }
+    },
+    [refetchChats, setActiveChatId],
+  );
+
   const activeModeConfig = MODE_CONFIG[activeTab] ?? MODE_CONFIG.conversation;
   const activeModeHasChats = modeChats.length > 0;
 
@@ -648,8 +689,6 @@ export function ChatSidebar() {
   );
 
   // ── Batch actions ──
-  const [batchExportOpen, setBatchExportOpen] = useState(false);
-
   const handleBatchDelete = useCallback(async () => {
     if (selectedChatIds.size === 0) return;
     if (
@@ -670,15 +709,14 @@ export function ChatSidebar() {
   }, [selectedChatIds, deleteChat, activeChatId, setActiveChatId, exitMultiSelect]);
 
   const handleBatchExport = useCallback(
-    async (format: "jsonl" | "text", scope: "selected" | "all" = "selected") => {
-      if (scope === "selected" && selectedChatIds.size === 0) return;
+    async () => {
+      if (selectedChatIds.size === 0) return;
       try {
         await bulkExportChats.mutateAsync({
-          chatIds: scope === "selected" ? [...selectedChatIds] : undefined,
-          format,
-          scope,
+          chatIds: [...selectedChatIds],
+          format: "jsonl",
+          scope: "selected",
         });
-        setBatchExportOpen(false);
         exitMultiSelect();
       } catch (err) {
         toast.error(err instanceof Error ? `Export failed: ${err.message}` : "Export failed");
@@ -952,57 +990,87 @@ export function ChatSidebar() {
         <div className="flex items-center gap-1">
           <button
             onClick={() => setSidebarOpen(false)}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
+            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--primary)] active:scale-90 md:hidden"
             title="Close"
+            aria-label="Close chats"
           >
-            <X size="1rem" />
+            <X size="0.875rem" />
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 px-3 pt-2">
-        {(["conversation", "roleplay", "game"] as const).map((tab) => {
-          const cfg = MODE_CONFIG[tab];
-          const isActive = activeTab === tab;
-          const tabUnread =
-            chats?.filter((c) => c.mode === tab).reduce((sum, c) => sum + (unreadCounts.get(c.id) || 0), 0) ?? 0;
-          return (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              aria-pressed={isActive}
-              data-chat-mode-tab={tab}
-              data-tour={`chat-mode-${tab}`}
-              className={cn(
-                "relative flex min-h-[2.125rem] flex-1 items-center justify-center gap-1.5 overflow-visible rounded-lg px-2 py-2 text-xs leading-normal font-medium transition-all",
-                isActive
-                  ? "bg-[var(--sidebar-accent)] text-[var(--sidebar-accent-foreground)] shadow-sm"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/50 hover:text-[var(--sidebar-foreground)]",
-              )}
-            >
-              <span className="shrink-0 leading-none">{cfg.icon}</span>
-              <span className="inline-flex min-h-[1rem] items-center whitespace-nowrap pb-px leading-normal">
-                {cfg.shortLabel}
-              </span>
-              {tabUnread > 0 && !isActive && (
-                <span className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[0.5rem] font-bold leading-none text-white">
-                  {tabUnread > 99 ? "99+" : tabUnread}
+      <div className="px-3 pt-3">
+        <div className="mari-chrome-segmented">
+          {(["conversation", "roleplay", "game"] as const).map((tab) => {
+            const cfg = MODE_CONFIG[tab];
+            const isActive = activeTab === tab;
+            const tabUnread =
+              chats?.filter((c) => c.mode === tab).reduce((sum, c) => sum + (unreadCounts.get(c.id) || 0), 0) ?? 0;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                aria-pressed={isActive}
+                data-chat-mode-tab={tab}
+                data-tour={`chat-mode-${tab}`}
+                className={cn(
+                  "mari-chrome-segmented__button overflow-visible px-2 py-2 text-xs leading-normal",
+                  isActive && "mari-chrome-segmented__button--selected",
+                )}
+              >
+                <span className="shrink-0 leading-none">{cfg.icon}</span>
+                <span className="inline-flex min-h-[1rem] items-center whitespace-nowrap pb-px leading-normal">
+                  {cfg.shortLabel}
                 </span>
-              )}
-            </button>
-          );
-        })}
+                {tabUnread > 0 && !isActive && (
+                  <span className="absolute -top-1 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[0.5rem] font-bold leading-none text-white">
+                    {tabUnread > 99 ? "99+" : tabUnread}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="px-3 pt-2">
+      <div className="flex gap-2 px-3 pt-2">
+        <input
+          ref={chatImportInputRef}
+          type="file"
+          accept=".jsonl"
+          className="hidden"
+          onChange={handleImportChatFile}
+        />
         <button
           onClick={handleNewChatFromTab}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-xs font-medium text-white transition-all hover:border-[var(--primary)]/35 hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-bold text-white shadow-md shadow-black/10 transition-all hover:brightness-110 active:scale-[0.98]"
+          style={{ background: activeModeConfig.bg }}
           title={`New ${activeModeConfig.label}`}
+          aria-label={`New ${activeModeConfig.label}`}
         >
-          <span className="text-white">{activeModeConfig.icon}</span>
-          New {activeModeConfig.label}
+          <Plus size="0.8125rem" />
+        </button>
+        <button
+          onClick={() => chatImportInputRef.current?.click()}
+          disabled={isImportingChat}
+          className="mari-chrome-control mari-chrome-control--primary flex-1 text-xs"
+          title={isImportingChat ? "Importing chat" : "Import SillyTavern or Marinara chat JSONL"}
+          aria-label={isImportingChat ? "Importing chat" : "Import SillyTavern or Marinara chat JSONL"}
+        >
+          <Download size="0.8125rem" />
+        </button>
+        <button
+          onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
+          disabled={displayChats.length === 0}
+          className={cn(
+            "mari-chrome-control mari-chrome-control--primary flex-1 text-xs",
+            multiSelectMode && "mari-chrome-control--selected",
+          )}
+          title={multiSelectMode ? "Cancel selection" : "Select chats"}
+          aria-label={multiSelectMode ? "Cancel selection" : "Select chats"}
+        >
+          <Check size="0.8125rem" />
         </button>
       </div>
 
@@ -1012,21 +1080,21 @@ export function ChatSidebar() {
           <div className="relative min-w-0 flex-1">
             <Search
               size="0.8125rem"
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+              className="mari-chrome-field-icon pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
             />
             <input
               type="text"
               placeholder={`Search ${activeTab === "conversation" ? "conversations" : activeTab === "game" ? "games" : "roleplays"}...`}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-[var(--muted-foreground)]/50 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              className="mari-chrome-field w-full py-2 pl-8 pr-3 text-xs"
             />
           </div>
           <div className="relative">
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as ChatSortOption)}
-              className="h-full w-[6.5rem] appearance-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-2.5 pr-7 text-[0.6875rem] outline-none transition-colors focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+              className="mari-chrome-field h-full w-[6.5rem] appearance-none py-2 pl-2.5 pr-7 text-[0.6875rem]"
               title="Sort chats"
             >
               <option value="newest">Newest</option>
@@ -1036,7 +1104,7 @@ export function ChatSidebar() {
             </select>
             <ArrowUpDown
               size="0.625rem"
-              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+              className="mari-chrome-field-icon pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
             />
           </div>
         </div>
@@ -1066,7 +1134,7 @@ export function ChatSidebar() {
             {activeTag && (
               <button
                 onClick={() => setActiveTag(null)}
-                className="rounded-lg px-2 py-1 text-[0.625rem] text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/10"
+                className="mari-chrome-control mari-chrome-control--compact mari-chrome-control--danger"
               >
                 Clear
               </button>
@@ -1089,7 +1157,7 @@ export function ChatSidebar() {
             {!tagsExpanded && allTags.length > 4 && (
               <button
                 onClick={() => setTagsExpanded(true)}
-                className="rounded-lg px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
+                className="mari-chrome-control mari-chrome-control--compact"
               >
                 +{allTags.length - 4} more
               </button>
@@ -1102,7 +1170,7 @@ export function ChatSidebar() {
       <div
         data-chat-root-drop-zone
         className={cn(
-          "flex-1 overflow-y-auto px-2 py-1 transition-colors",
+          "flex-1 overflow-y-auto px-2 pb-1 pt-0 transition-colors",
           isRootDropTarget && "bg-[var(--primary)]/5",
         )}
         onDragEnter={(event) => {
@@ -1194,32 +1262,16 @@ export function ChatSidebar() {
             <div className="flex items-center gap-1">
               <button
                 onClick={handleCreateFolder}
-                className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
+                className="mari-chrome-control mari-chrome-control--small w-full justify-start text-[0.6875rem]"
               >
                 <FolderPlus size="0.75rem" />
                 New Folder
               </button>
-              {displayChats.length > 0 && (
-                <button
-                  onClick={() => (multiSelectMode ? exitMultiSelect() : setMultiSelectMode(true))}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] transition-all",
-                    multiSelectMode
-                      ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-                      : "text-[var(--muted-foreground)] hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]",
-                  )}
-                >
-                  <CheckSquare size="0.75rem" />
-                  {multiSelectMode ? "Cancel" : "Select"}
-                </button>
-              )}
             </div>
           )}
 
           {modeFolders.length > 0 && activeModeHasChats && (
-            <p className="px-2.5 pb-1 text-[0.625rem] leading-snug text-[var(--muted-foreground)]/70">
-              Drag and drop chats to folders
-            </p>
+            <p className="mari-folder-helper">Drag and drop chats to folders</p>
           )}
 
           {/* Folders (drag-to-reorder) */}
@@ -1235,11 +1287,13 @@ export function ChatSidebar() {
                 const folder = modeFolders.find((f) => f.id === folderId);
                 if (!folder) return null;
                 const folderEntries = folderChatsMap.get(folderId) ?? [];
+                if (chatListFilterActive && folderEntries.length === 0) return null;
                 return (
                   <FolderRow
                     key={folderId}
                     folder={folder}
                     entries={folderEntries}
+                    forceExpanded={chatListFilterActive && folderEntries.length > 0}
                     renderChatRow={renderChatRow}
                     onToggleCollapse={handleToggleCollapse}
                     onRename={handleRenameFolder}
@@ -1259,29 +1313,13 @@ export function ChatSidebar() {
 
       {/* ── Multi-select action bar ── */}
       {multiSelectMode && (
-        <div className="mari-sidebar-footer border-t border-[var(--border)]/30 bg-[var(--card)]/95 px-3 py-2.5 backdrop-blur-sm">
-          <div className="mb-2 text-center text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedChatIds.size} selected
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setBatchExportOpen(true)}
-              disabled={selectedChatIds.size === 0 || bulkExportChats.isPending}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)] disabled:opacity-40"
-            >
-              <Upload size="0.75rem" />
-              Export
-            </button>
-            <button
-              onClick={handleBatchDelete}
-              disabled={selectedChatIds.size === 0}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[var(--destructive)]/10 px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-            >
-              <Trash2 size="0.75rem" />
-              Delete
-            </button>
-          </div>
-        </div>
+        <SelectionActionBar
+          selectedCount={selectedChatIds.size}
+          onExport={() => void handleBatchExport()}
+          onDelete={handleBatchDelete}
+          exporting={bulkExportChats.isPending}
+          className="static mx-0"
+        />
       )}
 
       {/* ── User Status Selector ── */}
@@ -1308,7 +1346,7 @@ export function ChatSidebar() {
                   if (activeChatId === deleteTarget.chatId) setActiveChatId(null);
                   setDeleteTarget(null);
                 }}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+                className="mari-chrome-control mari-chrome-control--primary w-full text-xs"
               >
                 <Trash2 size="0.8125rem" />
                 Delete This Branch Only
@@ -1331,58 +1369,6 @@ export function ChatSidebar() {
         )}
       </Modal>
 
-      {/* ── Batch Export Modal ── */}
-      <Modal
-        open={batchExportOpen}
-        onClose={() => setBatchExportOpen(false)}
-        title={`Export ${selectedChatIds.size} Chat${selectedChatIds.size !== 1 ? "s" : ""}`}
-        width="max-w-xs"
-      >
-        <div className="space-y-2">
-          <p className="px-1 text-[0.625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]/60">
-            Selected chats
-          </p>
-          <button
-            type="button"
-            onClick={() => void handleBatchExport("jsonl", "selected")}
-            disabled={bulkExportChats.isPending}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
-            JSONL zip
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleBatchExport("text", "selected")}
-            disabled={bulkExportChats.isPending}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
-            Text zip
-          </button>
-          <p className="px-1 pt-2 text-[0.625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]/60">
-            Full library
-          </p>
-          <button
-            type="button"
-            onClick={() => void handleBatchExport("jsonl", "all")}
-            disabled={bulkExportChats.isPending}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
-            All chats as JSONL zip
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleBatchExport("text", "all")}
-            disabled={bulkExportChats.isPending}
-            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            <Upload size="0.75rem" className="text-[var(--muted-foreground)]" />
-            All chats as text zip
-          </button>
-        </div>
-      </Modal>
     </nav>
   );
 }
@@ -1391,6 +1377,7 @@ export function ChatSidebar() {
 function FolderRow({
   folder,
   entries,
+  forceExpanded = false,
   renderChatRow,
   onToggleCollapse,
   onRename,
@@ -1400,6 +1387,7 @@ function FolderRow({
 }: {
   folder: ChatFolder;
   entries: { chat: any; branchCount: number }[];
+  forceExpanded?: boolean;
   renderChatRow: (entry: any) => React.ReactNode;
   onToggleCollapse: (folder: ChatFolder) => void;
   onRename: (id: string, name: string) => void;
@@ -1411,6 +1399,7 @@ function FolderRow({
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(folder.name);
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const isExpanded = forceExpanded || !folder.collapsed;
 
   return (
     <Reorder.Item
@@ -1466,8 +1455,8 @@ function FolderRow({
         <div
           role="button"
           tabIndex={0}
-          aria-expanded={!folder.collapsed}
-          aria-label={`${folder.collapsed ? "Expand" : "Collapse"} folder ${folder.name}`}
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} folder ${folder.name}`}
           onClick={(e) => {
             e.stopPropagation();
             onToggleCollapse(folder);
@@ -1485,7 +1474,7 @@ function FolderRow({
             size="0.75rem"
             className={cn(
               "text-[var(--muted-foreground)] transition-transform shrink-0",
-              !folder.collapsed && "rotate-90",
+              isExpanded && "rotate-90",
             )}
           />
           {renaming ? (
@@ -1543,7 +1532,7 @@ function FolderRow({
         </button>
       </div>
       {/* Folder contents */}
-      {!folder.collapsed && entries.length > 0 && (
+      {isExpanded && entries.length > 0 && (
         <div className="ml-4 flex flex-col gap-0.5 border-l border-[var(--border)]/20 pl-1">
           {entries.map(renderChatRow)}
         </div>
@@ -1580,6 +1569,13 @@ const STATUS_OPTIONS: Array<{
     description: "Suppress auto messages",
     color: "bg-red-500",
     icon: <MinusCircle size="0.625rem" className="text-red-500" />,
+  },
+  {
+    value: "invisible",
+    label: "Invisible",
+    description: "Hide your status from models",
+    color: "bg-gray-400",
+    icon: <Circle size="0.625rem" className="fill-gray-400 text-gray-400" />,
   },
 ];
 
@@ -1640,8 +1636,8 @@ function UserStatusFooter() {
                 setOpen(false);
               }}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                userStatus === opt.value && "bg-[var(--accent)]",
+                "mari-chrome-control w-full justify-start px-2.5 py-2 text-left",
+                userStatus === opt.value && "mari-chrome-control--selected",
               )}
             >
               <span className={`h-2 w-2 rounded-full ${opt.color}`} />
@@ -1664,7 +1660,7 @@ function UserStatusFooter() {
               type="button"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => applyRecentActivity(activity)}
-              className="flex w-full min-w-0 items-center rounded-lg px-2 py-1.5 text-left text-xs text-[var(--sidebar-foreground)] transition-colors hover:bg-[var(--accent)]"
+              className="mari-chrome-control mari-chrome-control--small w-full min-w-0 justify-start text-left text-xs"
             >
               <span className="truncate">{activity}</span>
             </button>
@@ -1675,7 +1671,7 @@ function UserStatusFooter() {
       <div className="flex min-w-0 items-center gap-1.5">
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 transition-all hover:bg-[var(--sidebar-accent)]/60"
+          className="mari-chrome-control mari-chrome-control--small min-w-0 shrink-0 px-2 py-1.5 max-md:h-9 max-md:min-h-9"
           title="Change activity status"
           aria-label="Change activity status"
         >
@@ -1701,7 +1697,7 @@ function UserStatusFooter() {
           maxLength={120}
           placeholder="What are you doing?"
           aria-label="Custom activity"
-          className="min-w-0 flex-1 rounded-lg border border-[var(--border)]/40 bg-[var(--sidebar-accent)]/35 px-2 py-1.5 text-xs text-[var(--sidebar-foreground)] outline-none transition-colors placeholder:text-[var(--muted-foreground)]/70 focus:border-[var(--primary)]/40 focus:bg-[var(--sidebar-accent)]/60"
+          className="mari-chrome-field mari-chrome-field--compact min-w-0 flex-1 px-2 py-1.5 text-xs max-md:h-9 max-md:min-h-9"
         />
       </div>
     </div>

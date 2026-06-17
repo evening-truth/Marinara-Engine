@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, Paintbrush, Trash2, X, Download, Sparkles, Pin, Minimize2, Loader2 } from "lucide-react";
+import { ImagePlus, Paintbrush, Trash2, X, Download, Sparkles, Pin, Loader2 } from "lucide-react";
 import {
   useGalleryImages,
   useUploadGalleryImage,
@@ -27,6 +27,13 @@ function formatImageMeta(image: ChatImage) {
   if (image.provider) details.push(image.provider.replace(/_/g, " "));
   if (image.width && image.height) details.push(`${image.width} x ${image.height}`);
   return details.join(" | ");
+}
+
+function getImageDownloadName(image: ChatImage) {
+  const fromPath = image.filePath.split(/[\\/]/).pop();
+  if (fromPath) return fromPath;
+  const fromUrl = image.url.split("?")[0]?.split("/").pop();
+  return fromUrl || `gallery-${image.id}.png`;
 }
 
 export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
@@ -140,7 +147,7 @@ export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
                   />
                 </button>
                 {/* Overlay */}
-                <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100">
                   <div className="flex w-full items-center justify-between p-2">
                     <div className="flex gap-1">
                       <button
@@ -152,6 +159,15 @@ export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
                       >
                         <Pin size="0.75rem" />
                       </button>
+                      <a
+                        href={img.url}
+                        download={getImageDownloadName(img)}
+                        aria-label="Download gallery image"
+                        className="pointer-events-auto rounded-md bg-white/20 p-1.5 text-white transition-colors hover:bg-white/30"
+                        title="Download image"
+                      >
+                        <Download size="0.75rem" />
+                      </a>
                     </div>
                     <button
                       type="button"
@@ -230,11 +246,11 @@ export function ChatGallery({ chatId, onIllustrate }: ChatGalleryProps) {
                     className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
                     title="Pin to chat"
                   >
-                    <Minimize2 size="0.875rem" />
+                    <Pin size="0.875rem" />
                   </button>
                   <a
                     href={lightbox.url}
-                    download
+                    download={getImageDownloadName(lightbox)}
                     aria-label="Download image"
                     className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
                   >

@@ -82,6 +82,28 @@ export class OpenAIProvider extends BaseLLMProvider {
     super(baseUrl, apiKey, defaultMaxContext, defaultOpenrouterProvider, maxTokensOverride);
   }
 
+  private static openAIFileContentParts(
+    files: ChatMessage["files"] | undefined,
+    mode: "chat_completions" | "responses",
+  ): Array<Record<string, unknown>> {
+    if (!files?.length) return [];
+    return files.map((file) =>
+      mode === "responses"
+        ? {
+            type: "input_file",
+            filename: file.filename ?? "attachment.pdf",
+            file_data: file.data,
+          }
+        : {
+            type: "file",
+            file: {
+              filename: file.filename ?? "attachment.pdf",
+              file_data: file.data,
+            },
+          },
+    );
+  }
+
   private static async parseJsonBody<T>(response: Response, context: string): Promise<T> {
     const raw = await response.text();
     try {
@@ -704,8 +726,8 @@ export class OpenAIProvider extends BaseLLMProvider {
         // Keep tool messages and assistant messages with tool_calls regardless of content
         if (m.role === "tool") return true;
         if (m.role === "assistant" && m.tool_calls?.length) return true;
-        // Drop messages with empty/whitespace-only content
-        return m.content?.trim();
+        // Drop messages with no text or provider-native attachments.
+        return m.content?.trim() || m.images?.length || m.files?.length;
       })
       .map((m) => {
         const reasoningPayload =
@@ -721,11 +743,13 @@ export class OpenAIProvider extends BaseLLMProvider {
             ...reasoningPayload,
           };
         }
-        // Multimodal: if message has images, use content array format
-        if (m.images?.length) {
-          const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+        // Multimodal/file input: use content array format
+        if (m.images?.length || m.files?.length) {
+          const parts: Array<Record<string, unknown>> = [
+            ...OpenAIProvider.openAIFileContentParts(m.files, "chat_completions"),
+          ];
           if (m.content) parts.push({ type: "text", text: m.content });
-          for (const img of m.images) {
+          for (const img of m.images ?? []) {
             parts.push({ type: "image_url", image_url: { url: img } });
           }
           return { role: m.role, content: parts };
@@ -1340,11 +1364,12 @@ export class OpenAIProvider extends BaseLLMProvider {
         continue;
       }
 
-      if (m.role === "user" && m.images?.length) {
-        // Multimodal user message
+      if (m.role === "user" && (m.images?.length || m.files?.length)) {
+        // Multimodal/file user message
         const content: Array<Record<string, unknown>> = [];
+        content.push(...OpenAIProvider.openAIFileContentParts(m.files, "responses"));
         if (m.content) content.push({ type: "input_text", text: m.content });
-        for (const img of m.images) {
+        for (const img of m.images ?? []) {
           content.push({ type: "input_image", image_url: img });
         }
         input.push({ role: "user", content });

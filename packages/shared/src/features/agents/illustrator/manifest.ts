@@ -40,6 +40,7 @@ export const illustratorAgentManifest = {
     defaultPromptTemplateName: "Illustration",
     defaultPromptTemplateDescription: "Polished single-scene illustration for important visual beats.",
     useAvatarReferences: false,
+    includeCharacterAppearance: false,
   },
   promptTemplates: [
     {

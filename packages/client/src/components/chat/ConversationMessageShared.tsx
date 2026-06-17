@@ -3,7 +3,7 @@
 // the ConversationMessage* family of components.
 // ──────────────────────────────────────────────
 import { type CSSProperties, type ReactNode, type RefObject } from "react";
-import { ChevronRight, EyeOff, X } from "lucide-react";
+import { ChevronRight, EyeOff, FileText, X } from "lucide-react";
 import type { MessageExtra, QuoteFormat } from "@marinara-engine/shared";
 import { cn } from "../../lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../lib/markdown";
@@ -43,7 +43,15 @@ export interface MessageData {
     hiddenFromAI?: boolean;
     thinking?: string | null;
     generationReplay?: MessageExtra["generationReplay"];
-    attachments?: Array<{ type: string; url: string; filename?: string; prompt?: string; galleryId?: string }>;
+    attachments?: Array<{
+      type: string;
+      url?: string;
+      data?: string;
+      filename?: string;
+      name?: string;
+      prompt?: string;
+      galleryId?: string;
+    }>;
   };
   createdAt: string;
 }
@@ -414,7 +422,7 @@ export function ConversationMessageEditForm({
   );
 }
 
-/** Image attachment grid with remove button. */
+/** Attachment grid with remove button. */
 export function ConversationMessageAttachments({
   attachments,
   renderedContent,
@@ -448,7 +456,22 @@ export function ConversationMessageAttachments({
               <X size="0.875rem" />
             </button>
           </div>
-        ) : null,
+        ) : (
+          <div
+            key={i}
+            className="group/att flex max-w-full items-center gap-2 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs text-foreground/70 ring-1 ring-foreground/10"
+          >
+            <FileText size="0.875rem" className="shrink-0 text-[var(--primary)]" />
+            <span className="min-w-0 max-w-[16rem] truncate">{att.filename || att.name || "attachment"}</span>
+            <button
+              onClick={() => onRemove(i)}
+              title="Remove from message"
+              className="rounded-full p-0.5 text-foreground/45 transition-colors hover:bg-foreground/10 hover:text-[var(--destructive)] sm:opacity-0 sm:group-hover/att:opacity-100"
+            >
+              <X size="0.75rem" />
+            </button>
+          </div>
+        ),
       )}
     </div>
   );

@@ -5,6 +5,31 @@
 // Users can override any template via the Agent Editor.
 // ──────────────────────────────────────────────
 
+export const DEFAULT_CHAT_SUMMARY_PROMPT = `You are Automatic Chat Summary. Summarize only NEW durable roleplay events not already captured in the existing summary.
+Focus on plot turns, character developments, relationships, current situation, locations, quests, goals, threats, and unresolved tension.
+Write an appendable continuation. Do not rewrite or repeat the previous summary. If nothing durable changed, return an empty summary. Match the existing summary style.
+Return only valid JSON:
+{
+  "summary": "new summary text to append, or empty string"
+}`;
+
+export const NARRATIVE_DIRECTOR_SECRET_PLOT_PROMPT = `You are Narrative Director maintaining a hidden long-term arc for this roleplay. The user may reveal this later, so keep it useful, specific, and spoiler-safe by default.
+Use the scenario, character cards, persona, chat summary, and recent messages. If Secret Plot State exists, evaluate whether the previous arc has been resolved by the actual story so far.
+If there is no previous arc, create one.
+If the previous arc is still active, preserve its core mystery and update details only when the story has materially changed.
+If the previous arc has now been completed, return that arc with completed=true. A follow-up maintenance pass will then create the next arc from the completed state.
+If Secret Plot State already contains completed=true, create a new arc that builds on what came before and set completed=false.
+Do not write scene prose, dialogue, narration, or instructions for exact character actions. Do not decide for the user.
+Return only valid JSON:
+{
+  "overarchingArc": {
+    "description": "string - 2-4 sentences describing the arc, its mystery, resolution conditions, and protagonist journey",
+    "protagonistArc": "string - 1-2 sentences about the user character's personal growth trajectory",
+    "characterArc": "optional string - 1-2 sentences about one selected character's personal growth trajectory",
+    "completed": boolean
+  }
+}`;
+
 export const DEFAULT_AGENT_PROMPTS: Record<string, string> = {
   /* ────────────────────────────────────────── */
   "world-state": `Track the scene's current date, time, location, weather, and temperature after the latest assistant message. Respond ONLY with valid JSON.
@@ -92,6 +117,7 @@ Return valid JSON only:
 Mode: {{directorMode}}
 If Mode is random, create a surprising but plausible random event, interruption, complication, arrival, reveal, danger, or opportunity that fits continuity.
 If Mode is natural, push the existing plot forward using the scenario, unresolved tension, character goals, and recent chat history. Avoid random interruptions unless the story clearly calls for one.
+If Secret Plot State is present, use it as hidden long-term arc context. Push naturally toward it without revealing spoilers, rushing the resolution, or making the plot feel forced.
 Use the scenario if available, otherwise use chat history. Do not write prose, dialogue, narration, or the scene itself. Do not decide for the user. Give a direction the main model can naturally apply now.
 Return only valid JSON:
 {"direction":"brief instruction for the next response"}`,
@@ -171,31 +197,6 @@ Return only valid JSON:
       "reason": "what in the roleplay triggered this"
     }
   ]
-}`,
-
-  /* ────────────────────────────────────────── */
-  "prompt-reviewer": `Analyze the assembled system prompt BEFORE generation for quality issues.
-1. Redundant or contradictory instructions, two rules demanding opposite behavior.
-2. Unclear or ambiguous directives, anything a model could reasonably misinterpret.
-3. Instructions that conflict with the character card.
-4. Overly restrictive rules that box the model in and kill creativity.
-5. Missing context, the model would need to perform well.
-6. Formatting issues, broken XML tags, malformed templates, and unclosed brackets.
-7. Token waste, verbose instructions that could say the same thing in fewer words.
-Don't nitpick for the sake of having findings. If the prompt is well-constructed, say so.
-Output format:
-{
-  "issues": [
-    {
-      "severity": "error|warning|suggestion",
-      "location": "string — which part of the prompt",
-      "description": "string — the issue found",
-      "recommendation": "string — how to improve"
-    }
-  ],
-  "tokenEstimate": number,
-  "overallRating": "excellent|good|fair|poor",
-  "summary": "string — 1-2 sentence overall assessment"
 }`,
 
   /* ────────────────────────────────────────── */
@@ -322,15 +323,6 @@ Match the setting and tone. Keep text readable. Use self-contained HTML with inl
 Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless the scene naturally calls for a visual artifact.`,
 
   /* ────────────────────────────────────────── */
-  "chat-summary": `You are Automated Chat Summary. Summarize only NEW durable roleplay events not already captured in the existing summary.
-Focus on plot turns, character developments, relationships, current situation, locations, quests, goals, threats, and unresolved tension.
-Write an appendable continuation. Do not rewrite or repeat the previous summary. If nothing durable changed, return an empty summary. Match the existing summary style.
-Return only valid JSON:
-{
-  "summary": "new summary text to append, or empty string"
-}`,
-
-  /* ────────────────────────────────────────── */
   spotify: `You are Music DJ. Match Spotify playback to the latest scene's mood, setting, pace, and genre.
 Tools may be available: spotify_get_current_playback, spotify_get_playlists, spotify_get_playlist_tracks, spotify_search, spotify_play, spotify_set_volume.
 If tools are available: check current playback first. Use playlist/Liked Songs candidates before catalogue search when allowed. Use spotify_get_playlist_tracks with query/mood terms and candidateLimit 30-80; never manually page a whole playlist. Play only exact URIs returned by tools. Adjust volume when only loudness should change.
@@ -403,71 +395,6 @@ Return only valid JSON:
     { "label": "short display label, 3-6 words", "text": "full first-person action/dialogue to send" }
   ]
 }`,
-
-  /* ────────────────────────────────────────── */
-  "secret-plot-driver": `You are a hidden Narrative Architect. You design storylines that unfold organically within the roleplay without the user realizing it. Your goal is to engage the player by controlling the events. CREATIVITY IS YOUR TOP PRIORITY.
-You manage two layers of narrative structure:
-LAYER 1, OVERARCHING ARC:
-A long-term story arc spanning multiple messages. This is a grand, multi-session narrative thread.
-Rules for the overarching arc:
-1. Create something ORIGINAL and SPECIFIC, GROUNDED in the setting or characters. Get out with the generic "defeat the villain" plots. Consider including:
-   - A central mystery or secret that will be gradually revealed over many messages.
-   - Potential for plot twists! How about someone initially working alongside the player only to later backstab them?
-   - A specific mechanism or condition for resolution (e.g., "They must find the three shards of the Veil Mirror, but the last shard is held by someone they trust").
-   - A protagonist arc for the user's character (e.g., self-discovery about their lineage, growing from reluctant participant to leader, confronting a personal flaw).
-   - At least one hidden truth that recontextualizes earlier events when revealed.
-2. The arc should feel EARNED. Don't rush it. It should take many, many messages to complete naturally. Think long-term — this is a slow burn, not a sprint.
-3. When the arc is completed, create a NEW one that builds on what came before. The world evolves.
-4. Describe the arc in 2–4 sentences. Be specific about names, places, and stakes.
-LAYER 2, SCENE DIRECTION:
-A single short-term direction for what should happen in the current scene. This is a gentle nudge, not a command.
-Rules for the scene direction:
-1. Provide exactly ONE active direction. It MUST be a single SHORT sentence (under 25 words). If you can't say it in one sentence, it's too specific.
-2. The direction should serve the overarching arc, OR character development, OR world building, OR simply let the user breathe.
-3. PACING IS EVERYTHING. Read the conversation carefully. Ask yourself: "Does the user need space right now? Are they in the middle of a conversation? Are they reacting to something that just happened?" If the answer is yes, your direction should reflect that.
-   The most common mistake is RUSHING. Most of the time, the right call is to let things breathe. The user is here to interact with characters and live in the world, not to be railroaded through plot points.
-   Pacing modes (pick ONE):
-   - "slow": The DEFAULT mode. Quiet moments, characters talking, bonding, reflecting, responding to what the user said, going about daily life, and enjoying each other's company. Your direction can be as simple as "Let the conversation flow naturally." Stay in this mode whenever the user is engaged in conversation or reacting to recent events.
-   - "exploration": Characters are actively engaged, arriving somewhere new, investigating, learning, doing activities, but without rising tension. Focus on discovery, environment, and worldbuilding. Use this when it feels natural for the characters to move or explore, not to force movement.
-   - "building": Plant a seed. A subtle hint, a small foreshadowing detail, a minor curiosity. The user shouldn't even notice the thread being laid. Only move here when the narrative is ready for a gentle nudge forward.
-   - "climactic": Major events, confrontations, revelations, turning points. These should be rare and feel earned, only after substantial buildup through many turns of slow/exploration/building.
-   - "cooldown": Aftermath. Process what happened, show consequences, let emotions settle. After any climactic moment, stay in cooldown long enough for the weight of what happened to sink in before moving on.
-4. STALENESS DETECTION:
-   4a. If staleDetected was true in the previous <secret_plot_state>, your priority is to break the stalemate; shift location, introduce someone new, trigger an unexpected event, or change the group dynamic. Do NOT re-flag staleness; act on it.
-   4b. If staleDetected was false (or this is the first run), scan for staleness: if the narrative genuinely feels stuck, the characters are repeating themselves, the conversation is going in circles, and nothing meaningful is happening despite the user's attempts to engage, THEN set staleDetected to true and inject change. Staleness is when the scene has lost all momentum.
-5. Mark the direction as fulfilled when the narrative has clearly addressed it (even partially). Replace it with a fresh one.
-6. NO LOOPING: Check <secret_plot_state> for "recentlyFulfilled," these are directions you already used. Do NOT reissue them or rephrase them. Each new direction must push the story FORWARD, not revisit what already happened.
-7. CRITICAL! You are a DIRECTOR, not a WRITER. Your direction sets the MOOD, TONE, and GENERAL TRAJECTORY. You must NEVER:
-   - Specify what characters should say, feel, or physically do.
-   - Describe specific reactions, gestures, or expressions.
-   - Choreograph how a scene plays out beat-by-beat.
-   - Name specific objects, sounds, or environmental details the model should include
-   BAD (too specific): "Dottore's tone should shift to something colder; he should order the room cleared immediately."
-   GOOD (directorial): "The conversation takes a dangerous turn, the power dynamic shifts."
-PREVIOUS STATE:
-Your previous arc and direction (if any) are provided in <secret_plot_state>. Build on them; don't start from scratch unless the arc is completed.
-Respond ONLY with valid JSON.
-Schema:
-{
-  "overarchingArc": {
-    "description": "string — 2-4 sentences describing the arc, its mystery, resolution conditions, and protagonist journey",
-    "protagonistArc": "string — 1-2 sentences about the user character's personal growth trajectory",
-    "completed": boolean
-  },
-  "sceneDirections": [
-    {
-      "direction": "string — a single-sentence nudge for the main model",
-      "fulfilled": boolean
-    }
-  ],
-  "pacing": "slow | exploration | building | climactic | cooldown",
-  "staleDetected": boolean
-}
-IMPORTANT:
-- If this is the first run (no previous state), create the initial overarching arc and one starting scene direction.
-- If overarchingArc.completed is true, provide a NEW arc in the same response.
-- Return exactly one active (unfulfilled) direction. If the previous direction was fulfilled, include it with fulfilled=true AND provide its replacement in the same array.
-- Set fulfilled = true on directions that have been addressed AND include the replacement in the same response.`,
 };
 
 /** Get the default prompt template for a built-in agent type. */

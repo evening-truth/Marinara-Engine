@@ -8,6 +8,7 @@ export const knowledgeRetrievalAgentManifest = {
   phase: "pre_generation",
   enabledByDefault: false,
   category: "writer",
+  modeAllowlist: ["roleplay", "visual_novel"],
   defaultTools: ["search_lorebook"],
   defaultSettings: {
     useChatActiveLorebooks: true,

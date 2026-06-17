@@ -763,6 +763,7 @@ export const ChatMessage = memo(function ChatMessage({
     chatFontOpacity,
     roleplayAvatarStyle,
     roleplayAvatarScale,
+    roleplayAvatarsScrollable,
     textStrokeWidth,
     textStrokeColor,
     showModelName,
@@ -779,6 +780,7 @@ export const ChatMessage = memo(function ChatMessage({
       chatFontOpacity: s.chatFontOpacity,
       roleplayAvatarStyle: s.roleplayAvatarStyle,
       roleplayAvatarScale: s.roleplayAvatarScale,
+      roleplayAvatarsScrollable: s.roleplayAvatarsScrollable,
       textStrokeWidth: s.textStrokeWidth,
       textStrokeColor: s.textStrokeColor,
       showModelName: s.showModelName,
@@ -1723,7 +1725,12 @@ export const ChatMessage = memo(function ChatMessage({
           )}
           {/* Avatar Column */}
           {showCompactRoleplayAvatar && (
-            <div className="mari-message-avatar flex flex-col items-center flex-shrink-0 pt-1">
+            <div
+              className={cn(
+                "mari-message-avatar flex flex-col items-center flex-shrink-0 pt-1",
+                roleplayAvatarsScrollable && "mari-scrollable-roleplay-avatar",
+              )}
+            >
               {isMergedGroup && mergedAvatars.length > 0 ? (
                 <button
                   type="button"
@@ -1857,6 +1864,7 @@ export const ChatMessage = memo(function ChatMessage({
             <div
               className={cn(
                 "mari-message-bubble mari-rp-bubble relative overflow-hidden rounded-2xl shadow-lg shadow-black/20",
+                roleplayAvatarsScrollable && showRoleplayAvatarPanel && "mari-rp-bubble--scrollable-avatar-panel",
                 isUser
                   ? "rounded-tr-sm text-neutral-100 ring-1 ring-white/10"
                   : "rounded-tl-sm text-white/90 ring-1 ring-white/8",
@@ -1880,14 +1888,19 @@ export const ChatMessage = memo(function ChatMessage({
                 <div className={cn("flex min-h-full items-stretch", isUser && "flex-row-reverse")}>
                   <div
                     className={cn(
-                      "relative flex w-[calc(5.5rem*var(--roleplay-avatar-scale))] shrink-0 items-start self-stretch overflow-hidden md:w-[calc(6rem*var(--roleplay-avatar-scale))]",
+                      "mari-roleplay-avatar-panel-rail relative flex w-[calc(5.5rem*var(--roleplay-avatar-scale))] shrink-0 items-start self-stretch overflow-hidden md:w-[calc(6rem*var(--roleplay-avatar-scale))]",
                       isUser ? "border-l border-white/8" : "border-r border-white/8",
                       isUser
                         ? "bg-gradient-to-b from-neutral-500/18 via-neutral-600/10 to-transparent"
                         : "bg-gradient-to-b from-purple-500/18 via-pink-600/10 to-transparent",
                     )}
                   >
-                    <div className="rpg-avatar-panel-stack absolute left-0 top-0 h-[calc(11rem*var(--roleplay-avatar-scale))] w-full overflow-hidden">
+                    <div
+                      className={cn(
+                        "rpg-avatar-panel-stack h-[calc(11rem*var(--roleplay-avatar-scale))] w-full overflow-hidden",
+                        roleplayAvatarsScrollable ? "mari-scrollable-roleplay-avatar" : "absolute left-0 top-0",
+                      )}
+                    >
                       {isMergedGroup && mergedAvatars.length > 0 ? (
                         <button
                           type="button"
@@ -1975,7 +1988,7 @@ export const ChatMessage = memo(function ChatMessage({
               ) : null}
             </div>
 
-            {/* Image attachments (illustrations, selfies) */}
+            {/* Attachments (illustrations, selfies, uploaded files) */}
             {!editing && extra.attachments?.length > 0 && !IMAGE_URL_RE.test(message.content.trim()) && (
               <div className="mt-1.5 flex flex-col items-center gap-2 px-3 pb-2">
                 {extra.attachments.map((att: any, i: number) =>
@@ -2006,7 +2019,24 @@ export const ChatMessage = memo(function ChatMessage({
                         <X size="0.875rem" />
                       </button>
                     </div>
-                  ) : null,
+                  ) : (
+                    <div
+                      key={i}
+                      className="group/att flex max-w-full items-center gap-2 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs text-foreground/70 ring-1 ring-foreground/10"
+                    >
+                      <ScrollText size="0.875rem" className="shrink-0 text-[var(--primary)]" />
+                      <span className="min-w-0 max-w-[16rem] truncate">{att.filename || att.name || "attachment"}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(i)}
+                        aria-label="Remove file from message"
+                        title="Remove from message"
+                        className="rounded-full p-0.5 text-foreground/45 transition-colors hover:bg-foreground/10 hover:text-[var(--destructive)] sm:opacity-0 sm:group-hover/att:opacity-100"
+                      >
+                        <X size="0.75rem" />
+                      </button>
+                    </div>
+                  ),
                 )}
               </div>
             )}
@@ -2418,7 +2448,7 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           </div>
 
-          {/* Image attachments (illustrations, selfies) */}
+          {/* Attachments (illustrations, selfies, uploaded files) */}
           {!editing && extra.attachments?.length > 0 && !IMAGE_URL_RE.test(message.content.trim()) && (
             <div className="mt-1.5 flex flex-col items-center gap-2 px-3 pb-2">
               {extra.attachments.map((att: any, i: number) =>
@@ -2449,7 +2479,24 @@ export const ChatMessage = memo(function ChatMessage({
                       <X size="0.875rem" />
                     </button>
                   </div>
-                ) : null,
+                ) : (
+                  <div
+                    key={i}
+                    className="group/att flex max-w-full items-center gap-2 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs text-foreground/70 ring-1 ring-foreground/10"
+                  >
+                    <ScrollText size="0.875rem" className="shrink-0 text-[var(--primary)]" />
+                    <span className="min-w-0 max-w-[16rem] truncate">{att.filename || att.name || "attachment"}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(i)}
+                      aria-label="Remove file from message"
+                      title="Remove from message"
+                      className="rounded-full p-0.5 text-foreground/45 transition-colors hover:bg-foreground/10 hover:text-[var(--destructive)] sm:opacity-0 sm:group-hover/att:opacity-100"
+                    >
+                      <X size="0.75rem" />
+                    </button>
+                  </div>
+                ),
               )}
             </div>
           )}

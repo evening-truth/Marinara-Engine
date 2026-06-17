@@ -226,6 +226,8 @@ export interface ChatMLMessage {
   characterId?: string | null;
   /** Base64 data URLs for multimodal image inputs */
   images?: string[];
+  /** Base64 data URLs for provider-native file/document inputs */
+  files?: Array<{ type: string; data: string; filename?: string }>;
   /** Provider-specific metadata (e.g. Gemini parts with thought signatures) */
   providerMetadata?: Record<string, unknown>;
 }

@@ -32,7 +32,7 @@ export const generateRequestSchema = z.object({
 
   impersonate: z.boolean().optional().default(false),
   streaming: z.boolean().optional().default(true),
-  userStatus: z.enum(["active", "idle", "dnd"]).optional().default("active"),
+  userStatus: z.enum(["active", "idle", "dnd", "invisible"]).optional().default("active"),
   userActivity: z.string().max(120).optional().default(""),
   userTimeZone: z.string().max(100).optional().default(""),
   mentionedCharacterNames: z.array(z.string()).optional().default([]),

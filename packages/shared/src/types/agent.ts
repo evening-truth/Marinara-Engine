@@ -4,6 +4,8 @@
 
 import { BUILT_IN_AGENT_MANIFESTS } from "../features/agents/agent-registry.js";
 import type { AgentToolConfig, ToolDefinition } from "../features/function-calls/tool-definitions.js";
+import type { ChatMode } from "./chat.js";
+import type { WrapFormat } from "./prompt.js";
 
 /** When in the generation pipeline an agent runs. */
 export type AgentPhase =
@@ -42,12 +44,10 @@ export type AgentResultType =
   | "director_event"
   | "lorebook_update"
   | "character_card_update"
-  | "prompt_review"
   | "background_change"
   | "character_tracker_update"
   | "persona_stats_update"
   | "custom_tracker_update"
-  | "chat_summary"
   | "spotify_control"
   | "youtube_control"
   | "haptic_command"
@@ -171,10 +171,7 @@ export function normalizeAgentPromptTemplateOptions(value: unknown): AgentPrompt
           : "";
     if (!promptTemplate.trim()) continue;
     const name = normalizePromptTemplateName(entry.name ?? entry.label, `Option ${index + 1}`);
-    const id = getUniquePromptTemplateId(
-      normalizePromptTemplateId(entry.id, `option-${index + 1}`),
-      usedIds,
-    );
+    const id = getUniquePromptTemplateId(normalizePromptTemplateId(entry.id, `option-${index + 1}`), usedIds);
     const description = typeof entry.description === "string" ? entry.description.trim() : "";
     options.push({
       id,
@@ -235,7 +232,10 @@ export function resolveAgentPromptTemplate(input: {
     return input.promptTemplate?.trim() ? input.promptTemplate : (input.fallbackPromptTemplate ?? "");
   }
   const option = getAgentPromptTemplateOptions(input).find((entry) => entry.id === selectedId);
-  return option?.promptTemplate ?? (input.promptTemplate?.trim() ? input.promptTemplate : (input.fallbackPromptTemplate ?? ""));
+  return (
+    option?.promptTemplate ??
+    (input.promptTemplate?.trim() ? input.promptTemplate : (input.fallbackPromptTemplate ?? ""))
+  );
 }
 
 /** Result produced by an agent after execution. */
@@ -252,6 +252,25 @@ export interface AgentResult {
   /** Whether the agent succeeded */
   success: boolean;
   error: string | null;
+}
+
+export type AgentWriteApprovalKind = "lorebook_update" | "summary_update";
+
+export interface AgentWriteApprovalProposal {
+  kind: AgentWriteApprovalKind;
+  chatId: string;
+  agentType: string | null;
+  agentName: string;
+  title: string;
+  text: string;
+  payload?: Record<string, unknown>;
+  canRegenerate?: boolean;
+  createdAt?: string;
+}
+
+export interface AgentWriteApprovalEnvelope {
+  requiresApproval: true;
+  approval: AgentWriteApprovalProposal;
 }
 
 export interface AgentCallDebugMessage {
@@ -289,6 +308,8 @@ export interface AgentCallDebugEvent {
 export interface AgentContext {
   chatId: string;
   chatMode: string;
+  /** Prompt wrapper format selected for this generation. */
+  wrapFormat?: WrapFormat;
   /** Recent chat history (last N messages) */
   recentMessages: Array<{
     id?: string;
@@ -370,24 +391,34 @@ export const BUILT_IN_AGENT_IDS = {
   ILLUSTRATOR: "illustrator",
   LOREBOOK_KEEPER: "lorebook-keeper",
   CARD_EVOLUTION_AUDITOR: "card-evolution-auditor",
-  PROMPT_REVIEWER: "prompt-reviewer",
   COMBAT: "combat",
   BACKGROUND: "background",
   CHARACTER_TRACKER: "character-tracker",
   PERSONA_STATS: "persona-stats",
   HTML: "html",
-  CHAT_SUMMARY: "chat-summary",
   SPOTIFY: "spotify",
   KNOWLEDGE_RETRIEVAL: "knowledge-retrieval",
   KNOWLEDGE_ROUTER: "knowledge-router",
-  SCHEDULE_PLANNER: "schedule-planner",
-  RESPONSE_ORCHESTRATOR: "response-orchestrator",
-  AUTONOMOUS_MESSENGER: "autonomous-messenger",
   CUSTOM_TRACKER: "custom-tracker",
   HAPTIC: "haptic",
   CYOA: "cyoa",
-  SECRET_PLOT_DRIVER: "secret-plot-driver",
 } as const;
+
+export const RETIRED_BUILT_IN_AGENT_IDS = [
+  "prompt-reviewer",
+  "response-orchestrator",
+  "schedule-planner",
+  "chat-summary",
+  "autonomous-messenger",
+  "youtube",
+  "secret-plot-driver",
+] as const;
+
+const RETIRED_BUILT_IN_AGENT_ID_SET = new Set<string>(RETIRED_BUILT_IN_AGENT_IDS);
+
+export function isRetiredBuiltInAgentId(agentId: string): boolean {
+  return RETIRED_BUILT_IN_AGENT_ID_SET.has(agentId);
+}
 
 export type AgentCategory = "writer" | "tracker" | "misc";
 
@@ -405,6 +436,7 @@ export interface BuiltInAgentMeta {
   libraryHidden?: boolean;
   /** Keep legacy configs recognized, but never run this built-in in generation pipelines. */
   runtimeDisabled?: boolean;
+  modeAllowlist?: readonly ChatMode[];
   promptTemplates?: AgentPromptTemplateOption[];
 }
 
@@ -419,6 +451,7 @@ export const BUILT_IN_AGENTS: BuiltInAgentMeta[] = BUILT_IN_AGENT_MANIFESTS.map(
   category: agent.category,
   ...(agent.libraryHidden !== undefined ? { libraryHidden: agent.libraryHidden } : {}),
   ...(agent.runtimeDisabled !== undefined ? { runtimeDisabled: agent.runtimeDisabled } : {}),
+  ...(agent.modeAllowlist !== undefined ? { modeAllowlist: [...agent.modeAllowlist] } : {}),
   ...(agent.promptTemplates !== undefined ? { promptTemplates: [...agent.promptTemplates] } : {}),
 }));
 
@@ -469,7 +502,9 @@ function normalizeCapabilityMap(value: unknown): CustomAgentCapabilityMap {
   return output;
 }
 
-export function normalizeCustomAgentCapabilities(settings: Record<string, unknown> | null | undefined): CustomAgentCapabilityMap {
+export function normalizeCustomAgentCapabilities(
+  settings: Record<string, unknown> | null | undefined,
+): CustomAgentCapabilityMap {
   const capabilities = normalizeCapabilityMap(settings?.customCapabilities ?? settings?.capabilities);
   const enabledToolsValue = settings?.enabledTools;
   const enabledTools = Array.isArray(enabledToolsValue) ? enabledToolsValue : [];

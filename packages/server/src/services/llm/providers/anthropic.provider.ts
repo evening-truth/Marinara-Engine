@@ -111,6 +111,22 @@ function imageContentBlocks(images?: string[]): AnthropicContentBlock[] {
   return blocks;
 }
 
+function fileContentBlocks(files?: ChatMessage["files"]): AnthropicContentBlock[] {
+  if (!files?.length) return [];
+  const blocks: AnthropicContentBlock[] = [];
+  for (const file of files) {
+    const match = file.data.match(/^data:(application\/pdf);base64,(.+)$/);
+    if (match) {
+      blocks.push({
+        type: "document",
+        source: { type: "base64", media_type: match[1], data: match[2] },
+        ...(file.filename ? { title: file.filename } : {}),
+      });
+    }
+  }
+  return blocks;
+}
+
 function mergeAnthropicPayloadMessages(messages: AnthropicMessagePayload[]): AnthropicMessagePayload[] {
   const merged: AnthropicMessagePayload[] = [];
   for (const message of messages) {
@@ -171,7 +187,7 @@ function formatAnthropicPayloadMessages(messages: ChatMessage[]): AnthropicMessa
     }
 
     if (message.role === "user" || message.role === "assistant") {
-      const content = [...imageContentBlocks(message.images)];
+      const content = [...fileContentBlocks(message.files), ...imageContentBlocks(message.images)];
       if (message.content?.trim()) content.push({ type: "text", text: message.content });
       payload.push({ role: message.role === "assistant" ? "assistant" : "user", content });
     }
@@ -312,7 +328,7 @@ export class AnthropicProvider extends BaseLLMProvider {
 
     // Claude requires system prompt separate from messages — filter out empty-content messages
     const systemMessages = messages.filter((m) => m.role === "system" && m.content?.trim());
-    const chatMessages = messages.filter((m) => m.role !== "system" && m.content?.trim());
+    const chatMessages = messages.filter((m) => m.role !== "system" && (m.content?.trim() || m.images?.length || m.files?.length));
 
     // Ensure alternating user/assistant pattern (Claude requirement)
     const mergedMessages = this.mergeConsecutiveMessages(chatMessages);
@@ -344,23 +360,15 @@ export class AnthropicProvider extends BaseLLMProvider {
       model: options.model,
       ...(systemField !== undefined && { system: systemField }),
       messages: mergedMessages.map((m, i) => {
-        // Build content parts (text + optional images)
-        const parts: Array<Record<string, unknown>> = [];
-        if (m.images?.length) {
-          for (const img of m.images) {
-            const match = img.match(/^data:(image\/[^;]+);base64,(.+)$/);
-            if (match) {
-              parts.push({ type: "image", source: { type: "base64", media_type: match[1], data: match[2] } });
-            }
-          }
-        }
+        // Build content parts (documents + images + text)
+        const parts: Array<Record<string, unknown>> = [...fileContentBlocks(m.files), ...imageContentBlocks(m.images)];
         if (m.content) {
           const textBlock: Record<string, unknown> = { type: "text", text: m.content };
           if (i === cacheControlMessageIndex) textBlock.cache_control = { type: "ephemeral" };
           parts.push(textBlock);
         }
-        // Use content array if we have images or cache control, otherwise string
-        if (m.images?.length || i === cacheControlMessageIndex) {
+        // Use content array if we have attachments or cache control, otherwise string
+        if (m.images?.length || m.files?.length || i === cacheControlMessageIndex) {
           return { role: m.role, content: parts };
         }
         return { role: m.role, content: m.content };
@@ -550,8 +558,14 @@ export class AnthropicProvider extends BaseLLMProvider {
       const last = merged[merged.length - 1];
       if (last && last.role === msg.role) {
         last.content += "\n\n" + msg.content;
+        if (msg.images?.length) last.images = [...(last.images ?? []), ...msg.images];
+        if (msg.files?.length) last.files = [...(last.files ?? []), ...msg.files];
       } else {
-        merged.push({ ...msg });
+        merged.push({
+          ...msg,
+          ...(msg.images ? { images: [...msg.images] } : {}),
+          ...(msg.files ? { files: msg.files.map((file) => ({ ...file })) } : {}),
+        });
       }
     }
     // Claude requires at least one message; ensure it starts with a user turn

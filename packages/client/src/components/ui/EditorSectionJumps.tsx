@@ -23,16 +23,13 @@ export function EditorSectionJumps({
   };
 
   return (
-    <nav
-      aria-label="Card sections"
-      className={cn("mb-6 flex flex-wrap gap-1.5 text-xs text-[var(--muted-foreground)]", className)}
-    >
+    <nav aria-label="Card sections" className={cn("mari-editor-section-jumps", className)}>
       {items.map((item) => (
         <button
           key={item.id}
           type="button"
           onClick={() => scrollToSection(item.id)}
-          className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1.5 font-medium transition-colors hover:border-[var(--primary)]/35 hover:bg-[var(--accent)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/35"
+          className="mari-editor-section-jump"
         >
           {item.label}
         </button>

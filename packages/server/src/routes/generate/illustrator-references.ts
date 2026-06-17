@@ -12,6 +12,7 @@ type CharacterReferenceSource = {
   id: string;
   name: string;
   avatarPath: string | null;
+  appearance: string | null;
   aliases: string[];
   sourceOrder: number;
 };
@@ -20,21 +21,26 @@ export type IllustratorPersonaReference = {
   id: string | null;
   name: string;
   avatarPath?: string | null;
+  appearance?: string | null;
 };
 
 export type IllustratorChatCharacterReference = {
   id: string;
   name: string;
   avatarPath?: string | null;
+  appearance?: string | null;
 };
 
 export type IllustratorReferenceResolution = {
   referenceImages: string[];
   referenceNames: string[];
   referenceLine: string | null;
+  appearanceNames: string[];
+  appearanceBlock: string | null;
 };
 
 const MAX_ILLUSTRATOR_REFERENCE_IMAGES = 6;
+const MAX_ILLUSTRATOR_APPEARANCE_CHARS = 1400;
 const NAME_STOPWORDS = new Set(["the", "a", "an", "il", "la", "le", "de", "van", "von", "dr", "mr", "ms"]);
 
 export const ILLUSTRATOR_TEXT_NEGATIVE_PROMPT =
@@ -84,6 +90,21 @@ function buildNameAliases(name: string): string[] {
   return [...aliases].sort((a, b) => b.length - a.length);
 }
 
+function readAppearance(data: Record<string, unknown>): string | null {
+  const extensions = parseRecord(data.extensions);
+  const raw =
+    typeof extensions.appearance === "string"
+      ? extensions.appearance
+      : typeof data.appearance === "string"
+        ? data.appearance
+        : "";
+  const cleaned = stripMacroComments(raw).replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  return cleaned.length > MAX_ILLUSTRATOR_APPEARANCE_CHARS
+    ? `${cleaned.slice(0, MAX_ILLUSTRATOR_APPEARANCE_CHARS).trimEnd()}...`
+    : cleaned;
+}
+
 function textContainsAlias(normalizedText: string, alias: string): boolean {
   if (!normalizedText || !alias) return false;
   return new RegExp(`(?:^| )${alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?: |$)`).test(normalizedText);
@@ -97,6 +118,7 @@ function characterRowToSource(row: CharacterRowLike, sourceOrder: number): Chara
     id: row.id,
     name: rawName,
     avatarPath: typeof row.avatarPath === "string" ? row.avatarPath : null,
+    appearance: readAppearance(data),
     aliases: buildNameAliases(rawName),
     sourceOrder,
   };
@@ -129,6 +151,7 @@ export async function resolveIllustratorCharacterReferences(args: {
       id: character.id,
       name: character.name,
       avatarPath: character.avatarPath ?? fromDb?.avatarPath ?? null,
+      appearance: character.appearance ?? fromDb?.appearance ?? null,
       aliases: buildNameAliases(character.name),
       sourceOrder: index,
     });
@@ -177,6 +200,19 @@ export async function resolveIllustratorCharacterReferences(args: {
     .slice(0, maxReferences);
   const referenceImages: string[] = [];
   const referenceNames: string[] = [];
+  const appearanceLines: string[] = [];
+  const appearanceNames: string[] = [];
+
+  const pushAppearanceLine = (name: string, appearance: string | null | undefined) => {
+    const trimmed = appearance?.trim();
+    if (!trimmed || appearanceNames.includes(name)) return;
+    appearanceNames.push(name);
+    appearanceLines.push(`${name}'s Appearance: ${trimmed}`);
+  };
+
+  for (const source of orderedSources) {
+    pushAppearanceLine(source.name, source.appearance);
+  }
 
   for (const source of orderedSources) {
     const b64 = readBestReferenceImage(source.id, source.avatarPath);
@@ -192,6 +228,9 @@ export async function resolveIllustratorCharacterReferences(args: {
       referenceNames.push(args.persona.name);
     }
   }
+  if (args.persona && personaRequested) {
+    pushAppearanceLine(args.persona.name, args.persona.appearance);
+  }
 
   return {
     referenceImages,
@@ -200,5 +239,8 @@ export async function resolveIllustratorCharacterReferences(args: {
       referenceNames.length > 0
         ? `Attached are reference images of ${referenceNames.join(", ")}. Use them only to preserve character likeness and visual identity; the written scene prompt is authoritative for composition, setting, action, mood, framing, and whether any text appears.`
         : null,
+    appearanceNames,
+    appearanceBlock:
+      appearanceLines.length > 0 ? `Character appearance notes:\n${appearanceLines.join("\n")}` : null,
   };
 }

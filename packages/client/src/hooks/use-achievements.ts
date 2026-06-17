@@ -18,8 +18,16 @@ export function useAchievements(enabled = true) {
   });
 }
 
-export async function trackAchievementEvent(event: AchievementEvent) {
-  const result = await api.post<AchievementTrackResponse>("/achievements/track", { event });
+interface TrackAchievementOptions {
+  keepalive?: boolean;
+}
+
+export async function trackAchievementEvent(event: AchievementEvent, options: TrackAchievementOptions = {}) {
+  const result = await api.post<AchievementTrackResponse>(
+    "/achievements/track",
+    { event },
+    options.keepalive ? { keepalive: true } : undefined,
+  );
   if (useUIStore.getState().achievementsEnabled) {
     showAchievementUnlockToasts(result.newlyUnlocked);
   }
@@ -30,7 +38,7 @@ export function useTrackAchievement() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (event: AchievementEvent) => trackAchievementEvent(event),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: achievementKeys.all });
     },
   });

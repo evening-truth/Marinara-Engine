@@ -7,5 +7,6 @@ export const expressionAgentManifest = {
   phase: "post_processing",
   enabledByDefault: false,
   category: "tracker",
+  modeAllowlist: ["roleplay", "visual_novel"],
   defaultTools: ["set_expression"],
 } satisfies BuiltInAgentManifest;

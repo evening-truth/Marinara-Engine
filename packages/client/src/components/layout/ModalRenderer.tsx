@@ -45,6 +45,9 @@ const CreatePersonaModal = lazy(() =>
 const CharacterCardUpdateModal = lazy(() =>
   import("../modals/CharacterCardUpdateModal").then((module) => ({ default: module.CharacterCardUpdateModal })),
 );
+const AgentWriteApprovalModal = lazy(() =>
+  import("../modals/AgentWriteApprovalModal").then((module) => ({ default: module.AgentWriteApprovalModal })),
+);
 
 export function ModalRenderer() {
   const modal = useUIStore((s) => s.modal);
@@ -102,6 +105,9 @@ export function ModalRenderer() {
       break;
     case "character-card-update":
       content = <CharacterCardUpdateModal open onClose={closeModal} />;
+      break;
+    case "agent-write-approval":
+      content = <AgentWriteApprovalModal open onClose={closeModal} />;
       break;
     default:
       content = null;

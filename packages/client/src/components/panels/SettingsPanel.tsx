@@ -1074,15 +1074,16 @@ export function SettingsPanel() {
         {TABS.map((tab) => (
           <button
             key={tab.id}
+            id={`settings-tab-${tab.id}`}
             type="button"
             role="tab"
             aria-selected={settingsTab === tab.id}
+            aria-controls={`settings-panel-${tab.id}`}
+            tabIndex={settingsTab === tab.id ? 0 : -1}
             onClick={() => setSettingsTab(tab.id)}
             className={cn(
-              "flex min-w-0 items-center justify-center rounded-xl border px-2 py-2.5 text-[0.6875rem] font-medium leading-tight text-[var(--foreground)] transition-all active:scale-[0.98] sm:text-xs",
-              settingsTab === tab.id
-                ? "border-[var(--primary)]/35 bg-[var(--accent)]"
-                : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)]/35 hover:bg-[var(--accent)]",
+              "mari-chrome-control min-h-[2.5rem] w-full min-w-0 px-2 py-2 text-[0.6875rem] leading-tight sm:text-xs",
+              settingsTab === tab.id && "mari-chrome-control--selected",
             )}
           >
             <span className="max-w-full text-center">{tab.label}</span>
@@ -1098,6 +1099,9 @@ export function SettingsPanel() {
           return (
             <div
               key={tab.id}
+              id={`settings-panel-${tab.id}`}
+              role="tabpanel"
+              aria-labelledby={`settings-tab-${tab.id}`}
               className="absolute inset-0 overflow-y-auto p-3"
               style={active ? undefined : { clipPath: "inset(100%)", pointerEvents: "none" }}
             >
@@ -1811,6 +1815,8 @@ function AppearanceSettings() {
   const setRoleplayAvatarStyle = useUIStore((s) => s.setRoleplayAvatarStyle);
   const roleplayAvatarScale = useUIStore((s) => s.roleplayAvatarScale);
   const setRoleplayAvatarScale = useUIStore((s) => s.setRoleplayAvatarScale);
+  const roleplayAvatarsScrollable = useUIStore((s) => s.roleplayAvatarsScrollable);
+  const setRoleplayAvatarsScrollable = useUIStore((s) => s.setRoleplayAvatarsScrollable);
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
   const setRoleplaySpriteScale = useUIStore((s) => s.setRoleplaySpriteScale);
   const gameDialogueDisplayMode = useUIStore((s) => s.gameDialogueDisplayMode);
@@ -2164,9 +2170,10 @@ function AppearanceSettings() {
             <ColorPicker
               value={chatFontColor}
               onChange={setChatFontColor}
+              gradient
               compact
               label="Chat Text Color"
-              helpText="Controls the main chat message text color. Leave it on the scheme default to keep dark and light mode readable."
+              helpText="Controls the main chat message text color. Leave it on the scheme default to keep dark and light mode readable. Gradients are accepted for layouts that support them."
               emptyText={`Scheme default ${getDefaultChatTextColor(theme)}`}
               emptyPreviewValue={getDefaultChatTextColor(theme)}
               clearLabel="Reset to default"
@@ -2176,9 +2183,10 @@ function AppearanceSettings() {
             <ColorPicker
               value={chatChromeTextColor}
               onChange={setChatChromeTextColor}
+              gradient
               compact
               label="Chat Chrome Text Color"
-              helpText="Controls text in tracker widgets, shared toolbar buttons, and windows opened from chat buttons. Leave it on the scheme default to swap automatically between dark and light mode."
+              helpText="Controls text in tracker widgets, shared toolbar buttons, and windows opened from chat buttons. Leave it on the scheme default to swap automatically between dark and light mode. Gradients use a compatible fallback where plain CSS color is required."
               emptyText={`Scheme default ${getDefaultChatChromeTextColor(theme)}`}
               emptyPreviewValue={getDefaultChatChromeTextColor(theme)}
               clearLabel="Reset to default"
@@ -2288,6 +2296,12 @@ function AppearanceSettings() {
               <span className="text-xs font-medium">Roleplay Avatars</span>
               <HelpTooltip text="Choose how avatars sit next to roleplay messages. None hides message avatars. Small Circles keeps the current compact layout. Small Rectangles gives portraits a taller frame. Glued Side Panel embeds a larger portrait strip into the message bubble itself." />
             </div>
+            <ToggleSetting
+              label="Scrollable Avatars"
+              checked={roleplayAvatarsScrollable}
+              onChange={setRoleplayAvatarsScrollable}
+              help="When enabled, roleplay avatars stay visible while you scroll through long messages and stop at the bottom of their own message."
+            />
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {ROLEPLAY_AVATAR_STYLE_OPTIONS.map((opt) => (
                 <button
@@ -2327,8 +2341,10 @@ function AppearanceSettings() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-14 items-stretch overflow-hidden">
-                        <div className="relative w-20 overflow-hidden border-r border-white/8 bg-gradient-to-b from-rose-400/60 via-orange-300/45 to-transparent">
+                      <div className="flex h-14 items-stretch overflow-hidden bg-black/25">
+                        <div className="relative flex w-[42%] shrink-0 items-end justify-center overflow-hidden bg-[linear-gradient(155deg,rgba(251,146,60,0.96),rgba(244,114,182,0.78)_48%,rgba(39,39,42,0.96)_100%)]">
+                          <div className="absolute left-1/2 top-2 h-4 w-4 -translate-x-1/2 rounded-full bg-orange-50/45 shadow-[0_0_12px_rgba(255,237,213,0.35)]" />
+                          <div className="h-8 w-8 rounded-t-full bg-zinc-950/35" />
                           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[32%] backdrop-blur-[4px] [mask-image:linear-gradient(to_bottom,transparent_0%,rgba(0,0,0,0.25)_28%,rgba(0,0,0,0.8)_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,rgba(0,0,0,0.25)_28%,rgba(0,0,0,0.8)_100%)]" />
                           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,255,255,0)_0%,rgba(255,255,255,0)_72%,rgba(113,113,122,0.84)_92%,rgba(113,113,122,1)_100%)]" />
                         </div>
@@ -3389,6 +3405,8 @@ function ThemesSettings() {
               <span className="text-white/40">Sidebar bg</span>
               <span>--sidebar-border</span>
               <span className="text-white/40">Sidebar border</span>
+              <span>--marinara-shell-edge-border</span>
+              <span className="text-white/40">Left/right shell edge</span>
               <span>--destructive</span>
               <span className="text-white/40">Error / delete</span>
               <span>--popover</span>
@@ -3586,6 +3604,7 @@ const CSS_TEMPLATE = `/* ══════════════════�
   /* ── Borders ── */
   /* --border: #27272a; */
   /* --sidebar-border: #27272a; */
+  /* --marinara-shell-edge-border: color-mix(in srgb, var(--foreground) 14%, var(--background) 86%); */
 
   /* ── Text ── */
   /* --muted-foreground: #71717a; */

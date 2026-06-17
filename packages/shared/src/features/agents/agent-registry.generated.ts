@@ -6,7 +6,6 @@ import { proseGuardianAgentManifest } from "./prose-guardian/manifest.js";
 import { continuityAgentManifest } from "./continuity/manifest.js";
 import { directorAgentManifest } from "./director/manifest.js";
 import { echoChamberAgentManifest } from "./echo-chamber/manifest.js";
-import { promptReviewerAgentManifest } from "./prompt-reviewer/manifest.js";
 import { worldStateAgentManifest } from "./world-state/manifest.js";
 import { expressionAgentManifest } from "./expression/manifest.js";
 import { questAgentManifest } from "./quest/manifest.js";
@@ -19,24 +18,17 @@ import { lorebookKeeperAgentManifest } from "./lorebook-keeper/manifest.js";
 import { cardEvolutionAuditorAgentManifest } from "./card-evolution-auditor/manifest.js";
 import { combatAgentManifest } from "./combat/manifest.js";
 import { htmlAgentManifest } from "./html/manifest.js";
-import { chatSummaryAgentManifest } from "./chat-summary/manifest.js";
 import { spotifyAgentManifest } from "./spotify/manifest.js";
-import { youtubeAgentManifest } from "./youtube/manifest.js";
 import { knowledgeRetrievalAgentManifest } from "./knowledge-retrieval/manifest.js";
 import { knowledgeRouterAgentManifest } from "./knowledge-router/manifest.js";
-import { schedulePlannerAgentManifest } from "./schedule-planner/manifest.js";
-import { responseOrchestratorAgentManifest } from "./response-orchestrator/manifest.js";
-import { autonomousMessengerAgentManifest } from "./autonomous-messenger/manifest.js";
 import { hapticAgentManifest } from "./haptic/manifest.js";
 import { cyoaAgentManifest } from "./cyoa/manifest.js";
-import { secretPlotDriverAgentManifest } from "./secret-plot-driver/manifest.js";
 
 export const BUILT_IN_AGENT_MANIFESTS: readonly BuiltInAgentManifest[] = [
   proseGuardianAgentManifest,
   continuityAgentManifest,
   directorAgentManifest,
   echoChamberAgentManifest,
-  promptReviewerAgentManifest,
   worldStateAgentManifest,
   expressionAgentManifest,
   questAgentManifest,
@@ -49,16 +41,10 @@ export const BUILT_IN_AGENT_MANIFESTS: readonly BuiltInAgentManifest[] = [
   cardEvolutionAuditorAgentManifest,
   combatAgentManifest,
   htmlAgentManifest,
-  chatSummaryAgentManifest,
   spotifyAgentManifest,
-  youtubeAgentManifest,
   knowledgeRetrievalAgentManifest,
   knowledgeRouterAgentManifest,
-  schedulePlannerAgentManifest,
-  responseOrchestratorAgentManifest,
-  autonomousMessengerAgentManifest,
   hapticAgentManifest,
   cyoaAgentManifest,
-  secretPlotDriverAgentManifest,
 ];
 

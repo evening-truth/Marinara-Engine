@@ -885,7 +885,13 @@ function WorkspaceApprovalCard({
   );
 }
 
-export function HomeProfessorMariChat({ pageActive = true }: { pageActive?: boolean }) {
+export function HomeProfessorMariChat({
+  pageActive = true,
+  attachedFooter = false,
+}: {
+  pageActive?: boolean;
+  attachedFooter?: boolean;
+}) {
   const qc = useQueryClient();
   const { data: connectionsRaw, isLoading: connectionsLoading } = useConnections();
   const trackAchievement = useTrackAchievement();
@@ -1252,7 +1258,8 @@ export function HomeProfessorMariChat({ pageActive = true }: { pageActive?: bool
     <>
       <section
         className={cn(
-          "home-professor-mari-chat mt-10 w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)]/85 shadow-lg shadow-black/10 sm:mt-0",
+          "home-professor-mari-chat mt-10 w-full max-w-3xl border border-[var(--border)] bg-[var(--card)]/85 shadow-lg shadow-black/10 sm:mt-0",
+          attachedFooter ? "rounded-t-xl rounded-b-none" : "rounded-xl",
           mobileFocusMode &&
             "fixed inset-x-0 bottom-0 top-[calc(env(safe-area-inset-top)_+_3rem)] z-30 mt-0 max-w-none overflow-hidden rounded-t-2xl border-0 border-t border-[var(--border)]/70 bg-[var(--background)] sm:relative sm:inset-auto sm:z-auto sm:mt-0 sm:max-w-3xl sm:overflow-visible sm:rounded-xl sm:border sm:bg-[var(--card)]/85",
         )}

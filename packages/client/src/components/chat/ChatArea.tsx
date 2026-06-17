@@ -12,7 +12,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   useChatMessages,
   useChatMessageCount,
@@ -47,6 +47,7 @@ import {
   APP_VERSION,
   BUILT_IN_AGENTS,
   buildGuidedGenerationInstructionMessage,
+  type AchievementEvent,
   type SpritePlacement,
   type SpriteSide,
 } from "@marinara-engine/shared";
@@ -60,11 +61,17 @@ import { useEncounterStore } from "../../stores/encounter.store";
 import { useTranslationStore } from "../../stores/translation.store";
 import { ttsService } from "../../lib/tts-service";
 import { useTTSConfig } from "../../hooks/use-tts";
-import { useTrackAchievement } from "../../hooks/use-achievements";
+import { achievementKeys, trackAchievementEvent } from "../../hooks/use-achievements";
 import { buildTTSVoiceRequests, normalizeTTSCharacterName, withTTSVoiceRequestCacheKeys } from "../../lib/tts-dialogue";
 import { CHAT_SCROLL_TO_BOTTOM_EVENT, type ChatScrollToBottomDetail } from "../../lib/chat-scroll-events";
 import { mirrorSpritePlacements, normalizeSpritePlacements } from "./sprite-placement";
-import { normalizeSpriteDisplayModes } from "./sprite-display-modes";
+import {
+  SPRITE_DISPLAY_OPACITY_MAX,
+  SPRITE_DISPLAY_OPACITY_MIN,
+  SPRITE_DISPLAY_SCALE_MAX,
+  SPRITE_DISPLAY_SCALE_MIN,
+  normalizeSpriteDisplayModes,
+} from "./sprite-display-modes";
 import type {
   CharacterMap,
   ExpressionAvatarResolver,
@@ -251,7 +258,17 @@ export function ChatArea() {
   const [agentInjectionReview, setAgentInjectionReview] = useState<AgentInjectionReviewRequest | null>(null);
   const [agentInjectionDrafts, setAgentInjectionDrafts] = useState<Record<string, string>>({});
   const [creditsOpen, setCreditsOpen] = useState(false);
-  const trackAchievement = useTrackAchievement();
+  const queryClient = useQueryClient();
+  const trackHomeFooterAchievement = useCallback(
+    (event: AchievementEvent) => {
+      void trackAchievementEvent(event, { keepalive: true })
+        .catch(() => undefined)
+        .finally(() => {
+          void queryClient.invalidateQueries({ queryKey: achievementKeys.all });
+        });
+    },
+    [queryClient],
+  );
 
   // Delete dialog & multi-select state
   const [deleteDialogMessageId, setDeleteDialogMessageId] = useState<string | null>(null);
@@ -513,10 +530,47 @@ export function ChatArea() {
         : [],
     [chatMeta.spriteCharacterIds],
   );
-  const spriteDisplayModes = normalizeSpriteDisplayModes(chatMeta.spriteDisplayModes);
+  const spriteDisplayModes = useMemo(
+    () => normalizeSpriteDisplayModes(chatMeta.spriteDisplayModes),
+    [chatMeta.spriteDisplayModes],
+  );
   const spritePosition: SpriteSide = chatMeta.spritePosition === "right" ? "right" : "left";
-  const spriteScale = normalizeSpriteDisplayValue(chatMeta.spriteScale, roleplaySpriteScale, 0.5, 1.75);
-  const spriteOpacity = normalizeSpriteDisplayValue(chatMeta.spriteOpacity, 1, 0.15, 1);
+  const spriteScale = normalizeSpriteDisplayValue(
+    chatMeta.spriteScale,
+    roleplaySpriteScale,
+    SPRITE_DISPLAY_SCALE_MIN,
+    SPRITE_DISPLAY_SCALE_MAX,
+  );
+  const expressionSpriteScale = normalizeSpriteDisplayValue(
+    chatMeta.expressionSpriteScale,
+    spriteScale,
+    SPRITE_DISPLAY_SCALE_MIN,
+    SPRITE_DISPLAY_SCALE_MAX,
+  );
+  const fullBodySpriteScale = normalizeSpriteDisplayValue(
+    chatMeta.fullBodySpriteScale,
+    spriteScale,
+    SPRITE_DISPLAY_SCALE_MIN,
+    SPRITE_DISPLAY_SCALE_MAX,
+  );
+  const spriteOpacity = normalizeSpriteDisplayValue(
+    chatMeta.spriteOpacity,
+    1,
+    SPRITE_DISPLAY_OPACITY_MIN,
+    SPRITE_DISPLAY_OPACITY_MAX,
+  );
+  const expressionSpriteOpacity = normalizeSpriteDisplayValue(
+    chatMeta.expressionSpriteOpacity,
+    spriteOpacity,
+    SPRITE_DISPLAY_OPACITY_MIN,
+    SPRITE_DISPLAY_OPACITY_MAX,
+  );
+  const fullBodySpriteOpacity = normalizeSpriteDisplayValue(
+    chatMeta.fullBodySpriteOpacity,
+    spriteOpacity,
+    SPRITE_DISPLAY_OPACITY_MIN,
+    SPRITE_DISPLAY_OPACITY_MAX,
+  );
   const spritePlacements = useMemo(
     () => normalizeSpritePlacements(chatMeta.spritePlacements),
     [chatMeta.spritePlacements],
@@ -729,9 +783,9 @@ export function ChatArea() {
   );
 
   const handleSpritePlacementChange = useCallback(
-    (characterId: string, placement: SpritePlacement) => {
+    (placementKey: string, placement: SpritePlacement) => {
       if (!chat?.id) return;
-      pendingSpritePlacements.current = { ...pendingSpritePlacements.current, [characterId]: placement };
+      pendingSpritePlacements.current = { ...pendingSpritePlacements.current, [placementKey]: placement };
       if (spritePlacementSaveTimer.current) clearTimeout(spritePlacementSaveTimer.current);
       spritePlacementSaveTimer.current = setTimeout(() => {
         updateMeta.mutate({ id: chat.id, spritePlacements: pendingSpritePlacements.current });
@@ -779,6 +833,11 @@ export function ChatArea() {
     chatMeta.expressionAvatarsEnabled === true &&
     expressionAgentEnabled &&
     (chatCharIds.length > 0 || !!personaInfo?.id);
+  // Expression Avatars reuse expression sprites as message portraits, so suppress the duplicate overlay layer.
+  const visibleSpriteDisplayModes = useMemo(
+    () => (expressionAvatarsEnabled ? spriteDisplayModes.filter((mode) => mode !== "expressions") : spriteDisplayModes),
+    [expressionAvatarsEnabled, spriteDisplayModes],
+  );
   const expressionAvatarCharacterIds = useMemo(() => {
     const allowedIds = new Set(chatCharIds);
     if (personaInfo?.id) allowedIds.add(personaInfo.id);
@@ -1726,7 +1785,7 @@ export function ChatArea() {
             <button
               type="button"
               onClick={() => setActiveChatId(null)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)]"
+              className="mari-chrome-control mari-chrome-control--small text-xs"
             >
               Back to chats
             </button>
@@ -1774,14 +1833,16 @@ export function ChatArea() {
 
             <div className="text-center">
               <h3 className="retro-glow-text text-base sm:text-xl font-bold tracking-tight">Marinara Engine</h3>
+              <p className="mt-0.5 text-[0.625rem] tracking-wide text-[var(--muted-foreground)]/35">v{APP_VERSION}</p>
             </div>
 
             {/* Recent Chats */}
             <RecentChats />
 
-            <HomeProfessorMariChat pageActive={isPageActive} />
-
-            <HomeAchievements />
+            <div className="flex w-full max-w-3xl flex-col">
+              <HomeProfessorMariChat pageActive={isPageActive} attachedFooter />
+              <HomeAchievements attached />
+            </div>
 
             <div
               className={cn(
@@ -1823,7 +1884,7 @@ export function ChatArea() {
                     rel="noopener noreferrer"
                     className="underline decoration-[var(--muted-foreground)]/30 transition-colors hover:text-[var(--primary)] hover:decoration-[var(--primary)]/40"
                   >
-                    Huntercolliex
+                    HunterCollieX
                   </a>
                 </span>
               </div>
@@ -1832,8 +1893,8 @@ export function ChatArea() {
                   href="https://discord.com/invite/KdAkTg94ME"
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => trackAchievement.mutate("discord_clicked")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+                  onClick={() => trackHomeFooterAchievement("discord_clicked")}
+                  className="mari-chrome-control mari-chrome-control--small text-xs"
                 >
                   <svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.42 0 1.333-.947 2.418-2.157 2.418z" />
@@ -1844,8 +1905,8 @@ export function ChatArea() {
                   href="https://ko-fi.com/marinara_spaghetti"
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => trackAchievement.mutate("kofi_clicked")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+                  onClick={() => trackHomeFooterAchievement("kofi_clicked")}
+                  className="mari-chrome-control mari-chrome-control--small text-xs"
                 >
                   <svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
@@ -1856,9 +1917,9 @@ export function ChatArea() {
                   type="button"
                   onClick={() => {
                     setCreditsOpen(true);
-                    trackAchievement.mutate("credits_viewed");
+                    trackHomeFooterAchievement("credits_viewed");
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:text-[var(--primary)]"
+                  className="mari-chrome-control mari-chrome-control--small text-xs"
                 >
                   <List size="0.875rem" />
                   Credits
@@ -1868,14 +1929,12 @@ export function ChatArea() {
               {/* Restart tutorial */}
               <button
                 onClick={() => useUIStore.getState().setHasCompletedOnboarding(false)}
-                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]/40 transition-colors hover:bg-[var(--secondary)]/60 hover:text-[var(--muted-foreground)]"
+                className="mari-chrome-control mari-chrome-control--small text-xs"
                 title="Replay tutorial"
               >
-                <HelpCircle size="0.75rem" />
+                <HelpCircle size="0.875rem" />
                 Replay Tutorial
               </button>
-
-              <p className="text-[0.625rem] tracking-wide text-[var(--muted-foreground)]/30">v{APP_VERSION}</p>
             </div>
           </div>
         </div>
@@ -2146,13 +2205,16 @@ export function ChatArea() {
           encounterActive={encounterActive}
           spritePosition={spritePosition}
           spriteCharacterIds={spriteCharacterIds}
-          spriteDisplayModes={spriteDisplayModes}
+          spriteDisplayModes={visibleSpriteDisplayModes}
           spriteExpressions={spriteExpressions}
-          expressionAvatarsEnabled={expressionAvatarsEnabled}
           expressionAvatarResolver={expressionAvatarResolver}
           spritePlacements={spritePlacements}
           spriteScale={spriteScale}
+          expressionSpriteScale={expressionSpriteScale}
+          fullBodySpriteScale={fullBodySpriteScale}
           spriteOpacity={spriteOpacity}
+          expressionSpriteOpacity={expressionSpriteOpacity}
+          fullBodySpriteOpacity={fullBodySpriteOpacity}
           spriteArrangeMode={spriteArrangeMode}
           enabledAgentTypes={enabledAgentTypes}
           chatCharIds={chatCharIds}
@@ -2222,6 +2284,7 @@ export function ChatArea() {
           onToggleSpriteArrange={() => setSpriteArrangeMode((prev) => !prev)}
           onExpressionChange={handleExpressionChange}
           onSpritePlacementChange={handleSpritePlacementChange}
+          onFinishSpritePlacement={() => setSpriteArrangeMode(false)}
           onDeleteConfirm={handleDeleteConfirm}
           onDeleteSwipe={handleDeleteSwipe}
           onDeleteMore={handleDeleteMore}

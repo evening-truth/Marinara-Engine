@@ -18,7 +18,6 @@ import {
   Loader2,
   Bot,
   UserRound,
-  Settings2,
   Sparkles,
 } from "lucide-react";
 import { cn, getAvatarCropStyle, type AvatarCrop } from "../../lib/utils";
@@ -41,12 +40,15 @@ import {
   CONVERSATION_COMMAND_KEYS,
   DEFAULT_AGENT_CONTEXT_SIZE,
   DEFAULT_AGENT_MAX_TOKENS,
+  DEFAULT_AGENT_PROMPTS,
   DEFAULT_AGENT_TOOLS,
   MIN_AGENT_MAX_TOKENS,
+  getAgentPromptTemplateOptions,
   isAgentAvailableInChatMode,
   isAgentConfigDeleted,
   isAgentHiddenFromChatSettingsPicker,
   isBuiltInAgentRuntimeDisabled,
+  isRetiredBuiltInAgentId,
   mergeBuiltInAgentSettings,
   normalizeAgentPhaseForType,
   type AgentPhase,
@@ -54,6 +56,7 @@ import {
   type ChatMode,
   type ChatPreset,
   type ConversationCommandKey,
+  type Lorebook,
 } from "@marinara-engine/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -71,6 +74,14 @@ import {
   NEUTRAL_PANEL_SUBTITLE,
   NEUTRAL_PANEL_TITLE,
 } from "../ui/neutral-surface-styles";
+import {
+  AgentAddSetupFields,
+  applyAgentAddSetupToAgentSettings,
+  buildAgentAddMetadataPatch,
+  buildInitialAgentAddSetupState,
+  type AgentAddSetupState,
+  type AgentAddSpriteSubject,
+} from "./AgentAddSetupFields";
 
 // ─── Step definitions ─────────────────────────
 
@@ -104,7 +115,7 @@ const ROLEPLAY_STEPS: WizardStep[] = [
   {
     key: "agents",
     title: "Enable Agents",
-    body: "Optional agents can track details, polish prose, retrieve knowledge, or add special systems to this roleplay.",
+    body: "Optional agents can track details, polish prose, retrieve knowledge, or add special systems to this roleplay. You can add or remove them later as well!",
   },
 ];
 
@@ -184,7 +195,7 @@ type AgentAddPreview = {
   contextSize: number;
   maxTokens: number;
   runInterval: number | null;
-  directorMode: "natural" | "random";
+  setup: AgentAddSetupState;
 };
 
 const WIZARD_PANEL_CLASS = cn(
@@ -246,17 +257,12 @@ function normalizeAgentMaxTokensInputValue(value: unknown): number {
   return Math.max(MIN_AGENT_MAX_TOKENS, Math.trunc(value));
 }
 
-function normalizeNarrativeDirectorMode(value: unknown): "natural" | "random" {
-  return value === "random" ? "random" : "natural";
-}
-
 function WizardBackdrop({ onClose }: { onClose: () => void }) {
   return <div className="absolute inset-0 z-40 bg-black/45 backdrop-blur-[2px]" onClick={onClose} />;
 }
 
 function SetupWizardShell({
   title,
-  icon,
   steps,
   step,
   currentStep,
@@ -273,7 +279,6 @@ function SetupWizardShell({
   busyContent,
 }: {
   title: string;
-  icon: React.ReactNode;
   steps: WizardStep[];
   step: number;
   currentStep: WizardStep;
@@ -301,10 +306,7 @@ function SetupWizardShell({
           className={WIZARD_PANEL_CLASS}
         >
           <div className={cn(NEUTRAL_PANEL_HEADER, "flex shrink-0 items-center justify-between")}>
-            <h3 className={NEUTRAL_PANEL_TITLE}>
-              {icon}
-              {title}
-            </h3>
+            <h3 className={NEUTRAL_PANEL_TITLE}>{title}</h3>
             <button
               onClick={onClose}
               className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
@@ -629,12 +631,16 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
       (allCharacters ?? []) as Array<{ id: string; data: string; comment?: string | null; avatarPath: string | null }>,
     [allCharacters],
   );
-  const personas = (allPersonas ?? []) as Array<{
-    id: string;
-    name: string;
-    avatarPath: string | null;
-    comment?: string | null;
-  }>;
+  const personas = useMemo(
+    () =>
+      (allPersonas ?? []) as Array<{
+        id: string;
+        name: string;
+        avatarPath: string | null;
+        comment?: string | null;
+      }>,
+    [allPersonas],
+  );
   const metadata = useMemo(() => {
     return readChatMetadata(chat);
   }, [chat]);
@@ -1159,7 +1165,6 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
       <WizardBackdrop onClose={onFinish} />
       <SetupWizardShell
         title="New Conversation"
-        icon={<MessageCircle size="0.875rem" className="text-[var(--muted-foreground)]" />}
         steps={CONVERSATION_STEPS}
         step={step}
         currentStep={currentStep}
@@ -1205,6 +1210,8 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   const createMessage = useCreateMessage(chat.id);
   const queryClient = useQueryClient();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
+  const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
+  const musicPlayerSource = useUIStore((s) => s.musicPlayerSource);
 
   // Fetch full preset data to check for choice blocks (variables)
   const { data: presetFull, isLoading: presetFullLoading } = usePresetFull(chat.promptPresetId ?? null);
@@ -1218,19 +1225,25 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   const { data: agentConfigs } = useAgentConfigs();
 
   // Chat-settings presets for the shortcut view
+  const supportsNarrativeDirectorSecretPlot = (chat as unknown as { mode?: string }).mode === "roleplay";
   const chatPresetMode = (
     (chat as unknown as { mode?: string }).mode === "visual_novel" ? "roleplay" : "roleplay"
   ) as ChatMode;
+  const activeChatMode = ((chat as unknown as { mode?: ChatMode }).mode ?? "roleplay") as ChatMode;
   const { data: chatPresetsData } = useChatPresets(chatPresetMode);
   const chatPresetList = useMemo(() => (chatPresetsData ?? []) as ChatPreset[], [chatPresetsData]);
   const applyChatPreset = useApplyChatPreset();
 
-  const personas = (allPersonas ?? []) as Array<{
-    id: string;
-    name: string;
-    avatarPath: string | null;
-    comment?: string | null;
-  }>;
+  const personas = useMemo(
+    () =>
+      (allPersonas ?? []) as Array<{
+        id: string;
+        name: string;
+        avatarPath: string | null;
+        comment?: string | null;
+      }>,
+    [allPersonas],
+  );
   const characters = useMemo(
     () =>
       (allCharacters ?? []) as Array<{ id: string; data: string; comment?: string | null; avatarPath: string | null }>,
@@ -1297,8 +1310,8 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     const agents: AvailableAgent[] = [];
     for (const agent of BUILT_IN_AGENTS) {
       if (agent.libraryHidden) continue;
-      if (!isAgentAvailableInChatMode("roleplay", agent.id)) continue;
-      if (isAgentHiddenFromChatSettingsPicker("roleplay", agent.id)) continue;
+      if (!isAgentAvailableInChatMode(activeChatMode, agent.id)) continue;
+      if (isAgentHiddenFromChatSettingsPicker(activeChatMode, agent.id)) continue;
       const existing = agentConfigsByType.get(agent.id);
       if (existing && isAgentConfigDeleted(existing.settings)) continue;
       agents.push({
@@ -1313,6 +1326,7 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     }
     for (const config of (agentConfigs ?? []) as AgentConfigRow[]) {
       if (isAgentConfigDeleted(config.settings)) continue;
+      if (isRetiredBuiltInAgentId(config.type)) continue;
       if (BUILT_IN_AGENTS.some((agent) => agent.id === config.type)) continue;
       agents.push({
         id: config.type,
@@ -1325,7 +1339,20 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
       });
     }
     return agents;
-  }, [agentConfigs, agentConfigsByType]);
+  }, [activeChatMode, agentConfigs, agentConfigsByType]);
+
+  const getPromptOptionsForAgent = useCallback(
+    (agentId: string) => {
+      const config = agentConfigsByType.get(agentId);
+      const settings = mergeBuiltInAgentSettings(agentId, config?.settings);
+      return getAgentPromptTemplateOptions({
+        promptTemplate: config?.promptTemplate || "",
+        fallbackPromptTemplate: DEFAULT_AGENT_PROMPTS[agentId] || "",
+        settings,
+      });
+    },
+    [agentConfigsByType],
+  );
 
   // Character name helper
   const charInfoMap = useMemo(() => {
@@ -1351,6 +1378,34 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     },
     [charInfoMap],
   );
+
+  const agentAddSpriteSubjects = useMemo<AgentAddSpriteSubject[]>(() => {
+    const selectedCharacters = chatCharIds
+      .map((characterId) => characters.find((character) => character.id === characterId))
+      .filter(
+        (character): character is { id: string; data: string; comment?: string | null; avatarPath: string | null } =>
+          Boolean(character),
+      );
+    const selectedPersona = chat.personaId ? personas.find((persona) => persona.id === chat.personaId) : null;
+    return [
+      ...selectedCharacters.map((character) => ({
+        id: character.id,
+        name: charName(character),
+        subtitle: charTitle(character),
+        avatarPath: character.avatarPath ?? null,
+      })),
+      ...(selectedPersona
+        ? [
+            {
+              id: selectedPersona.id,
+              name: selectedPersona.name,
+              subtitle: selectedPersona.comment || "Persona",
+              avatarPath: selectedPersona.avatarPath ?? null,
+            },
+          ]
+        : []),
+    ];
+  }, [chat.personaId, chatCharIds, charName, charTitle, characters, personas]);
 
   // Track whether the user has manually edited the chat name.
   // The roleplay wizard doesn't expose a name field, so this stays false
@@ -1553,10 +1608,17 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         runInterval: intervalMeta
           ? normalizePositiveInteger(mergedSettings.runInterval, intervalMeta.defaultValue, intervalMeta.max)
           : null,
-        directorMode: normalizeNarrativeDirectorMode(mergedSettings.directorMode),
+        setup: buildInitialAgentAddSetupState({
+          agentId: agent.id,
+          settings: mergedSettings,
+          metadata,
+          musicPlayerSource,
+          roleplaySpriteScale,
+          allowSecretPlot: supportsNarrativeDirectorSecretPlot,
+        }),
       });
     },
-    [agentConfigsByType],
+    [agentConfigsByType, metadata, musicPlayerSource, roleplaySpriteScale, supportsNarrativeDirectorSecretPlot],
   );
 
   const removeAgentFromChat = useCallback(
@@ -1572,19 +1634,18 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
 
   const confirmAddAgent = useCallback(async () => {
     if (!agentAddPreview) return;
-    const { agent, config, contextSize, maxTokens, runInterval, directorMode } = agentAddPreview;
+    const { agent, config, contextSize, maxTokens, runInterval, setup } = agentAddPreview;
     const builtInMeta = BUILT_IN_AGENTS.find((entry) => entry.id === agent.id) ?? null;
-    const nextSettings: Record<string, unknown> = {
+    let nextSettings: Record<string, unknown> = {
       ...mergeBuiltInAgentSettings(agent.id, config?.settings),
       contextSize,
       maxTokens: normalizeAgentMaxTokens(maxTokens),
     };
     const intervalMeta = getAgentRunIntervalMeta(agent.id, !!builtInMeta);
     if (intervalMeta && runInterval != null) nextSettings.runInterval = runInterval;
-    if (agent.id === "director") {
-      nextSettings.directorMode = directorMode;
-      delete nextSettings.runInterval;
-    }
+    nextSettings = applyAgentAddSetupToAgentSettings(agent.id, setup, nextSettings, {
+      allowSecretPlot: supportsNarrativeDirectorSecretPlot,
+    });
     const nextEnabledTools = nextSettings.enabledTools;
     if (
       builtInMeta &&
@@ -1614,8 +1675,9 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         id: chat.id,
         enableAgents: true,
         activeAgentIds: Array.from(new Set([...activeAgentIds, agent.id])),
-        ...(agent.id === "director" ? { narrativeDirectorMode: directorMode } : {}),
-        ...(agent.id === "secret-plot-driver" ? { showSecretPlotPanel: true } : {}),
+        ...buildAgentAddMetadataPatch(agent.id, setup, metadata, {
+          allowSecretPlot: supportsNarrativeDirectorSecretPlot,
+        }),
       });
       setAgentAddPreview(null);
     } catch (error) {
@@ -1623,7 +1685,16 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
     } finally {
       setAddingAgentToChat(false);
     }
-  }, [activeAgentIds, agentAddPreview, chat.id, createAgent, updateAgentConfig, updateMeta]);
+  }, [
+    activeAgentIds,
+    agentAddPreview,
+    chat.id,
+    createAgent,
+    metadata,
+    supportsNarrativeDirectorSecretPlot,
+    updateAgentConfig,
+    updateMeta,
+  ]);
 
   // ─── Step content renderers ───────────────────
 
@@ -1913,6 +1984,12 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
   }
 
   function renderAgents() {
+    const agentCategorySections = [
+      { category: "writer", title: "Writer Agents" },
+      { category: "tracker", title: "Tracker Agents" },
+      { category: "misc", title: "Misc Agents" },
+      { category: "custom", title: "Custom Agents" },
+    ] as const;
     const filteredAgents = availableAgents.filter((agent) => {
       const query = agentSearch.toLowerCase();
       return (
@@ -1921,6 +1998,23 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         agent.category.toLowerCase().includes(query)
       );
     });
+    const knownAgentCategories = new Set<string>(agentCategorySections.map((section) => section.category));
+    const unknownAgentCategories = Array.from(
+      new Set(filteredAgents.map((agent) => agent.category).filter((category) => !knownAgentCategories.has(category))),
+    );
+    const filteredAgentSections = [
+      ...agentCategorySections.map((section) => ({
+        ...section,
+        agents: filteredAgents.filter((agent) => agent.category === section.category),
+      })),
+      ...unknownAgentCategories.map((category) => ({
+        category,
+        title: category.trim()
+          ? `${category.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase())} Agents`
+          : "Other Agents",
+        agents: filteredAgents.filter((agent) => agent.category === category),
+      })),
+    ].filter((section) => section.agents.length > 0);
     const agentAddIntervalMeta = agentAddPreview
       ? getAgentRunIntervalMeta(agentAddPreview.agent.id, agentAddPreview.agent.builtIn)
       : null;
@@ -2079,33 +2173,20 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                   </label>
                 )}
 
-                {agentAddPreview.agent.id === "director" && (
-                  <div className="grid gap-1.5 sm:grid-cols-2">
-                    {(
-                      [
-                        ["natural", "Natural", "Advance existing story threads."],
-                        ["random", "Random Event", "Introduce a plausible surprise."],
-                      ] as const
-                    ).map(([mode, label, description]) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() =>
-                          setAgentAddPreview((current) => (current ? { ...current, directorMode: mode } : current))
-                        }
-                        className={cn(
-                          "rounded-lg px-3 py-2 text-left transition-all",
-                          agentAddPreview.directorMode === mode
-                            ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-                            : "bg-[var(--secondary)] hover:bg-[var(--accent)]",
-                        )}
-                      >
-                        <span className="block text-xs font-medium">{label}</span>
-                        <span className="block text-[0.625rem] text-[var(--muted-foreground)]">{description}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <AgentAddSetupFields
+                  agentId={agentAddPreview.agent.id}
+                  value={agentAddPreview.setup}
+                  disabled={addingAgentToChat}
+                  lorebooks={(lorebooks ?? []) as Lorebook[]}
+                  promptOptions={getPromptOptionsForAgent(agentAddPreview.agent.id)}
+                  spriteSubjects={agentAddSpriteSubjects}
+                  allowSecretPlotControls={supportsNarrativeDirectorSecretPlot}
+                  onChange={(patch) =>
+                    setAgentAddPreview((current) =>
+                      current ? { ...current, setup: { ...current.setup, ...patch } } : current,
+                    )
+                  }
+                />
 
                 <div className="flex justify-end gap-2">
                   <button
@@ -2139,30 +2220,47 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
                 />
               </div>
               <div className="max-h-56 overflow-y-auto border-t border-[var(--border)]">
-                {filteredAgents.map((agent) => {
-                  const active = activeAgentIds.includes(agent.id);
+                {filteredAgentSections.map((section) => {
+                  const activeCount = section.agents.filter((agent) => activeAgentIds.includes(agent.id)).length;
                   return (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      onClick={() => (active ? removeAgentFromChat(agent.id) : openAgentAddPreview(agent))}
-                      className={cn(
-                        "flex w-full items-start gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
-                        active && "bg-[var(--primary)]/10",
-                      )}
-                    >
-                      <Sparkles size="0.8125rem" className="mt-0.5 shrink-0 text-[var(--muted-foreground)]" />
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">{agent.name}</span>
-                        <span className="mt-0.5 line-clamp-2 block text-[0.625rem] leading-tight text-[var(--muted-foreground)]">
-                          {agent.description}
+                    <div key={section.category} className="border-b border-[var(--border)]/70 last:border-b-0">
+                      <div className="sticky top-0 z-10 flex items-center justify-between bg-[var(--secondary)]/95 px-3 py-1.5 backdrop-blur-sm">
+                        <span className="text-[0.625rem] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                          {section.title}
+                        </span>
+                        <span className="rounded-full bg-[var(--background)]/70 px-1.5 py-0.5 text-[0.5625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                          {activeCount > 0 ? `${activeCount}/${section.agents.length}` : section.agents.length}
                         </span>
                       </div>
-                      <span className="text-[0.625rem] text-[var(--muted-foreground)]">{active ? "Added" : "Add"}</span>
-                    </button>
+                      {section.agents.map((agent) => {
+                        const active = activeAgentIds.includes(agent.id);
+                        return (
+                          <button
+                            key={agent.id}
+                            type="button"
+                            onClick={() => (active ? removeAgentFromChat(agent.id) : openAgentAddPreview(agent))}
+                            className={cn(
+                              "flex w-full items-start gap-2.5 px-3 py-2 text-left transition-all hover:bg-[var(--accent)]",
+                              active && "bg-[var(--primary)]/10",
+                            )}
+                          >
+                            <Sparkles size="0.8125rem" className="mt-0.5 shrink-0 text-[var(--muted-foreground)]" />
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-medium">{agent.name}</span>
+                              <span className="mt-0.5 line-clamp-2 block text-[0.625rem] leading-tight text-[var(--muted-foreground)]">
+                                {agent.description}
+                              </span>
+                            </div>
+                            <span className="text-[0.625rem] text-[var(--muted-foreground)]">
+                              {active ? "Added" : "Add"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   );
                 })}
-                {filteredAgents.length === 0 && (
+                {filteredAgentSections.length === 0 && (
                   <p className="px-3 py-3 text-center text-[0.6875rem] text-[var(--muted-foreground)]">
                     {availableAgents.length === 0 ? "No agents available." : "No matching agents."}
                   </p>
@@ -2249,7 +2347,6 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         (shortcutMode ? (
           <SetupWizardShell
             title="Quick Setup"
-            icon={<Settings2 size="0.875rem" className="text-[var(--muted-foreground)]" />}
             steps={[shortcutStep]}
             step={0}
             currentStep={shortcutStep}
@@ -2267,7 +2364,6 @@ function RoleplaySetupWizard({ chat, onFinish }: ChatSetupWizardProps) {
         ) : (
           <SetupWizardShell
             title="New Roleplay"
-            icon={<MessageCircle size="0.875rem" className="text-[var(--muted-foreground)]" />}
             steps={STEPS}
             step={step}
             currentStep={currentStep}

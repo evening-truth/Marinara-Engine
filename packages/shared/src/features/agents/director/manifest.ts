@@ -7,8 +7,11 @@ export const directorAgentManifest = {
   phase: "pre_generation",
   enabledByDefault: false,
   category: "writer",
+  modeAllowlist: ["roleplay"],
   defaultTools: [],
   defaultSettings: {
     directorMode: "natural",
+    secretPlotEnabled: false,
+    secretPlotRunInterval: 8,
   },
 } satisfies BuiltInAgentManifest;

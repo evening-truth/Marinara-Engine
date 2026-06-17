@@ -6,7 +6,7 @@
 // instead of scattering mode checks across large components.
 
 import type { ChatMode } from "../types/chat.js";
-import { BUILT_IN_AGENTS } from "../types/agent.js";
+import { BUILT_IN_AGENTS, isRetiredBuiltInAgentId } from "../types/agent.js";
 
 export type ChatParticipantModel = "chat-participants" | "game-party";
 
@@ -81,18 +81,9 @@ export const SHARED_CHAT_SETTINGS_SECTIONS = [
   "impersonation",
 ] as const satisfies readonly ChatSettingsSectionId[];
 
-export const ROLEPLAY_AGENT_PICKER_HIDDEN_IDS = [
-  "prompt-reviewer",
-  "schedule-planner",
-  "response-orchestrator",
-  "autonomous-messenger",
-  "youtube",
-] as const;
+export const ROLEPLAY_AGENT_PICKER_HIDDEN_IDS = [] as const;
 
-export const CONVERSATION_AGENT_IDS = [
-  "schedule-planner",
-  "autonomous-messenger",
-] as const;
+export const CONVERSATION_AGENT_IDS = [] as const;
 
 export const ROLEPLAY_DEFAULT_AGENT_IDS = [
   "world-state",
@@ -107,16 +98,11 @@ export const VISUAL_NOVEL_DEFAULT_AGENT_IDS = [
   "expression",
 ] as const;
 
-export const GAME_AGENT_IDS = [
-  "world-state",
-  "quest",
-  "expression",
-  "combat",
-] as const;
+// Game mode has native GM/world-state/quest/combat/knowledge systems.
+// Roleplay helper agents must not be exposed as per-game agent toggles here.
+export const GAME_AGENT_IDS = [] as const;
 
-export const GAME_OPTIONAL_AGENT_IDS = [
-  "knowledge-retrieval",
-] as const;
+export const GAME_OPTIONAL_AGENT_IDS = [] as const;
 
 const BUILT_IN_AGENT_ID_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
 
@@ -191,7 +177,7 @@ export const CHAT_MODE_CAPABILITIES: Record<ChatMode, ChatModeCapabilities> = {
       kind: "allowlist",
       defaultAgentIds: GAME_AGENT_IDS,
       // Music DJ is allowed (opt-in via the game music toggle) but not on by default.
-      allowedAgentIds: [...GAME_AGENT_IDS, ...GAME_OPTIONAL_AGENT_IDS, "spotify", "youtube"],
+      allowedAgentIds: [...GAME_AGENT_IDS, ...GAME_OPTIONAL_AGENT_IDS, "spotify"],
     },
     sharedSections: SHARED_CHAT_SETTINGS_SECTIONS,
     modeSections: ["extra-prompt", "conversation-notes"],
@@ -208,8 +194,10 @@ export function getChatModeCapabilities(mode: ChatMode | null | undefined): Chat
 }
 
 export function isAgentAvailableInChatMode(mode: ChatMode | null | undefined, agentId: string): boolean {
-  if (agentId === "html") return mode === "roleplay";
-  if (agentId === "chat-summary") return mode === "roleplay";
+  if (isRetiredBuiltInAgentId(agentId)) return false;
+  const normalizedMode = mode ?? "roleplay";
+  const builtIn = BUILT_IN_AGENTS.find((agent) => agent.id === agentId);
+  if (builtIn?.modeAllowlist?.length && !builtIn.modeAllowlist.includes(normalizedMode)) return false;
   const policy = getChatModeCapabilities(mode).agentPolicy;
   if (policy.kind === "all") return true;
   if (!BUILT_IN_AGENT_ID_SET.has(agentId)) return true;

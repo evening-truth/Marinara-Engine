@@ -1043,7 +1043,7 @@ export function LorebookEditor() {
 
   // ── Main editor ──
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
       <ExportFormatDialog
         open={exportDialogOpen}
         title="Export Lorebook"
@@ -1091,54 +1091,56 @@ export function LorebookEditor() {
       )}
 
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
-        <button onClick={handleClose} className="rounded-lg p-1.5 transition-colors hover:bg-[var(--accent)]">
+      <div className="mari-editor-header">
+        <button onClick={handleClose} className="mari-editor-action inline-flex">
           <ArrowLeft size="1rem" />
         </button>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white shadow-sm">
+        <div className="mari-editor-icon-tile">
           <BookOpen size="1.125rem" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold">{lorebook.name}</h2>
-          <p className="truncate text-[0.6875rem] text-[var(--muted-foreground)]">
+          <h2 className="mari-editor-title truncate text-base">{lorebook.name}</h2>
+          <p className="mari-editor-meta">
             {entries.length} entries • {lorebook.category}
           </p>
         </div>
-        <button
-          onClick={handleSaveLorebook}
-          disabled={!lorebookDirty || saving}
-          className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
-        >
-          <Save size="0.8125rem" />
-          {saving ? "Saving…" : "Save"}
-        </button>
-        <button
-          onClick={() => setExportDialogOpen(true)}
-          className="rounded-lg p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          title="Export lorebook"
-        >
-          <svg width="0.875rem" height="0.875rem" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M10 13V3m0 0l-4 4m4-4l4 4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <rect x="3" y="15" width="14" height="2" rx="1" fill="currentColor" />
-          </svg>
-        </button>
-        <button
-          onClick={handleDelete}
-          className="rounded-lg p-2 text-[var(--destructive)] transition-colors hover:bg-[var(--destructive)]/15"
-          title="Delete lorebook"
-        >
-          <Trash2 size="0.875rem" />
-        </button>
+        <div className="mari-editor-actions flex">
+          <button
+            onClick={handleSaveLorebook}
+            disabled={!lorebookDirty || saving}
+            className="mari-editor-action mari-editor-action--primary inline-flex disabled:opacity-50"
+          >
+            <Save size="0.8125rem" />
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            onClick={() => setExportDialogOpen(true)}
+            className="mari-editor-action inline-flex"
+            title="Export lorebook"
+          >
+            <svg width="0.875rem" height="0.875rem" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M10 13V3m0 0l-4 4m4-4l4 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <rect x="3" y="15" width="14" height="2" rx="1" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            onClick={handleDelete}
+            className="mari-editor-action mari-editor-action--danger inline-flex"
+            title="Delete lorebook"
+          >
+            <Trash2 size="0.875rem" />
+          </button>
+        </div>
       </div>
 
       {/* Body: Side-tabs + Content */}
-      <div className="flex flex-1 overflow-hidden @max-5xl:flex-col">
+      <div className="mari-editor-body @max-5xl:flex-col">
         <EditorTabRail
           tabs={TABS}
           activeId={activeTab}
@@ -1147,8 +1149,8 @@ export function LorebookEditor() {
         />
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-6 @max-5xl:p-4">
-          <div className="mx-auto max-w-3xl">
+        <div className="mari-editor-content @max-5xl:p-4">
+          <div className="mari-editor-content-inner mari-editor-content-inner--wide">
             {activeTab === "overview" && (
               <div className="space-y-6">
                 {/* Name */}
@@ -1632,7 +1634,7 @@ export function LorebookEditor() {
                   </button>
                   <button
                     onClick={handleAddEntry}
-                    className="flex shrink-0 items-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-500 px-4 py-2.5 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98]"
+                    className="mari-editor-action mari-editor-action--primary inline-flex shrink-0"
                   >
                     <Plus size="0.8125rem" />
                     Add Entry

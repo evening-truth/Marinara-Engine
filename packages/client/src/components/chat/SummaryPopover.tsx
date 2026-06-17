@@ -31,7 +31,7 @@ import {
   ROLEPLAY_POPOVER_TITLE,
 } from "./roleplay-popover-styles";
 import {
-  DEFAULT_AGENT_PROMPTS,
+  DEFAULT_CHAT_SUMMARY_PROMPT,
   estimateChatSummaryTokens,
   normalizeChatSummaryEntries,
   type ChatSummaryEntry,
@@ -46,7 +46,7 @@ interface SummaryPopoverProps {
   contextSize: number;
   promptTemplates?: ChatSummaryPromptTemplate[];
   activePromptTemplateId?: string | null;
-  enableAgents?: boolean;
+  automaticSummaryEnabled?: boolean;
   activeAgentIds?: string[];
   summaryRunInterval?: number;
   automaticSummariesAvailable?: boolean;
@@ -196,7 +196,7 @@ export function SummaryPopover({
   contextSize,
   promptTemplates = [],
   activePromptTemplateId = null,
-  enableAgents = false,
+  automaticSummaryEnabled = false,
   activeAgentIds = [],
   summaryRunInterval,
   automaticSummariesAvailable = true,
@@ -359,7 +359,7 @@ export function SummaryPopover({
   const tokenWarning = enabledTokenEstimate > SUMMARY_TOKEN_WARNING_THRESHOLD;
   const entryMutationPending =
     updateSummaryEntry.isPending || deleteSummaryEntry.isPending || toggleSummaryEntry.isPending;
-  const automaticSummaryEnabled = enableAgents && activeAgentIds.includes(SUMMARY_AGENT_ID);
+  const automaticSummariesOn = automaticSummaryEnabled || activeAgentIds.includes(SUMMARY_AGENT_ID);
 
   useEffect(() => {
     if (!automaticIntervalFocused.current) {
@@ -378,17 +378,14 @@ export function SummaryPopover({
 
   const handleAutomaticSummaryToggle = useCallback(
     (checked: boolean) => {
-      const nextActiveIds = checked
-        ? Array.from(new Set([...activeAgentIds, SUMMARY_AGENT_ID]))
-        : activeAgentIds.filter((agentId) => agentId !== SUMMARY_AGENT_ID);
       updateMeta.mutate({
         id: chatId,
-        enableAgents: checked ? true : enableAgents,
-        activeAgentIds: nextActiveIds,
+        automaticSummaryEnabled: checked,
+        activeAgentIds: activeAgentIds.filter((agentId) => agentId !== SUMMARY_AGENT_ID),
         summaryRunInterval: normalizedAutomaticSummaryInterval,
       });
     },
-    [activeAgentIds, chatId, enableAgents, normalizedAutomaticSummaryInterval, updateMeta],
+    [activeAgentIds, chatId, normalizedAutomaticSummaryInterval, updateMeta],
   );
 
   const handleSourceModeChange = useCallback(
@@ -609,14 +606,14 @@ export function SummaryPopover({
   const handleNewPromptTemplate = useCallback(() => {
     setEditingTemplateId(null);
     setTemplateNameDraft(`Summary Style ${cleanedPromptTemplates.length + 1}`);
-    setTemplatePromptDraft(DEFAULT_AGENT_PROMPTS["chat-summary"] ?? "");
+    setTemplatePromptDraft(DEFAULT_CHAT_SUMMARY_PROMPT);
     setTemplateEditorOpen(true);
   }, [cleanedPromptTemplates.length]);
 
   const handleDuplicatePromptTemplate = useCallback((template: ChatSummaryPromptTemplate | null) => {
     setEditingTemplateId(null);
     setTemplateNameDraft(`${template?.name ?? "Built-in default"} copy`);
-    setTemplatePromptDraft(template?.prompt ?? DEFAULT_AGENT_PROMPTS["chat-summary"] ?? "");
+    setTemplatePromptDraft(template?.prompt ?? DEFAULT_CHAT_SUMMARY_PROMPT);
     setTemplateEditorOpen(true);
   }, []);
 
@@ -788,14 +785,14 @@ export function SummaryPopover({
                         Automatic Summaries
                       </p>
                       <p className="mt-0.5 text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
-                        {automaticSummaryEnabled
+                        {automaticSummariesOn
                           ? `Updates after ${normalizedAutomaticSummaryInterval} user message${normalizedAutomaticSummaryInterval === 1 ? "" : "s"}.`
                           : "Off for this roleplay chat."}
                       </p>
                     </div>
                     <SummarySettingsToggle
                       label="Enabled"
-                      checked={automaticSummaryEnabled}
+                      checked={automaticSummariesOn}
                       onChange={handleAutomaticSummaryToggle}
                     />
                   </div>
@@ -807,7 +804,7 @@ export function SummaryPopover({
                         min={MIN_AUTOMATIC_SUMMARY_INTERVAL}
                         max={MAX_AUTOMATIC_SUMMARY_INTERVAL}
                         value={automaticIntervalDraft}
-                        disabled={!automaticSummaryEnabled}
+                        disabled={!automaticSummariesOn}
                         onFocus={() => {
                           automaticIntervalFocused.current = true;
                         }}

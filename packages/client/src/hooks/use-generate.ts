@@ -10,7 +10,7 @@ import { formatAgentFailuresToast, toAgentFailure, type AgentFailure } from "../
 import { chatBackgroundMetadataToUrl } from "../lib/backgrounds";
 import { requestChatScrollToBottom } from "../lib/chat-scroll-events";
 import { agentKeys } from "./use-agents";
-import type { PendingCardUpdate } from "../stores/agent.store";
+import type { PendingAgentWriteApproval, PendingCardUpdate } from "../stores/agent.store";
 import {
   applyQuestUpdatesToPlayerStats,
   applyTrackerFieldLocksToGameStatePatch,
@@ -18,6 +18,7 @@ import {
   createInlineThinkingStreamFilter,
   EDITABLE_CHARACTER_CARD_FIELDS,
   normalizeThinkingTagPairs,
+  type AgentWriteApprovalProposal,
   type AgentCallDebugEvent,
   type CharacterCardFieldUpdate,
   type EditableCharacterCardField,
@@ -299,6 +300,70 @@ async function buildPendingCardUpdates(
       },
     ];
   });
+}
+
+function readAgentWriteApprovalProposal(
+  raw: unknown,
+  fallback?: { chatId?: string; agentType?: string | null; agentName?: string },
+): AgentWriteApprovalProposal | null {
+  const envelope = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  const source =
+    envelope?.requiresApproval === true && envelope.approval && typeof envelope.approval === "object"
+      ? (envelope.approval as Record<string, unknown>)
+      : envelope;
+  if (!source) return null;
+  const kind =
+    source.kind === "lorebook_update" || source.kind === "summary_update" ? source.kind : null;
+  if (!kind) return null;
+
+  const chatId =
+    typeof source.chatId === "string" && source.chatId.trim()
+      ? source.chatId.trim()
+      : typeof fallback?.chatId === "string"
+        ? fallback.chatId
+        : "";
+  const text = typeof source.text === "string" ? source.text : "";
+  if (!chatId || !text.trim()) return null;
+
+  const agentType =
+    typeof source.agentType === "string" && source.agentType.trim()
+      ? source.agentType.trim()
+      : (fallback?.agentType ?? null);
+  const agentName =
+    typeof source.agentName === "string" && source.agentName.trim()
+      ? source.agentName.trim()
+      : (fallback?.agentName ?? agentType ?? "Agent");
+  const title =
+    typeof source.title === "string" && source.title.trim() ? source.title.trim() : `${agentName} proposed an update`;
+  const payload =
+    source.payload && typeof source.payload === "object" && !Array.isArray(source.payload)
+      ? (source.payload as Record<string, unknown>)
+      : undefined;
+  const createdAt = typeof source.createdAt === "string" ? source.createdAt : "";
+
+  return {
+    kind,
+    chatId,
+    agentType,
+    agentName,
+    title,
+    text,
+    ...(payload ? { payload } : {}),
+    canRegenerate: source.canRegenerate === true,
+    ...(createdAt ? { createdAt } : {}),
+  };
+}
+
+function createPendingAgentWriteApproval(proposal: AgentWriteApprovalProposal): PendingAgentWriteApproval {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `agent-write-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    ...proposal,
+    id,
+    timestamp: Date.now(),
+  };
 }
 import { useChatStore } from "../stores/chat.store";
 import { useAgentStore } from "../stores/agent.store";
@@ -818,6 +883,7 @@ export function useGenerate() {
   const setYoutubePlay = useAgentStore((s) => s.setYoutubePlay);
   const setYoutubeVolume = useAgentStore((s) => s.setYoutubeVolume);
   const enqueuePendingCardUpdate = useAgentStore((s) => s.enqueuePendingCardUpdate);
+  const enqueuePendingAgentWriteApproval = useAgentStore((s) => s.enqueuePendingAgentWriteApproval);
   const setFailedAgentFailures = useAgentStore((s) => s.setFailedAgentFailures);
   const clearFailedAgentTypes = useAgentStore((s) => s.clearFailedAgentTypes);
 
@@ -894,8 +960,10 @@ export function useGenerate() {
         forgetRecentMessageContentEdit(params.chatId, params.regenerateMessageId);
       }
 
+      const pendingAttachments = params.attachments ?? [];
+
       // Optimistically show the user message in the chat immediately
-      if (params.userMessage && !params.impersonate) {
+      if ((params.userMessage || pendingAttachments.length > 0) && !params.impersonate) {
         // Build persona snapshot for per-message persona tracking
         const cachedPersonas = qc.getQueryData<
           Array<{
@@ -944,9 +1012,16 @@ export function useGenerate() {
           chatId: params.chatId,
           role: "user",
           characterId: null,
-          content: params.userMessage,
+          content: params.userMessage ?? "",
           activeSwipeIndex: 0,
-          extra: { displayText: null, isGenerated: false, tokenCount: null, generationInfo: null, personaSnapshot },
+          extra: {
+            displayText: null,
+            isGenerated: false,
+            tokenCount: null,
+            generationInfo: null,
+            personaSnapshot,
+            ...(pendingAttachments.length ? { attachments: pendingAttachments } : {}),
+          },
           createdAt: new Date().toISOString(),
         };
         qc.setQueryData<InfiniteData<Message[]>>(chatKeys.messages(params.chatId), (old) => {
@@ -1385,6 +1460,18 @@ export function useGenerate() {
                 }
               }
 
+              const writeApproval = result.success
+                ? readAgentWriteApprovalProposal(result.data, {
+                    chatId: params.chatId,
+                    agentType: result.agentType,
+                    agentName: result.agentName,
+                  })
+                : null;
+              if (writeApproval) {
+                enqueuePendingAgentWriteApproval(createPendingAgentWriteApproval(writeApproval));
+                useUIStore.getState().openModal("agent-write-approval");
+              }
+
               // Character card updates are never applied automatically — enqueue
               // them for the user-approval modal. (Card Evolution Auditor.)
               if (result.success && result.resultType === "character_card_update") {
@@ -1600,6 +1687,15 @@ export function useGenerate() {
               break;
             }
 
+            case "agent_write_proposal": {
+              const proposal = readAgentWriteApprovalProposal(event.data, { chatId: params.chatId });
+              if (proposal) {
+                enqueuePendingAgentWriteApproval(createPendingAgentWriteApproval(proposal));
+                useUIStore.getState().openModal("agent-write-approval");
+              }
+              break;
+            }
+
             case "metadata_patch": {
               qc.invalidateQueries({ queryKey: chatKeys.detail(params.chatId) });
               qc.invalidateQueries({ queryKey: lorebookKeys.active(params.chatId) });
@@ -1713,7 +1809,9 @@ export function useGenerate() {
               const savedExtra = parseMessageExtraRecordForMerge(savedMessage.extra);
               const pendingPostProcessing = savedExtra.postProcessingPending;
               const pendingPostProcessingAgentType =
-                pendingPostProcessing && typeof pendingPostProcessing === "object" && !Array.isArray(pendingPostProcessing)
+                pendingPostProcessing &&
+                typeof pendingPostProcessing === "object" &&
+                !Array.isArray(pendingPostProcessing)
                   ? (pendingPostProcessing as { agentType?: unknown }).agentType
                   : null;
               if (
@@ -2296,6 +2394,7 @@ export function useGenerate() {
       setYoutubePlay,
       setYoutubeVolume,
       enqueuePendingCardUpdate,
+      enqueuePendingAgentWriteApproval,
       clearFailedAgentTypes,
       setFailedAgentFailures,
     ],
@@ -2396,6 +2495,17 @@ export function useGenerate() {
                 success: result.success,
                 error: result.error,
               });
+              const writeApproval = result.success
+                ? readAgentWriteApprovalProposal(result.data, {
+                    chatId,
+                    agentType: result.agentType,
+                    agentName: result.agentName,
+                  })
+                : null;
+              if (writeApproval) {
+                enqueuePendingAgentWriteApproval(createPendingAgentWriteApproval(writeApproval));
+                useUIStore.getState().openModal("agent-write-approval");
+              }
               if (result.success && result.resultType === "character_card_update") {
                 buildPendingCardUpdates(qc, chatId, result.agentName, result.data)
                   .then((pendingEntries) => {
@@ -2514,6 +2624,14 @@ export function useGenerate() {
               if (map) applyGameMapUpdate(qc, chatId, map);
               break;
             }
+            case "agent_write_proposal": {
+              const proposal = readAgentWriteApprovalProposal(event.data, { chatId });
+              if (proposal) {
+                enqueuePendingAgentWriteApproval(createPendingAgentWriteApproval(proposal));
+                useUIStore.getState().openModal("agent-write-approval");
+              }
+              break;
+            }
             case "illustration": {
               const illData = event.data as { messageId: string; imageUrl: string; reason?: string };
               toast(illData.reason ? `🎨 ${illData.reason}` : "🎨 Scene illustration generated");
@@ -2584,6 +2702,7 @@ export function useGenerate() {
       addThoughtBubble,
       addEchoMessage,
       enqueuePendingCardUpdate,
+      enqueuePendingAgentWriteApproval,
       clearFailedAgentTypes,
       clearThoughtBubbles,
       setCyoaChoices,
@@ -2631,6 +2750,9 @@ function formatAgentBubble(agentType: string, agentName: string, data: unknown):
   if (d.parseError === true) {
     return "Failed: agent returned invalid JSON instead of the requested format.";
   }
+  if (d.requiresApproval === true) {
+    return `${agentName} proposed an update for review.`;
+  }
 
   switch (agentType) {
     case "continuity": {
@@ -2655,15 +2777,8 @@ function formatAgentBubble(agentType: string, agentName: string, data: unknown):
         .join("\n");
     }
 
-    case "prompt-reviewer": {
-      const issues = (d.issues as any[]) ?? [];
-      if (!issues.length) return `✅ ${d.summary ?? "Prompt looks good"}`;
-      return issues
-        .map((i: any) => `${i.severity === "error" ? "🔴" : i.severity === "warning" ? "🟡" : "💡"} ${i.description}`)
-        .join("\n");
-    }
-
     case "director": {
+      if (d.overarchingArc) return `🎭 Secret plot arc updated`;
       const text =
         typeof d.direction === "string" ? d.direction.trim() : typeof d.text === "string" ? d.text.trim() : "";
       if (!text) return null;
@@ -2739,6 +2854,8 @@ function formatAgentBubble(agentType: string, agentName: string, data: unknown):
             : [];
         if (trackNames.length === 0) {
           if (display) return display;
+          const youtubeQuery = typeof d.searchQuery === "string" ? d.searchQuery.trim() : "";
+          if (youtubeQuery) return `🎵 ${youtubeQuery}${mood ? ` — ${mood}` : ""}`;
           const queued = typeof d.queued === "number" && Number.isFinite(d.queued) ? d.queued : 0;
           if (queued > 1) return `🎵 Queued ${queued} Spotify tracks${mood ? `: ${mood}` : ""}`;
           return mood ? `🎵 Music DJ started playback: ${mood}` : "🎵 Music DJ started playback";
@@ -2751,21 +2868,6 @@ function formatAgentBubble(agentType: string, agentName: string, data: unknown):
       }
       if (action === "volume") {
         return `🔊 Volume → ${d.volume}%${mood ? ` (${mood})` : ""}`;
-      }
-      return mood ? `🎵 ${mood}` : null;
-    }
-
-    case "youtube": {
-      const error = typeof d.error === "string" ? d.error.trim() : "";
-      if (error) return `🎵 Music DJ could not run: ${error}`;
-      if (d.parseError === true) return "🎵 Music DJ ran, but did not return a playable pick";
-      const action = d.action as string;
-      const mood = (d.mood as string) ?? "";
-      if (action === "none") return mood ? `🎵 Keeping current track — ${mood}` : "🎵 Keeping current track";
-      if (action === "volume") return `🔊 Volume → ${d.volume}%${mood ? ` (${mood})` : ""}`;
-      if (action === "play") {
-        const query = typeof d.searchQuery === "string" ? d.searchQuery.trim() : "";
-        return `🎵 ${query || "Now playing"}${mood ? ` — ${mood}` : ""}`;
       }
       return mood ? `🎵 ${mood}` : null;
     }
@@ -2810,15 +2912,6 @@ function formatAgentBubble(agentType: string, agentName: string, data: unknown):
     case "html": {
       const text = d.text as string;
       return `🎨 ${text || "HTML formatting active"}`;
-    }
-
-    case "chat-summary": {
-      const text = d.text as string;
-      return `📝 ${text || "Chat summary active"}`;
-    }
-
-    case "secret-plot-driver": {
-      return `🎭 The roleplay is following a secret plotline…`;
     }
 
     default:

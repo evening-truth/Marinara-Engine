@@ -309,6 +309,8 @@ function collectIllustrationCharacterAssets(opts: {
   charReferenceByName: Map<string, string>;
   charAvatarByName: Map<string, string>;
   charDescriptionByName: Map<string, string>;
+  includeReferenceImages?: boolean;
+  includeCharacterDescriptions?: boolean;
 }): { referenceImages: string[]; characterDescriptions: string[] } {
   const npcAvatarByName = new Map<string, string>();
   const npcDescriptionByName = new Map<string, string>();
@@ -335,21 +337,26 @@ function collectIllustrationCharacterAssets(opts: {
   const characterDescriptions: string[] = [];
   const seen = new Set<string>();
   const described = new Set<string>();
+  const includeReferenceImages = opts.includeReferenceImages !== false;
+  const includeCharacterDescriptions = opts.includeCharacterDescriptions !== false;
   for (const name of uniqueNames) {
-    const preferredReference = findCharAvatarFuzzy(name, opts.charReferenceByName);
-    if (preferredReference && !seen.has(preferredReference) && references.length < 4) {
-      seen.add(preferredReference);
-      references.push(preferredReference);
-      continue;
+    if (includeReferenceImages) {
+      const preferredReference = findCharAvatarFuzzy(name, opts.charReferenceByName);
+      if (preferredReference && !seen.has(preferredReference) && references.length < 4) {
+        seen.add(preferredReference);
+        references.push(preferredReference);
+      } else {
+        const avatarPath =
+          findCharAvatarFuzzy(name, opts.charAvatarByName) ?? findCharAvatarFuzzy(name, npcAvatarByName);
+        const base64 = avatarPath && !seen.has(avatarPath) ? readAvatarBase64(avatarPath) : undefined;
+        if (avatarPath && base64 && references.length < 4) {
+          seen.add(avatarPath);
+          references.push(base64);
+        }
+      }
     }
 
-    const avatarPath = findCharAvatarFuzzy(name, opts.charAvatarByName) ?? findCharAvatarFuzzy(name, npcAvatarByName);
-    const base64 = avatarPath && !seen.has(avatarPath) ? readAvatarBase64(avatarPath) : undefined;
-    if (avatarPath && base64 && references.length < 4) {
-      seen.add(avatarPath);
-      references.push(base64);
-      continue;
-    }
+    if (!includeCharacterDescriptions) continue;
 
     const description =
       findCharAvatarFuzzy(name, opts.charDescriptionByName) ?? findCharAvatarFuzzy(name, npcDescriptionByName);
@@ -494,6 +501,18 @@ async function addGeneratedIllustrationToGallery(opts: {
 // Validation Schemas
 // ──────────────────────────────────────────────
 
+const MAX_GAME_HUD_WIDGETS = 4;
+
+const hudWidgetSchema = z.object({
+  id: z.string().min(1).max(80),
+  type: z.enum(["progress_bar", "gauge", "relationship_meter", "counter", "stat_block", "list", "inventory_grid", "timer"]),
+  label: z.string().min(1).max(120),
+  icon: z.string().max(16).optional(),
+  position: z.enum(["hud_left", "hud_right"]),
+  accent: z.string().max(32).optional(),
+  config: z.record(z.unknown()).default({}),
+});
+
 const gameSetupConfigSchema = z.object({
   genre: z.string().min(1).max(200),
   setting: z.string().min(1),
@@ -512,6 +531,7 @@ const gameSetupConfigSchema = z.object({
   imageStyleProfileId: z.string().nullable().optional(),
   activeLorebookIds: z.array(z.string()).optional(),
   enableCustomWidgets: z.boolean().optional(),
+  customHudWidgets: z.array(hudWidgetSchema).max(MAX_GAME_HUD_WIDGETS).optional(),
   enableSpotifyDj: z.boolean().optional(),
   spotifySourceType: z.enum(["liked", "playlist", "artist", "any"]).optional(),
   spotifyPlaylistId: z.string().nullable().optional(),
@@ -520,6 +540,8 @@ const gameSetupConfigSchema = z.object({
   enableLorebookKeeper: z.boolean().optional(),
   language: z.string().min(1).max(100).optional(),
   generationParameters: generationParametersSchema.partial().optional(),
+  gameSystemPrompt: z.string().max(50_000).nullable().optional(),
+  gameSpecialInstructions: z.string().max(2000).nullable().optional(),
 });
 
 const createGameSchema = z.object({
@@ -1040,6 +1062,22 @@ function normalizeSetupHudWidgetStartingValues(widgets: Array<{ type: string; co
     widget.config.startingValue = initialValue;
     widget.config.value = initialValue;
   }
+}
+
+function sanitizeGameHudWidgets(value: unknown): HudWidget[] {
+  const parsed = z.array(hudWidgetSchema).max(MAX_GAME_HUD_WIDGETS).safeParse(value);
+  if (!parsed.success) return [];
+
+  const widgets = parsed.data.map((widget) => ({
+    ...widget,
+    id: widget.id.trim(),
+    label: widget.label.trim(),
+    icon: widget.icon?.trim() || undefined,
+    accent: widget.accent?.trim() || undefined,
+    config: { ...(widget.config as Record<string, unknown>) },
+  }));
+  normalizeSetupHudWidgetStartingValues(widgets);
+  return widgets as HudWidget[];
 }
 
 function buildMoraleMetadataUpdates(meta: Record<string, unknown>, morale: number): Record<string, unknown> {
@@ -2813,6 +2851,8 @@ export async function gameRoutes(app: FastifyInstance) {
     rpgContext: SetupRpgContext;
   }) => {
     const { chatId, meta, setupData, rpgContext } = args;
+    const setupConfig = (meta.gameSetupConfig as GameSetupConfig | null) ?? null;
+    const customHudWidgets = sanitizeGameHudWidgets(setupConfig?.customHudWidgets);
     const updates: Record<string, unknown> = { ...meta, gameSessionStatus: "ready" };
     if (setupData.worldOverview) updates.gameWorldOverview = setupData.worldOverview as string;
     if (setupData.storyArc) updates.gameStoryArc = setupData.storyArc as string;
@@ -3080,6 +3120,20 @@ export async function gameRoutes(app: FastifyInstance) {
       }
     }
 
+    if (customHudWidgets.length > 0) {
+      const currentBlueprint =
+        updates.gameBlueprint && typeof updates.gameBlueprint === "object" && !Array.isArray(updates.gameBlueprint)
+          ? (updates.gameBlueprint as Record<string, unknown>)
+          : {};
+      updates.gameBlueprint = { ...currentBlueprint, hudWidgets: customHudWidgets };
+      updates.gameWidgetState = customHudWidgets;
+      updates.gameSetupConfig = {
+        ...(setupConfig ?? {}),
+        enableCustomWidgets: true,
+        customHudWidgets,
+      };
+    }
+
     const hydratedUpdates = await buildHydratedGameMeta(chatId, updates);
     await createChatsStorage(app.db).updateMetadata(chatId, hydratedUpdates);
 
@@ -3092,9 +3146,18 @@ export async function gameRoutes(app: FastifyInstance) {
   // ── POST /game/create ──
   app.post("/create", async (req) => {
     logger.info("[game/create] Received request");
-    const { name, setupConfig, connectionId, characterConnectionId, promptPresetId, chatId } = createGameSchema.parse(
-      req.body,
-    );
+    const parsedCreateGameInput = createGameSchema.parse(req.body);
+    const { name, connectionId, characterConnectionId, promptPresetId, chatId } = parsedCreateGameInput;
+    const customHudWidgets = sanitizeGameHudWidgets(parsedCreateGameInput.setupConfig.customHudWidgets);
+    const gameSystemPrompt = parsedCreateGameInput.setupConfig.gameSystemPrompt?.trim() || null;
+    const gameSpecialInstructions = parsedCreateGameInput.setupConfig.gameSpecialInstructions?.trim() || null;
+    const setupConfig: GameSetupConfig = {
+      ...parsedCreateGameInput.setupConfig,
+      enableCustomWidgets: parsedCreateGameInput.setupConfig.enableCustomWidgets !== false || customHudWidgets.length > 0,
+      customHudWidgets: customHudWidgets.length > 0 ? customHudWidgets : undefined,
+      gameSystemPrompt,
+      gameSpecialInstructions,
+    };
     const chats = createChatsStorage(app.db);
     let defaultGenerationParameters: StoredGenerationParameters | null = null;
     if (connectionId && connectionId !== "random") {
@@ -3166,6 +3229,8 @@ export async function gameRoutes(app: FastifyInstance) {
       gameRecentMusic: [],
       gameRecentSpotifyTracks: [],
       gameSetupConfig: setupConfig,
+      gameSystemPrompt,
+      gameSpecialInstructions,
       gameCharacterConnectionId: null,
       gameSceneConnectionId: setupConfig.sceneConnectionId || null,
       gameNpcs: [],
@@ -3175,6 +3240,7 @@ export async function gameRoutes(app: FastifyInstance) {
       gameImageConnectionId: setupConfig.imageConnectionId || null,
       activeLorebookIds: setupConfig.activeLorebookIds || [],
       enableCustomWidgets: setupConfig.enableCustomWidgets !== false,
+      ...(customHudWidgets.length > 0 ? { gameWidgetState: customHudWidgets } : {}),
       gameUseMusicDj: setupConfig.enableSpotifyDj === true,
       gameUseSpotifyMusic: setupConfig.enableSpotifyDj === true,
       gameSpotifySourceType: spotifySourceType,
@@ -3218,6 +3284,7 @@ export async function gameRoutes(app: FastifyInstance) {
     const meta = parseMeta(chat.metadata);
     const setupConfig = meta.gameSetupConfig as GameSetupConfig | null;
     if (!setupConfig) throw new Error("No setup config found");
+    const customHudWidgets = sanitizeGameHudWidgets(setupConfig.customHudWidgets);
 
     const { conn, baseUrl, defaultGenerationParameters } = await resolveConnection(
       connections,
@@ -3357,6 +3424,13 @@ export async function gameRoutes(app: FastifyInstance) {
       }
     }
 
+    const setupGameSystemPrompt =
+      typeof meta.gameSystemPrompt === "string" ? meta.gameSystemPrompt : setupConfig.gameSystemPrompt;
+    const setupGameSpecialInstructions =
+      typeof meta.gameSpecialInstructions === "string"
+        ? meta.gameSpecialInstructions
+        : setupConfig.gameSpecialInstructions;
+
     const messages: ChatMessage[] = [
       {
         role: "system",
@@ -3367,9 +3441,12 @@ export async function gameRoutes(app: FastifyInstance) {
           partyCards: partyCards.length > 0 ? partyCards : undefined,
           partyNames,
           gmCharacterCard: gmCharacterCard || null,
-          enableCustomWidgets: setupConfig.enableCustomWidgets,
+          enableCustomWidgets: customHudWidgets.length > 0 ? false : setupConfig.enableCustomWidgets,
+          customHudWidgets: customHudWidgets.length > 0 ? customHudWidgets : undefined,
           lorebookContext: setupLorebookContext,
           language: setupConfig.language,
+          gameSystemPrompt: setupGameSystemPrompt,
+          gameSpecialInstructions: setupGameSpecialInstructions,
         }),
       },
       {
@@ -5828,13 +5905,28 @@ export async function gameRoutes(app: FastifyInstance) {
 
   // ── PUT /game/:chatId/widgets ──
   app.put<{ Params: { chatId: string } }>("/:chatId/widgets", async (req) => {
-    const { widgets } = z.object({ widgets: z.array(z.record(z.unknown())) }).parse(req.body);
+    const { widgets: rawWidgets } = z.object({ widgets: z.array(hudWidgetSchema).max(MAX_GAME_HUD_WIDGETS) }).parse(req.body);
+    const widgets = sanitizeGameHudWidgets(rawWidgets);
     const chats = createChatsStorage(app.db);
     const chat = await chats.getById(req.params.chatId);
     if (!chat) throw new Error("Chat not found");
 
     const meta = parseMeta(chat.metadata);
-    await chats.updateMetadata(req.params.chatId, { ...meta, gameWidgetState: widgets });
+    const setupConfig = (meta.gameSetupConfig as GameSetupConfig | null) ?? null;
+    await chats.updateMetadata(req.params.chatId, {
+      ...meta,
+      gameWidgetState: widgets,
+      enableCustomWidgets: widgets.length > 0 || meta.enableCustomWidgets === true,
+      ...(setupConfig
+        ? {
+            gameSetupConfig: {
+              ...setupConfig,
+              enableCustomWidgets: widgets.length > 0 || setupConfig.enableCustomWidgets === true,
+              customHudWidgets: widgets.length > 0 ? widgets : undefined,
+            },
+          }
+        : {}),
+    });
 
     return { ok: true };
   });
@@ -6541,6 +6633,8 @@ export async function gameRoutes(app: FastifyInstance) {
                 charReferenceByName,
                 charAvatarByName,
                 charDescriptionByName,
+                includeReferenceImages: meta.gameImageUseAvatarReferences !== false,
+                includeCharacterDescriptions: meta.gameImageIncludeCharacterAppearance !== false,
               });
               const generatedTag = await generateSceneIllustration({
                 chatId: input.chatId,
@@ -6843,6 +6937,8 @@ export async function gameRoutes(app: FastifyInstance) {
       .optional(),
     imageSizes: imageSizesSchema,
     promptOverrides: imagePromptOverrideSchema,
+    useAvatarReferences: z.boolean().optional(),
+    includeCharacterAppearance: z.boolean().optional(),
     debugMode: z.boolean().optional().default(false),
   });
 
@@ -6894,6 +6990,9 @@ export async function gameRoutes(app: FastifyInstance) {
       typeof meta.gameImagePromptInstructions === "string"
         ? meta.gameImagePromptInstructions.trim().slice(0, 1200)
         : "";
+    const useAvatarReferences = input.useAvatarReferences ?? (meta.gameImageUseAvatarReferences !== false);
+    const includeCharacterAppearance =
+      input.includeCharacterAppearance ?? (meta.gameImageIncludeCharacterAppearance !== false);
     const latestImageState = await createGameStateStorage(app.db)
       .getLatest(input.chatId)
       .catch(() => null);
@@ -6988,6 +7087,8 @@ export async function gameRoutes(app: FastifyInstance) {
           charReferenceByName,
           charAvatarByName,
           charDescriptionByName,
+          includeReferenceImages: useAvatarReferences,
+          includeCharacterDescriptions: includeCharacterAppearance,
         });
         const compiledReviewPrompt = await buildSceneIllustrationProviderPrompt({
           chatId: input.chatId,
@@ -7136,6 +7237,8 @@ export async function gameRoutes(app: FastifyInstance) {
             backgroundTag: input.backgroundTag ?? null,
             npcsNeedingAvatars: input.npcsNeedingAvatars ?? [],
             illustration: input.illustration ?? null,
+            useAvatarReferences: input.useAvatarReferences ?? null,
+            includeCharacterAppearance: input.includeCharacterAppearance ?? null,
           },
           null,
           2,
@@ -7195,6 +7298,9 @@ export async function gameRoutes(app: FastifyInstance) {
       typeof meta.gameImagePromptInstructions === "string"
         ? meta.gameImagePromptInstructions.trim().slice(0, 1200)
         : "";
+    const useAvatarReferences = input.useAvatarReferences ?? (meta.gameImageUseAvatarReferences !== false);
+    const includeCharacterAppearance =
+      input.includeCharacterAppearance ?? (meta.gameImageIncludeCharacterAppearance !== false);
     const latestImageState = await createGameStateStorage(app.db)
       .getLatest(input.chatId)
       .catch(() => null);
@@ -7308,6 +7414,8 @@ export async function gameRoutes(app: FastifyInstance) {
           charReferenceByName,
           charAvatarByName,
           charDescriptionByName,
+          includeReferenceImages: useAvatarReferences,
+          includeCharacterDescriptions: includeCharacterAppearance,
         });
         const tag = await generateSceneIllustration({
           chatId: input.chatId,

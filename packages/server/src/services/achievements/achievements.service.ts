@@ -59,6 +59,18 @@ function collectMetricUnlockIds(counts: AchievementCounts) {
   });
 }
 
+function isDuplicateUnlockError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const maybeCode = (error as { code?: unknown }).code;
+  const code = typeof maybeCode === "string" ? maybeCode.toUpperCase() : "";
+  const message = error.message.toLowerCase();
+  return (
+    code.includes("CONSTRAINT") ||
+    message.includes("duplicate primary key") ||
+    (message.includes("unique") && message.includes("achievement_unlocks"))
+  );
+}
+
 export function createAchievementsService(db: DB) {
   async function readUnlockRows() {
     return (await db.select().from(achievementUnlocks)) as AchievementUnlockRow[];
@@ -95,8 +107,12 @@ export function createAchievementsService(db: DB) {
     for (const id of uniqueIds) {
       if (existingById.has(id)) continue;
       const row = { id, unlockedAt: timestamp, updatedAt: timestamp };
-      await db.insert(achievementUnlocks).values(row).onConflictDoNothing();
-      newlyUnlockedRows.push(row);
+      try {
+        await db.insert(achievementUnlocks).values(row);
+        newlyUnlockedRows.push(row);
+      } catch (error) {
+        if (!isDuplicateUnlockError(error)) throw error;
+      }
     }
 
     return newlyUnlockedRows

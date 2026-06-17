@@ -91,6 +91,28 @@ const TRACKER_PANEL_DESKTOP_EXIT_EASE = [0.4, 0, 1, 1] as const;
 const TRACKER_PANEL_TOGGLE_SELECTOR = '[data-tracker-panel-toggle="roleplay-hud"]';
 const TRACKER_PANEL_ANCHOR_SELECTOR = '[data-tracker-panel-anchor="roleplay-hud"]';
 const TOP_BAR_SELECTOR = '[data-component="TopBar"]';
+const CENTER_COMPACT_WIDTH = 768;
+const CENTER_COMPACT_HYSTERESIS = 80;
+const CENTER_COMPACT_SCAN_DEPTH = 6;
+const CENTER_COMPACT_OVERFLOW_TOLERANCE = 2;
+
+function hasHorizontalOverflow(root: Element) {
+  let overflows = false;
+  const scan = (node: Element, depth: number) => {
+    if (overflows || depth > CENTER_COMPACT_SCAN_DEPTH) return;
+    const rect = node.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    if (node.scrollWidth > node.clientWidth + CENTER_COMPACT_OVERFLOW_TOLERANCE) {
+      overflows = true;
+      return;
+    }
+    for (let i = 0; i < node.children.length; i++) {
+      scan(node.children[i]!, depth + 1);
+    }
+  };
+  scan(root, 0);
+  return overflows;
+}
 
 function readVisibleElementRect(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
@@ -217,9 +239,10 @@ export function AppShell() {
     };
   }, [isMobile]);
 
-  // ── Center-area overflow detection ──
-  // When the center <main> content overflows horizontally, switch to compact
-  // layout. Uses hysteresis to prevent toggling back-and-forth.
+  // ── Center-area compact detection ──
+  // Side panels can shrink the center pane below the chat chrome's usable desktop
+  // width even when the viewport itself is desktop-sized. Switch that pane to the
+  // compact chat layout before toolbar controls begin colliding.
   const mainRef = useRef<HTMLElement>(null);
   const compactWidthRef = useRef(0); // width when we last switched to compact
   const centerCompact = useUIStore((s) => s.centerCompact);
@@ -230,28 +253,32 @@ export function AppShell() {
     if (!el) return;
     const compact = useUIStore.getState().centerCompact;
     const width = el.clientWidth;
+    const tooNarrowForDesktopChatChrome = width > 0 && width < CENTER_COMPACT_WIDTH;
+    const shouldCompact = tooNarrowForDesktopChatChrome || (!compact && hasHorizontalOverflow(el));
 
-    if (compact) {
-      if (width > compactWidthRef.current + 80) {
-        setCenterCompact(false);
-      }
-    } else {
-      let overflows = false;
-      const scan = (node: Element, depth: number) => {
-        if (overflows || depth > 3) return;
-        if (node.scrollWidth > node.clientWidth + 2) {
-          overflows = true;
-          return;
-        }
-        for (let i = 0; i < node.children.length; i++) {
-          scan(node.children[i]!, depth + 1);
-        }
-      };
-      scan(el, 0);
-      if (overflows) {
-        compactWidthRef.current = width;
-        setCenterCompact(true);
-      }
+    if (shouldCompact) {
+      compactWidthRef.current = width;
+      if (!compact) setCenterCompact(true);
+      return;
+    }
+
+    const releaseWidth = Math.max(
+      CENTER_COMPACT_WIDTH + CENTER_COMPACT_HYSTERESIS,
+      compactWidthRef.current + CENTER_COMPACT_HYSTERESIS,
+    );
+    if (compact && width > releaseWidth) {
+      setCenterCompact(false);
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const nextEl = mainRef.current;
+          if (!nextEl || useUIStore.getState().centerCompact) return;
+          const nextWidth = nextEl.clientWidth;
+          if (nextWidth > 0 && (nextWidth < CENTER_COMPACT_WIDTH || hasHorizontalOverflow(nextEl))) {
+            compactWidthRef.current = nextWidth;
+            setCenterCompact(true);
+          }
+        });
+      });
     }
   }, [setCenterCompact]);
 
@@ -266,9 +293,15 @@ export function AppShell() {
     const el = mainRef.current;
     if (!el) return;
     const ro = new ResizeObserver(debouncedCheckOverflow);
+    const mo = new MutationObserver(debouncedCheckOverflow);
     ro.observe(el);
+    mo.observe(el, { childList: true, subtree: true });
+    window.addEventListener("resize", debouncedCheckOverflow);
+    debouncedCheckOverflow();
     return () => {
       ro.disconnect();
+      mo.disconnect();
+      window.removeEventListener("resize", debouncedCheckOverflow);
       if (overflowTimerRef.current) clearTimeout(overflowTimerRef.current);
     };
   }, [debouncedCheckOverflow]);
@@ -734,7 +767,7 @@ export function AppShell() {
         className={cn(
           "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
           sidebarDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
-          sidebarOpen && "border-r border-[var(--sidebar-border)]/30",
+          sidebarOpen && "mari-shell-panel-edge mari-shell-panel-edge--right md:relative",
           // Mobile: fixed overlay
           "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:shadow-2xl max-md:pt-[env(safe-area-inset-top)]",
           !sidebarOpen && "max-md:!w-0",
@@ -871,7 +904,7 @@ export function AppShell() {
           className={cn(
             "mari-right-panel flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
             rightPanelDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
-            rightPanelOpen && "border-l border-[var(--sidebar-border)]/30",
+            rightPanelOpen && "mari-shell-panel-edge mari-shell-panel-edge--left relative",
           )}
           style={{ width: rightPanelOpen ? liveRightPanelWidth : 0 }}
         >

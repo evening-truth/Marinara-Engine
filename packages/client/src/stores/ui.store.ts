@@ -37,7 +37,7 @@ export type TrackerDataPanelSection = "world" | "persona" | "characters" | "ques
 export type TrackerPanelCollapsedSections = Partial<Record<TrackerDataPanelSection, boolean>>;
 export type TrackerPanelSectionOrder = TrackerDataPanelSection[];
 export type EchoChamberSide = "top-left" | "top-right" | "bottom-left" | "bottom-right";
-export type UserStatus = "active" | "idle" | "dnd";
+export type UserStatus = "active" | "idle" | "dnd" | "invisible";
 export type RoleplayAvatarStyle = "none" | "circles" | "rectangles" | "panel";
 export type GameDialogueDisplayMode = "classic" | "stacked";
 export type SummaryPopoverSourceMode = "last" | "range";
@@ -433,7 +433,7 @@ interface UIState {
   musicPlayerSource: MusicPlayerSource;
   /** When true, show the global Spotify mini player in the app chrome. */
   spotifyPlayerEnabled: boolean;
-  /** When true, show the YouTube DJ mini player when the agent plays a track. */
+  /** When true, show the Music DJ YouTube mini player when Music DJ plays a track. */
   youtubePlayerEnabled: boolean;
   /** User-set YouTube player volume (0–100). The DJ can also steer this. */
   youtubePlayerVolume: number;
@@ -467,6 +467,8 @@ interface UIState {
   roleplayAvatarStyle: RoleplayAvatarStyle;
   /** Scale multiplier for Roleplay message avatars. */
   roleplayAvatarScale: number;
+  /** When true, Roleplay message avatars stay visible while scrolling through long messages. */
+  roleplayAvatarsScrollable: boolean;
   /** Default scale multiplier for Roleplay full-body sprites. */
   roleplaySpriteScale: number;
   /** Scale multiplier for Game mode VN dialogue portraits. */
@@ -688,6 +690,7 @@ interface UIState {
   setChatFontOpacity: (v: number) => void;
   setRoleplayAvatarStyle: (v: RoleplayAvatarStyle) => void;
   setRoleplayAvatarScale: (v: number) => void;
+  setRoleplayAvatarsScrollable: (v: boolean) => void;
   setRoleplaySpriteScale: (v: number) => void;
   setGameAvatarScale: (v: number) => void;
   setGameFullBodySpriteScale: (v: number) => void;
@@ -843,6 +846,7 @@ export function pickSyncedSettings(state: UIState) {
     chatFontOpacity: state.chatFontOpacity,
     roleplayAvatarStyle: state.roleplayAvatarStyle,
     roleplayAvatarScale: state.roleplayAvatarScale,
+    roleplayAvatarsScrollable: state.roleplayAvatarsScrollable,
     roleplaySpriteScale: state.roleplaySpriteScale,
     gameAvatarScale: state.gameAvatarScale,
     gameFullBodySpriteScale: state.gameFullBodySpriteScale,
@@ -985,6 +989,7 @@ export const useUIStore = create<UIState>()(
       chatFontOpacity: 90,
       roleplayAvatarStyle: "circles" as RoleplayAvatarStyle,
       roleplayAvatarScale: 1,
+      roleplayAvatarsScrollable: false,
       roleplaySpriteScale: 1,
       gameAvatarScale: 1,
       gameFullBodySpriteScale: 1.35,
@@ -1482,6 +1487,7 @@ export const useUIStore = create<UIState>()(
       setRoleplayAvatarStyle: (v) => set({ roleplayAvatarStyle: v }),
       setRoleplayAvatarScale: (v) =>
         set({ roleplayAvatarScale: Math.max(ROLEPLAY_AVATAR_SCALE_MIN, Math.min(ROLEPLAY_AVATAR_SCALE_MAX, v)) }),
+      setRoleplayAvatarsScrollable: (v) => set({ roleplayAvatarsScrollable: v }),
       setRoleplaySpriteScale: (v) =>
         set({ roleplaySpriteScale: Math.max(ROLEPLAY_SPRITE_SCALE_MIN, Math.min(ROLEPLAY_SPRITE_SCALE_MAX, v)) }),
       setGameAvatarScale: (v) => set({ gameAvatarScale: Math.max(0.75, Math.min(1.75, v)) }),
@@ -1588,7 +1594,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: "marinara-engine-ui",
-      version: 51,
+      version: 52,
       // Debounce localStorage writes to avoid sync I/O on every state change
       storage: createJSONStorage(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1844,6 +1850,9 @@ export const useUIStore = create<UIState>()(
             persisted.roleplaySpriteScale = 1;
           }
         }
+        if (persisted.roleplayAvatarsScrollable === undefined) {
+          persisted.roleplayAvatarsScrollable = false;
+        }
         // v27 -> v28: enable Up-Arrow recall of the last user message by default.
         if (version <= 27 && persisted.editLastMessageOnArrowUp === undefined) {
           persisted.editLastMessageOnArrowUp = true;
@@ -2074,6 +2083,7 @@ export const useUIStore = create<UIState>()(
         chatFontOpacity: state.chatFontOpacity,
         roleplayAvatarStyle: state.roleplayAvatarStyle,
         roleplayAvatarScale: state.roleplayAvatarScale,
+        roleplayAvatarsScrollable: state.roleplayAvatarsScrollable,
         roleplaySpriteScale: state.roleplaySpriteScale,
         gameAvatarScale: state.gameAvatarScale,
         gameFullBodySpriteScale: state.gameFullBodySpriteScale,

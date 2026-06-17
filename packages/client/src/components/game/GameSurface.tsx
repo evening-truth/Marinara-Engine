@@ -134,6 +134,7 @@ import {
   normalizeSceneAssetNameForGeneration,
 } from "./game-asset-generation-payload";
 import { ChatGalleryDrawer } from "../chat/ChatGalleryDrawer";
+import { PinnedImageOverlay } from "../chat/PinnedImageOverlay";
 import { ChatBranchSelector } from "../chat/ChatBranchSelector";
 import { GameAssetsBrowserView } from "../game-assets/GameAssetsBrowserView";
 import {
@@ -162,6 +163,8 @@ type GameAssetGenerationPayload = {
   npcsNeedingAvatars?: Array<{ name: string; description: string; gender?: string | null; pronouns?: string | null }>;
   forceNpcAvatarNames?: string[];
   illustration?: import("@marinara-engine/shared").SceneIllustrationRequest;
+  useAvatarReferences?: boolean;
+  includeCharacterAppearance?: boolean;
   debugMode?: boolean;
   imageSizes?: {
     background?: { width: number; height: number };
@@ -3038,6 +3041,8 @@ export function GameSurface({
     chatMeta.enableSpriteGeneration === true &&
     typeof chatMeta.gameImageConnectionId === "string" &&
     chatMeta.gameImageConnectionId.trim().length > 0;
+  const gameImageUseAvatarReferences = chatMeta.gameImageUseAvatarReferences !== false;
+  const gameImageIncludeCharacterAppearance = chatMeta.gameImageIncludeCharacterAppearance !== false;
 
   const missingSceneAssetGeneration = useMemo(() => {
     return buildMissingSceneAssetGenerationPayload({
@@ -4187,6 +4192,8 @@ export function GameSurface({
     ): Promise<GameAssetGenerationResult | null> => {
       const payload: GameAssetGenerationPayload = {
         ...assetPayload,
+        useAvatarReferences: assetPayload.useAvatarReferences ?? gameImageUseAvatarReferences,
+        includeCharacterAppearance: assetPayload.includeCharacterAppearance ?? gameImageIncludeCharacterAppearance,
         debugMode: useUIStore.getState().debugMode,
         imageSizes: getConfiguredGameAssetImageSizes(),
       };
@@ -4245,7 +4252,7 @@ export function GameSurface({
         },
       );
     },
-    [closeImagePromptReview, openImagePromptReview],
+    [closeImagePromptReview, gameImageIncludeCharacterAppearance, gameImageUseAvatarReferences, openImagePromptReview],
   );
 
   const applyGeneratedAssets = useCallback(
@@ -9266,6 +9273,7 @@ export function GameSurface({
                 anchor={galleryAnchor}
                 onIllustrate={() => retryAgents(activeChatId, ["illustrator"])}
               />
+              <PinnedImageOverlay activeChatId={activeChatId} />
 
               {/* Inventory overlay */}
               <GameInventory

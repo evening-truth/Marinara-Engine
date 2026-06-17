@@ -403,19 +403,19 @@ export function RegexScriptEditor() {
     localCharacterScopeEnabled && localTargetCharacterIds.length === 0 ? "Choose at least one character." : null;
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-[var(--background)]">
+    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
+      <div className="mari-editor-header">
         <button
           type="button"
           onClick={handleClose}
           aria-label="Back to regex scripts"
-          className="rounded-xl p-2 transition-all hover:bg-[var(--accent)] active:scale-95"
+          className="mari-editor-action inline-flex"
         >
           <ArrowLeft size="1.125rem" />
         </button>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-orange-400 to-red-500 text-white shadow-sm">
-          <Regex size="1.125rem" />
+        <div className="mari-editor-icon-tile">
+          <Regex size="1.125rem" className="max-md:!h-[0.875rem] max-md:!w-[0.875rem]" />
         </div>
         <input
           value={localName}
@@ -423,29 +423,37 @@ export function RegexScriptEditor() {
             setLocalName(e.target.value);
             markDirty();
           }}
-          className="flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-[var(--muted-foreground)]"
+          className="mari-editor-title-input min-w-0 flex-1 placeholder:text-[var(--marinara-editor-muted)]"
           placeholder="Script name…"
         />
-        <div className="flex items-center gap-1.5">
+        <div className="mari-editor-actions flex max-md:w-full max-md:justify-end max-md:border-t max-md:border-[var(--marinara-editor-divider)] max-md:pt-2">
           {saveError && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-red-400">
+            <span className="mari-editor-status mr-2 text-red-400">
               <AlertCircle size="0.6875rem" /> Save failed
             </span>
           )}
           {savedFlash && !dirty && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-emerald-400">
+            <span className="mari-editor-status mr-2 text-emerald-400">
               <Check size="0.6875rem" /> Saved
             </span>
           )}
-          {dirty && !saveError && <span className="mr-2 text-[0.625rem] font-medium text-amber-400">Unsaved</span>}
+          {dirty && !saveError && <span className="mari-editor-status mr-2 text-amber-400">Unsaved</span>}
+          <button
+            onClick={handleSave}
+            disabled={isPending || !!regexError || !!characterScopeError}
+            className="mari-editor-action mari-editor-action--primary inline-flex disabled:opacity-50"
+          >
+            <Save size="0.8125rem" /> <span className="max-md:hidden">Save</span>
+          </button>
           {/* Enable/Disable toggle */}
           <button
             onClick={() => {
               setLocalEnabled((e) => !e);
               markDirty();
             }}
-            className="flex items-center gap-1 rounded-xl px-2 py-2 text-xs font-medium transition-all hover:bg-[var(--accent)]"
+            className="mari-editor-action inline-flex"
             title={localEnabled ? "Enabled" : "Disabled"}
+            aria-label={localEnabled ? "Disable regex script" : "Enable regex script"}
           >
             {localEnabled ? (
               <ToggleRight size="1.125rem" className="text-emerald-400" />
@@ -455,25 +463,22 @@ export function RegexScriptEditor() {
           </button>
           <button
             onClick={handleExport}
-            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-[0.98]"
+            className="mari-editor-action inline-flex"
+            title="Export regex script"
+            aria-label="Export regex script"
           >
-            <Upload size="0.8125rem" /> Export
+            <Upload size="0.9375rem" />
           </button>
           {dbRow && (
             <button
               onClick={handleDelete}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/15 active:scale-[0.98]"
+              className="mari-editor-action mari-editor-action--danger inline-flex"
+              title="Delete regex script"
+              aria-label="Delete regex script"
             >
-              <Trash2 size="0.8125rem" /> Delete
+              <Trash2 size="0.9375rem" />
             </button>
           )}
-          <button
-            onClick={handleSave}
-            disabled={isPending || !!regexError || !!characterScopeError}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-orange-400 to-red-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
-          >
-            <Save size="0.8125rem" /> Save
-          </button>
         </div>
       </div>
 

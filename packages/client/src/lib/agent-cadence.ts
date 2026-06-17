@@ -34,14 +34,6 @@ export function getAgentRunIntervalMeta(agentType: string, isBuiltIn = true): Ag
         defaultValue: 8,
         max: 100,
       };
-    case "chat-summary":
-      return {
-        label: "Triggers After",
-        unit: "user messages",
-        help: "How many user messages should pass before the Automated Chat Summary updates again.",
-        defaultValue: 5,
-        max: 200,
-      };
     default:
       if (!isBuiltIn) {
         return {

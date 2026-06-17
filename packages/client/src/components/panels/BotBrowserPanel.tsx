@@ -66,25 +66,26 @@ export function BotBrowserPanel() {
       <button
         onClick={openBotBrowser}
         className={cn(
-          "flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-all active:scale-[0.98]",
-          botBrowserOpen
-            ? "border-[var(--primary)]/35 bg-[var(--accent)] text-white"
-            : "border-[var(--border)] bg-[var(--card)] text-white hover:border-[var(--primary)]/35 hover:bg-[var(--accent)]",
+          "mari-chrome-control mari-chrome-control--primary w-full text-xs",
+          botBrowserOpen && "mari-chrome-control--selected",
         )}
       >
-        <Globe size="0.875rem" className="text-white" />
+        <Globe size="0.875rem" />
         Browse Online
       </button>
 
       {/* Search */}
       <div className="relative">
-        <Search size="0.75rem" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+        <Search
+          size="0.75rem"
+          className="mari-chrome-field-icon pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
+        />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search imported..."
-          className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] py-1.5 pl-7 pr-3 text-xs text-[var(--foreground)] placeholder-[var(--muted-foreground)] outline-none transition-colors focus:border-[var(--primary)]"
+          className="mari-chrome-field mari-chrome-field--compact w-full py-1.5 pl-7 pr-3 text-xs"
         />
       </div>
 

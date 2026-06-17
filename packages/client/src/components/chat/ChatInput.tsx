@@ -14,6 +14,7 @@ import {
   Loader2,
   FileText,
   WandSparkles,
+  Swords,
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
@@ -22,7 +23,6 @@ import { useChatStore } from "../../stores/chat.store";
 import { useUIStore } from "../../stores/ui.store";
 import { useGenerate } from "../../hooks/use-generate";
 import { useApplyRegex } from "../../hooks/use-apply-regex";
-import { useAgentConfigs } from "../../hooks/use-agents";
 import { useCreateMessage, useDeleteMessage, useUpdateMessageExtra, chatKeys } from "../../hooks/use-chats";
 import { characterKeys } from "../../hooks/use-characters";
 import { buildGuidedGenerationInstructionMessage, formatTextQuotes, type Message } from "@marinara-engine/shared";
@@ -58,6 +58,9 @@ const EMPTY_RESPONSE_QUEUE: string[] = [];
 
 type NarrativeDirectorMode = "natural" | "random";
 
+const ROLEPLAY_AGENT_ACTION_BUTTON_CLASS =
+  "flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs transition-all disabled:cursor-not-allowed disabled:opacity-50";
+
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
   "json",
@@ -70,6 +73,7 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "yaml",
   "yml",
 ]);
+const PDF_ATTACHMENT_MIME_TYPE = "application/pdf";
 
 function getFileExtension(fileName: string): string {
   const match = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
@@ -77,8 +81,9 @@ function getFileExtension(fileName: string): string {
 }
 
 function inferAttachmentType(file: File): string {
-  if (file.type) return file.type;
   const extension = getFileExtension(file.name);
+  if (extension === "pdf") return PDF_ATTACHMENT_MIME_TYPE;
+  if (file.type) return file.type;
   if (extension === "json" || extension === "jsonl") return "application/json";
   if (extension === "csv") return "text/csv";
   if (extension === "md" || extension === "markdown") return "text/markdown";
@@ -92,6 +97,7 @@ function isSupportedChatAttachment(file: File): boolean {
   if (file.type.startsWith("image/")) return true;
   if (file.type.startsWith("text/")) return true;
   const type = inferAttachmentType(file);
+  if (type === PDF_ATTACHMENT_MIME_TYPE) return true;
   if (
     type === "application/json" ||
     type === "application/xml" ||
@@ -128,6 +134,8 @@ interface ChatInputProps {
     options?: { immediate?: boolean },
   ) => void | Promise<void>;
   onPeekPrompt?: () => void;
+  combatAgentEnabled?: boolean;
+  onStartEncounter?: () => void;
 }
 
 export const ChatInput = memo(function ChatInput({
@@ -137,6 +145,8 @@ export const ChatInput = memo(function ChatInput({
   chatCharacters,
   onExpressionChange,
   onPeekPrompt,
+  combatAgentEnabled,
+  onStartEncounter,
 }: ChatInputProps) {
   const [hasInput, setHasInput] = useState(false);
   const [completions, setCompletions] = useState<SlashCommand[]>([]);
@@ -193,7 +203,6 @@ export const ChatInput = memo(function ChatInput({
     [responseQueue],
   );
   const { generate } = useGenerate();
-  const { data: agentConfigs } = useAgentConfigs(mode === "roleplay");
   const { applyToUserInput } = useApplyRegex();
   const enterToSend = useUIStore((s) => s.enterToSendRP);
   const guideGenerations = useUIStore((s) => s.guideGenerations);
@@ -216,16 +225,11 @@ export const ChatInput = memo(function ChatInput({
         : [],
     [chatMetadata.activeAgentIds],
   );
-  const globalDirectorEnabled = useMemo(
-    () =>
-      activeAgentIds.length === 0 &&
-      (agentConfigs ?? []).some((agent) => agent.type === "director" && agent.enabled !== "false"),
-    [activeAgentIds.length, agentConfigs],
-  );
   const narrativeDirectorActive =
-    mode === "roleplay" &&
-    chatMetadata.enableAgents === true &&
-    (activeAgentIds.includes("director") || globalDirectorEnabled);
+    mode === "roleplay" && chatMetadata.enableAgents === true && activeAgentIds.includes("director");
+  const combatActionActive =
+    mode === "roleplay" && combatAgentEnabled === true && typeof onStartEncounter === "function";
+  const showRoleplayAgentActions = narrativeDirectorActive || combatActionActive;
   const narrativeDirectorMode: NarrativeDirectorMode =
     chatMetadata.narrativeDirectorMode === "random" ? "random" : "natural";
   const consumeNarrativeDirectorMode = useCallback((): NarrativeDirectorMode | undefined => {
@@ -412,7 +416,7 @@ export const ChatInput = memo(function ChatInput({
         }
         if (!isSupportedChatAttachment(file)) {
           toast.error(
-            `${file.name || "That file"} is not supported in chat. Attach images or text files like JSON, TXT, Markdown, or CSV.`,
+            `${file.name || "That file"} is not supported in chat. Attach images, PDFs, or text files like JSON, TXT, Markdown, or CSV.`,
           );
           return false;
         }
@@ -1297,28 +1301,44 @@ export const ChatInput = memo(function ChatInput({
       {/* Feedback toast */}
       {feedback && <SlashCommandFeedback feedback={feedback} onDismiss={() => setFeedback(null)} className="mb-2" />}
 
-      {narrativeDirectorActive && (
-        <div className="flex justify-center py-1">
-          <button
-            type="button"
-            onClick={handleTogglePushStory}
-            disabled={isStreaming}
-            aria-pressed={pushStoryArmed}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs transition-all disabled:cursor-not-allowed disabled:opacity-50",
-              pushStoryArmed
-                ? "bg-foreground/10 text-foreground ring-1 ring-foreground/25"
-                : "text-foreground/50 hover:bg-foreground/10 hover:text-foreground/80",
-            )}
-            title={
-              narrativeDirectorMode === "random"
-                ? "Arm a random Narrative Director event for the next response"
-                : "Arm a natural Narrative Director push for the next response"
-            }
-          >
-            <WandSparkles size="0.875rem" />
-            <span>Push Story</span>
-          </button>
+      {showRoleplayAgentActions && (
+        <div className="flex flex-wrap justify-center gap-2 py-1">
+          {narrativeDirectorActive && (
+            <button
+              type="button"
+              onClick={handleTogglePushStory}
+              disabled={isStreaming}
+              aria-pressed={pushStoryArmed}
+              className={cn(
+                ROLEPLAY_AGENT_ACTION_BUTTON_CLASS,
+                pushStoryArmed
+                  ? "bg-foreground/10 text-foreground ring-1 ring-foreground/25"
+                  : "text-foreground/50 hover:bg-foreground/10 hover:text-foreground/80",
+              )}
+              title={
+                narrativeDirectorMode === "random"
+                  ? "Arm a random Narrative Director event for the next response"
+                  : "Arm a natural Narrative Director push for the next response"
+              }
+            >
+              <WandSparkles size="0.875rem" />
+              <span>Push Story</span>
+            </button>
+          )}
+          {combatActionActive && (
+            <button
+              type="button"
+              onClick={() => onStartEncounter?.()}
+              className={cn(
+                ROLEPLAY_AGENT_ACTION_BUTTON_CLASS,
+                "text-foreground/50 hover:bg-foreground/10 hover:text-foreground/80",
+              )}
+              title="Start Combat Encounter"
+            >
+              <Swords size="0.875rem" />
+              <span>Encounter</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1333,7 +1353,13 @@ export const ChatInput = memo(function ChatInput({
               {att.type.startsWith("image/") ? (
                 <img src={att.data} alt={att.name} className="h-8 w-8 rounded object-cover" />
               ) : (
-                <FileText size="1rem" className="shrink-0 text-foreground/50" />
+                <FileText
+                  size="1rem"
+                  className={cn(
+                    "shrink-0",
+                    att.type === PDF_ATTACHMENT_MIME_TYPE ? "text-[var(--primary)]" : "text-foreground/50",
+                  )}
+                />
               )}
               <span className="max-w-[7.5rem] truncate">{att.name}</span>
               <button
@@ -1369,7 +1395,7 @@ export const ChatInput = memo(function ChatInput({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,.txt,.md,.markdown,.json,.jsonl,.csv,.log,.xml,.yaml,.yml"
+          accept="image/*,application/pdf,.pdf,.txt,.md,.markdown,.json,.jsonl,.csv,.log,.xml,.yaml,.yml"
           multiple
           className="hidden"
           onChange={handleFileUpload}

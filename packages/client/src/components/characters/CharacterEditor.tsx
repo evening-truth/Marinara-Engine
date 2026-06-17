@@ -691,15 +691,12 @@ export function CharacterEditor() {
     );
   }
 
-  const headerActionButtonClass =
-    "rounded-xl p-2 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] max-md:rounded-lg max-md:p-1.5";
+  const headerActionButtonClass = "mari-editor-action inline-flex";
   const saveDisabled = !dirty || saving || avatarUploading;
   const saveLabel = avatarUploading ? "Uploading…" : saving ? "Saving…" : "Save";
   const saveButtonClass = cn(
-    "flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium transition-all max-md:rounded-lg max-md:px-2.5 max-md:py-1.5",
-    !saveDisabled
-      ? "bg-gradient-to-r from-pink-400 to-purple-500 text-white shadow-md shadow-pink-500/20 hover:shadow-lg active:scale-[0.98]"
-      : "bg-[var(--secondary)] text-[var(--muted-foreground)] cursor-not-allowed",
+    "mari-editor-action mari-editor-action--primary mari-editor-action--save inline-flex",
+    saveDisabled && "cursor-not-allowed opacity-50",
   );
 
   const headerActions = (
@@ -708,7 +705,7 @@ export function CharacterEditor() {
         type="button"
         onClick={() => updateExtension("fav", !formData.extensions.fav)}
         className={cn(
-          "rounded-xl p-2 transition-all max-md:rounded-lg max-md:p-1.5",
+          "mari-editor-action inline-flex",
           formData.extensions.fav ? "text-yellow-400" : "text-[var(--muted-foreground)] hover:text-yellow-400",
         )}
         title={formData.extensions.fav ? "Remove from favorites" : "Add to favorites"}
@@ -738,7 +735,7 @@ export function CharacterEditor() {
         type="button"
         onClick={handleImportAsPersona}
         disabled={createPersona.isPending || uploadPersonaAvatar.isPending}
-        className="rounded-xl p-2 text-[var(--muted-foreground)] transition-all hover:bg-emerald-500/10 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-50 max-md:rounded-lg max-md:p-1.5"
+        className="mari-editor-action inline-flex disabled:cursor-not-allowed disabled:opacity-50"
         title="Import character as persona"
       >
         {createPersona.isPending || uploadPersonaAvatar.isPending ? (
@@ -758,7 +755,7 @@ export function CharacterEditor() {
             },
           });
         }}
-        className="rounded-xl p-2 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 max-md:rounded-lg max-md:p-1.5"
+        className="mari-editor-action inline-flex"
         title="Duplicate character"
       >
         <Copy size="1rem" />
@@ -767,7 +764,7 @@ export function CharacterEditor() {
       <button
         type="button"
         onClick={handleDelete}
-        className="rounded-xl p-2 text-[var(--muted-foreground)] transition-all hover:bg-[var(--destructive)]/15 hover:text-[var(--destructive)] max-md:rounded-lg max-md:p-1.5"
+        className="mari-editor-action mari-editor-action--danger inline-flex"
         title="Delete character"
       >
         <Trash2 size="1rem" />
@@ -776,7 +773,7 @@ export function CharacterEditor() {
   );
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-[var(--background)]">
+    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
       <ExportFormatDialog
         open={exportDialogOpen}
         title="Export Character"
@@ -807,12 +804,12 @@ export function CharacterEditor() {
       />
 
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-start gap-3 border-b border-[var(--border)] px-4 py-3 max-md:gap-2 max-md:px-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3 max-md:min-w-full">
+      <div className="mari-editor-header items-start">
+        <div className="mari-editor-header-main max-md:min-w-full">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-xl p-2 transition-all hover:bg-[var(--accent)] active:scale-95 max-md:rounded-lg max-md:p-1.5"
+            className="mari-editor-action inline-flex"
             title="Back"
           >
             <ArrowLeft size="1.125rem" />
@@ -820,7 +817,7 @@ export function CharacterEditor() {
 
           {/* Avatar */}
           <div
-            className="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-pink-400 to-rose-500 shadow-md shadow-pink-500/20 max-md:h-10 max-md:w-10"
+            className="mari-editor-avatar-tile group relative"
             onClick={() => fileInputRef.current?.click()}
           >
             {avatarPreview ? (
@@ -856,7 +853,7 @@ export function CharacterEditor() {
             <input
               value={formData.name}
               onChange={(e) => updateField("name", e.target.value)}
-              className="w-full bg-transparent text-lg font-bold outline-none"
+              className="mari-editor-title-input"
               placeholder="Character name"
             />
             <input
@@ -865,31 +862,26 @@ export function CharacterEditor() {
                 setCharacterComment(e.target.value);
                 markDirty();
               }}
-              className="w-full bg-transparent text-xs text-[var(--muted-foreground)] outline-none"
+              className="mari-editor-subtitle-input"
               placeholder="Title / comment (e.g. 'Modern AU version')"
             />
-            <p className="truncate text-[0.625rem] text-[var(--muted-foreground)]">
+            <p className="mari-editor-meta text-[0.625rem]">
               {formData.creator ? `by ${formData.creator}` : "No creator"} · v{formData.character_version || "1.0"}
             </p>
           </div>
         </div>
 
-        <div className="hidden items-center gap-1 md:flex">{headerActions}</div>
-
-        {/* Save */}
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saveDisabled}
-          className={cn(saveButtonClass, "hidden md:flex")}
-        >
-          <Save size="0.8125rem" />
-          <span>{saveLabel}</span>
-        </button>
-
-        <div className="flex w-full items-center justify-between gap-2 md:hidden">
+        <div className="mari-editor-actions hidden md:flex">
           <button type="button" onClick={handleSave} disabled={saveDisabled} className={saveButtonClass}>
-            <Save size="0.8125rem" />
+            <Save size="0.9375rem" />
+            <span>{saveLabel}</span>
+          </button>
+          {headerActions}
+        </div>
+
+        <div className="mari-editor-actions flex w-full items-center justify-between gap-2 md:hidden">
+          <button type="button" onClick={handleSave} disabled={saveDisabled} className={saveButtonClass}>
+            <Save size="0.9375rem" />
             <span>{saveLabel}</span>
           </button>
           <div className="flex min-w-0 items-center justify-end gap-1">{headerActions}</div>
@@ -924,7 +916,7 @@ export function CharacterEditor() {
               }
             }}
             disabled={saving || avatarUploading}
-            className="rounded-lg bg-gradient-to-r from-pink-400 to-purple-500 px-3 py-1 text-xs font-medium text-white shadow-sm transition-all hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+            className="mari-editor-action mari-editor-action--primary mari-editor-action--compact inline-flex rounded-lg px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Save & close
           </button>
@@ -932,12 +924,12 @@ export function CharacterEditor() {
       )}
 
       {/* ── Body: Tabs + Content ── */}
-      <div className="flex flex-1 overflow-hidden @max-5xl:flex-col">
+      <div className="mari-editor-body @max-5xl:flex-col">
         <EditorTabRail tabs={TABS} activeId={activeTab} onChange={setActiveTab} />
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-6 @max-5xl:p-4">
-          <div className="mx-auto max-w-2xl">
+        <div className="mari-editor-content @max-5xl:p-4">
+          <div className="mari-editor-content-inner">
             {activeTab === "metadata" && (
               <MetadataTab
                 characterId={characterId}

@@ -581,7 +581,7 @@ export function CombinedPlayerPanel({
           <div className="p-2">
             <div className="flex items-center justify-between px-1 pb-1">
               <span className={TRACKER_SECTION_TITLE}>
-                <SlidersHorizontal size="0.5625rem" className="text-cyan-400/80" />{" "}
+                <SlidersHorizontal size="0.5625rem" className="text-[var(--muted-foreground)]" />{" "}
                 {`Custom (${customTrackerFields.length})`}
               </span>
               <span className="flex items-center gap-1">
@@ -610,7 +610,7 @@ export function CombinedPlayerPanel({
                     key={idx}
                     className="group/field flex items-center gap-1.5 rounded-lg bg-[var(--muted)]/20 px-2 py-1.5"
                   >
-                    <SlidersHorizontal size="0.625rem" className="shrink-0 text-cyan-400/60" />
+                    <SlidersHorizontal size="0.625rem" className="shrink-0 text-[var(--muted-foreground)]/65" />
                     <InlineEdit
                       value={field.name}
                       onSave={(value) => updateCustomField(idx, { ...field, name: value })}
@@ -1196,7 +1196,8 @@ export function CustomTrackerPanel({
     <>
       <div className={cn(ROLEPLAY_POPOVER_HEADER, "flex items-center justify-between")}>
         <span className={ROLEPLAY_POPOVER_TITLE}>
-          <SlidersHorizontal size="0.625rem" className="text-cyan-400/80" /> Custom Tracker ({fields.length})
+          <SlidersHorizontal size="0.625rem" className="text-[var(--muted-foreground)]" />{" "}
+          {`Custom Tracker (${fields.length})`}
         </span>
         <span className="flex items-center gap-1">
           <TrackerSectionRefresh
@@ -1225,7 +1226,7 @@ export function CustomTrackerPanel({
               key={idx}
               className="group/field flex items-center gap-1.5 rounded-lg bg-[var(--muted)]/20 px-2 py-1.5"
             >
-              <SlidersHorizontal size="0.625rem" className="shrink-0 text-cyan-400/60" />
+              <SlidersHorizontal size="0.625rem" className="shrink-0 text-[var(--muted-foreground)]/65" />
               <InlineEdit
                 value={field.name}
                 onSave={(value) => updateField(idx, { ...field, name: value })}

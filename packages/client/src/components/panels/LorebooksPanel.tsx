@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import {
   Plus,
   Download,
-  Upload,
   Check,
   BookOpen,
   Search,
@@ -40,7 +39,7 @@ import {
   useMoveLibraryItem,
   useUpdateLibraryFolder,
 } from "../../hooks/use-library-folders";
-import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
+import { SelectionActionBar } from "../ui/SelectionActionBar";
 
 const CATEGORIES: Array<{ id: LorebookCategory | "all" | "active"; label: string }> = [
   { id: "all", label: "All" },
@@ -72,7 +71,6 @@ export function LorebooksPanel() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedLorebookIds, setSelectedLorebookIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [expandedFolderId, setExpandedFolderId] = useState<string | null>(null);
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState("");
@@ -271,6 +269,7 @@ export function LorebooksPanel() {
   }, [filtered, sort]);
 
   const lorebookById = useMemo(() => new Map(sorted.map((lorebook) => [lorebook.id, lorebook])), [sorted]);
+  const folderFilterActive = searchQuery.trim().length > 0 || activeCategory !== "all" || activeTag !== null;
 
   const folderedLorebookIds = useMemo(() => {
     const ids = new Set<string>();
@@ -313,15 +312,14 @@ export function LorebooksPanel() {
   }, []);
 
   const handleExportSelected = useCallback(
-    async (format: ExportFormatChoice) => {
+    async () => {
       if (selectedLorebookIds.size === 0) return;
       setExportingSelected(true);
-      setExportDialogOpen(false);
       try {
         await api.downloadPost(
           "/lorebooks/export-bulk",
-          { ids: [...selectedLorebookIds], format },
-          format === "compatible" ? "compatible-lorebooks.zip" : "marinara-lorebooks.zip",
+          { ids: [...selectedLorebookIds], format: "native" },
+          "marinara-lorebooks.zip",
         );
         toast.success(`Exported ${selectedLorebookIds.size} lorebook${selectedLorebookIds.size === 1 ? "" : "s"}`);
       } catch (error) {
@@ -425,8 +423,7 @@ export function LorebooksPanel() {
   const handleRenameFolder = useCallback(
     (folderId: string) => {
       const name = editFolderName.trim();
-      if (!name) return;
-      updateLorebookFolder.mutate({ id: folderId, name });
+      if (name) updateLorebookFolder.mutate({ id: folderId, name });
       setEditingFolderId(null);
       setEditFolderName("");
     },
@@ -563,7 +560,7 @@ export function LorebooksPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex min-h-full flex-col gap-2 p-3">
       <input
         ref={lorebookImageInputRef}
         type="file"
@@ -583,7 +580,7 @@ export function LorebooksPanel() {
         </button>
         <button
           onClick={() => openModal("import-lorebook")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="mari-chrome-control mari-chrome-control--primary flex-1 text-xs"
           title="Import"
         >
           <Download size="0.8125rem" /> <span className="md:hidden">Import</span>
@@ -594,10 +591,8 @@ export function LorebooksPanel() {
             else setSelectionMode(true);
           }}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
-            selectionMode
-              ? "bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
+            "mari-chrome-control mari-chrome-control--primary flex-1 text-xs",
+            selectionMode && "mari-chrome-control--selected",
           )}
           title="Select"
         >
@@ -605,78 +600,26 @@ export function LorebooksPanel() {
         </button>
       </div>
 
-      {selectionMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
-          <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedLorebookIds.size} selected
-          </span>
-          <button
-            onClick={() => setSelectedLorebookIds(new Set(sorted.map((lb) => lb.id)))}
-            disabled={sorted.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-amber-400 transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            Select visible
-          </button>
-          <button
-            onClick={() => setSelectedLorebookIds(new Set())}
-            disabled={selectedLorebookIds.size === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={selectedLorebookIds.size === 0}
-            className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-          >
-            <Trash2 size="0.6875rem" />
-            Delete
-          </button>
-          <button
-            onClick={() => setExportDialogOpen(true)}
-            disabled={selectedLorebookIds.size === 0 || exportingSelected}
-            className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
-          >
-            <Upload size="0.6875rem" />
-            {exportingSelected ? "Exporting..." : "Export ZIP"}
-          </button>
-          <button
-            onClick={exitSelectionMode}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            Done
-          </button>
-        </div>
-      )}
-
-      <ExportFormatDialog
-        open={exportDialogOpen}
-        title="Export Lorebooks"
-        description="Native keeps Marinara folders and entry fields. Compatible exports a folderless World Info JSON for other roleplay tools."
-        onClose={() => setExportDialogOpen(false)}
-        onSelect={handleExportSelected}
-      />
-
       {/* Search + Sort */}
       <div className="flex gap-1.5">
         <div className="relative flex-1">
           <Search
             size="0.8125rem"
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+            className="mari-chrome-field-icon pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
           />
           <input
             type="text"
             placeholder="Search lorebooks"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-xl bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+            className="mari-chrome-field w-full py-2 pl-8 pr-3 text-xs"
           />
         </div>
         <div className="relative">
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as typeof sort)}
-            className="h-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-2.5 pr-7 text-[0.6875rem] outline-none transition-colors focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            className="mari-chrome-field h-full appearance-none py-2 pl-2.5 pr-7 text-[0.6875rem]"
             title="Sort order"
           >
             <option value="name-asc">A-Z</option>
@@ -687,9 +630,22 @@ export function LorebooksPanel() {
           </select>
           <ArrowUpDown
             size="0.625rem"
-            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+            className="mari-chrome-field-icon pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
           />
         </div>
+      </div>
+
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCreateFolder}
+            className="mari-chrome-control mari-chrome-control--small flex-1 justify-start text-[0.6875rem]"
+          >
+            <FolderPlus size="0.75rem" />
+            New Folder
+          </button>
+        </div>
+        {lorebookFolders.length > 0 && <p className="mari-folder-helper">Drag and drop lorebooks to folders</p>}
       </div>
 
       {/* Filters */}
@@ -701,10 +657,8 @@ export function LorebooksPanel() {
               key={cat.id}
               onClick={() => setActiveCategory(cat.id)}
               className={cn(
-                "flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[0.6875rem] font-medium transition-all",
-                isActive
-                  ? "bg-[var(--accent)] text-[var(--accent-foreground)] shadow-sm"
-                  : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]",
+                "mari-chrome-control mari-chrome-control--small whitespace-nowrap text-[0.6875rem]",
+                isActive && "mari-chrome-control--selected",
               )}
             >
               {cat.label}
@@ -714,10 +668,8 @@ export function LorebooksPanel() {
         <button
           onClick={() => setTagsExpanded(!tagsExpanded)}
           className={cn(
-            "flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[0.6875rem] font-medium transition-all",
-            tagFilterActive
-              ? "bg-amber-400/15 text-amber-400 ring-1 ring-amber-400/30"
-              : "text-[var(--muted-foreground)] hover:bg-[var(--secondary)] hover:text-[var(--foreground)]",
+            "mari-chrome-control mari-chrome-control--small whitespace-nowrap text-[0.6875rem]",
+            tagFilterActive && "mari-chrome-control--selected",
           )}
           title={tagsExpanded ? "Collapse tags" : "Expand tags"}
         >
@@ -735,7 +687,7 @@ export function LorebooksPanel() {
                 setActiveCategory("all");
                 setActiveTag(null);
               }}
-              className="flex items-center gap-1 rounded-full bg-[var(--destructive)]/10 px-2 py-0.5 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
+              className="mari-chrome-control mari-chrome-control--compact mari-chrome-control--danger"
             >
               <X size="0.5rem" /> Clear
             </button>
@@ -748,10 +700,8 @@ export function LorebooksPanel() {
                 type="button"
                 onClick={() => setActiveCategory(isActive ? "all" : cat.id)}
                 className={cn(
-                  "flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[0.625rem] font-medium transition-all",
-                  isActive
-                    ? "bg-amber-400/20 text-amber-400 ring-1 ring-amber-400/30"
-                    : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                  "mari-chrome-control mari-chrome-control--compact cursor-pointer",
+                  isActive && "mari-chrome-control--selected",
                 )}
               >
                 {cat.label}
@@ -771,10 +721,8 @@ export function LorebooksPanel() {
                 }
               }}
               className={cn(
-                "group/tag flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[0.625rem] font-medium transition-all",
-                activeTag === tag
-                  ? "bg-amber-400/20 text-amber-400 ring-1 ring-amber-400/30"
-                  : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                "mari-chrome-control mari-chrome-control--compact group/tag cursor-pointer",
+                activeTag === tag && "mari-chrome-control--selected",
               )}
             >
               {tag}
@@ -795,26 +743,13 @@ export function LorebooksPanel() {
       )}
 
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handleCreateFolder}
-            className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-          >
-            <FolderPlus size="0.75rem" />
-            New Folder
-          </button>
-        </div>
-        {lorebookFolders.length > 0 && (
-          <p className="px-2.5 pb-1 text-[0.625rem] leading-snug text-[var(--muted-foreground)]/70">
-            Drag and drop lorebooks to folders
-          </p>
-        )}
         {lorebookFolders.map((folder) => {
-          const isExpanded = expandedFolderId === folder.id;
           const isEditing = editingFolderId === folder.id;
           const folderItems = folder.itemIds
             .map((id) => lorebookById.get(id))
             .filter((item): item is Lorebook => Boolean(item));
+          if (folderFilterActive && folderItems.length === 0) return null;
+          const isExpanded = (folderFilterActive && folderItems.length > 0) || expandedFolderId === folder.id;
           return (
             <div
               key={folder.id}
@@ -851,7 +786,7 @@ export function LorebooksPanel() {
                       value={editFolderName}
                       onChange={(event) => setEditFolderName(event.target.value)}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter") handleRenameFolder(folder.id);
+                        if (event.key === "Enter") event.currentTarget.blur();
                         if (event.key === "Escape") {
                           setEditingFolderId(null);
                           setEditFolderName("");
@@ -867,9 +802,9 @@ export function LorebooksPanel() {
                     </>
                   )}
                 </div>
-                {folder.itemIds.length > 0 && (
+                {(folderFilterActive ? folderItems.length : folder.itemIds.length) > 0 && (
                   <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">
-                    {folder.itemIds.length}
+                    {folderFilterActive ? folderItems.length : folder.itemIds.length}
                   </span>
                 )}
                 <div className="absolute right-2 top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
@@ -879,9 +814,9 @@ export function LorebooksPanel() {
                       setEditingFolderId(folder.id);
                       setEditFolderName(folder.name);
                     }}
-                    className="rounded-lg p-1 transition-colors hover:bg-[var(--accent)]"
-                    title="Rename folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small p-1"
+	                    title="Rename folder"
+	                  >
                     <Pencil size="0.6875rem" />
                   </button>
                   <button
@@ -890,9 +825,9 @@ export function LorebooksPanel() {
                       deleteLorebookFolder.mutate(folder.id);
                       if (expandedFolderId === folder.id) setExpandedFolderId(null);
                     }}
-                    className="rounded-lg p-1 transition-colors hover:bg-[var(--destructive)]/15"
-                    title="Delete folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1"
+	                    title="Delete folder"
+	                  >
                     <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
                   </button>
                 </div>
@@ -970,6 +905,15 @@ export function LorebooksPanel() {
               rootLorebooks.map((lb: Lorebook) => renderLorebookRow(lb))}
         </div>
       )}
+
+      {selectionMode && (
+        <SelectionActionBar
+          selectedCount={selectedLorebookIds.size}
+          onExport={() => void handleExportSelected()}
+          onDelete={handleDeleteSelected}
+          exporting={exportingSelected}
+        />
+      )}
     </div>
   );
 }
@@ -1020,11 +964,13 @@ function LorebookRow({
 
   return (
     <div
-      className={cn(
-        "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
-        selectionMode && isSelected && "ring-1 ring-amber-400/40 bg-amber-400/10",
-        isDragging && "opacity-50",
-      )}
+	      className={cn(
+	        "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+	        selectionMode &&
+	          isSelected &&
+	          "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+	        isDragging && "opacity-50",
+	      )}
       onClick={onClick}
       draggable={draggable}
       onDragStart={onDragStart}
@@ -1040,11 +986,11 @@ function LorebookRow({
             onToggleSelect?.();
           }}
           className={cn(
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
-            isSelected
-              ? "border-amber-400 bg-amber-400 text-white"
-              : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
-          )}
+	            "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+	            isSelected
+	              ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]"
+	              : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
+	          )}
           aria-label={isSelected ? "Deselect lorebook" : "Select lorebook"}
         >
           <span className="text-[0.75rem]">✓</span>
@@ -1059,10 +1005,10 @@ function LorebookRow({
             e.stopPropagation();
             onImagePick();
           }}
-          className={cn(
-            imageClasses,
-            "transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-amber-400/50",
-          )}
+	          className={cn(
+	            imageClasses,
+	            "transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[var(--marinara-chat-chrome-focus-ring)]",
+	          )}
           title={lorebook.imagePath ? "Replace lorebook picture" : "Upload lorebook picture"}
           aria-label={lorebook.imagePath ? "Replace lorebook picture" : "Upload lorebook picture"}
         >
@@ -1100,9 +1046,9 @@ function LorebookRow({
               e.stopPropagation();
               onDelete();
             }}
-            className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-            title="Delete"
-          >
+	            className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1.5"
+	            title="Delete"
+	          >
             <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
           </button>
         </div>

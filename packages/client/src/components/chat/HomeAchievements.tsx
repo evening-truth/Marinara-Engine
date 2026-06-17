@@ -56,13 +56,13 @@ function AchievementBadge({ achievement, locked }: { achievement: AchievementDef
   return (
     <div
       className={cn(
-        "relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_14%,transparent)]",
+        "relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_14%,transparent)] sm:h-16 sm:w-16 sm:rounded-xl",
         rankClasses(achievement, locked),
       )}
       aria-hidden="true"
     >
       <div className="absolute inset-0 opacity-30 [background:radial-gradient(circle_at_30%_20%,currentColor,transparent_32%),linear-gradient(135deg,transparent_0_42%,currentColor_43%_45%,transparent_46%)]" />
-      <Icon className="relative z-10" size="1.65rem" />
+      <Icon className="relative z-10 h-5 w-5 sm:h-[1.65rem] sm:w-[1.65rem]" />
       {!locked && achievement.rankLabel && (
         <span className="absolute bottom-1.5 right-1.5 rounded bg-black/35 px-1 text-[0.55rem] font-bold text-white">
           {achievement.rankLabel}
@@ -92,7 +92,7 @@ function AchievementCard({
   return (
     <article
       className={cn(
-        "flex min-w-0 gap-3 rounded-xl border p-3 transition-colors",
+        "flex min-w-0 gap-2.5 rounded-xl border p-2.5 transition-colors sm:gap-3 sm:p-3",
         locked
           ? "border-[var(--border)]/70 bg-[var(--secondary)]/22"
           : "border-[var(--border)] bg-[var(--card)]/65",
@@ -102,7 +102,7 @@ function AchievementCard({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="min-w-0">
-            <h4 className="truncate text-sm font-semibold text-[var(--foreground)]">{title}</h4>
+            <h4 className="truncate text-xs font-semibold text-[var(--foreground)] sm:text-sm">{title}</h4>
             <p className="mt-0.5 text-[0.65rem] uppercase tracking-wide text-[var(--muted-foreground)]">
               {CATEGORY_LABELS[achievement.category]}
             </p>
@@ -113,7 +113,7 @@ function AchievementCard({
             </span>
           )}
         </div>
-        <p className="mt-2 text-xs leading-relaxed text-[var(--muted-foreground)]">{description}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-[var(--muted-foreground)] sm:mt-2">{description}</p>
         {target !== null && (
           <div className="mt-3 space-y-1">
             <div className="flex items-center justify-between text-[0.65rem] text-[var(--muted-foreground)]">
@@ -135,7 +135,13 @@ function AchievementCard({
   );
 }
 
-export function HomeAchievements() {
+export function HomeAchievements({
+  attached = false,
+  className,
+}: {
+  attached?: boolean;
+  className?: string;
+}) {
   const achievementsEnabled = useUIStore((s) => s.achievementsEnabled);
   const [open, setOpen] = useState(false);
   const achievements = useAchievements(achievementsEnabled);
@@ -155,10 +161,15 @@ export function HomeAchievements() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group mt-2 flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)]/80 px-4 py-3 text-left shadow-lg shadow-black/10 transition-all hover:border-[var(--primary)]/45 hover:bg-[var(--secondary)]/55"
+        className={cn(
+          "mari-chrome-control group flex w-full max-w-3xl items-center justify-start gap-2 px-3 py-2.5 text-left shadow-lg shadow-black/10 sm:gap-3 sm:px-4 sm:py-3",
+          attached ? "-mt-px !rounded-b-xl !rounded-t-none !border-t-0" : "!rounded-xl",
+          className,
+        )}
+        aria-label="Open achievements"
       >
-        <span className="flex min-w-0 items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--secondary)] text-[var(--primary)] transition-colors group-hover:border-[var(--primary)]/40">
+        <span className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+          <span className="mari-chrome-control flex h-9 w-9 shrink-0 p-0 sm:h-10 sm:w-10">
             <Trophy size="1.15rem" />
           </span>
           <span className="min-w-0">
@@ -168,13 +179,10 @@ export function HomeAchievements() {
             </span>
           </span>
         </span>
-        <span className="rounded-full border border-[var(--border)] bg-[var(--secondary)]/60 px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)]">
-          View
-        </span>
       </button>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Achievements" width="max-w-5xl">
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           <div className="rounded-xl border border-[var(--border)] bg-[var(--secondary)]/25 px-3 py-2 text-xs text-[var(--muted-foreground)]">
             {unlockedCount} of {totalCount} achievements unlocked in this profile.
           </div>

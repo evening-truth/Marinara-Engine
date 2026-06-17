@@ -7,5 +7,6 @@ export const combatAgentManifest = {
   phase: "parallel",
   enabledByDefault: false,
   category: "misc",
+  modeAllowlist: ["roleplay", "visual_novel"],
   defaultTools: ["roll_dice", "update_game_state"],
 } satisfies BuiltInAgentManifest;

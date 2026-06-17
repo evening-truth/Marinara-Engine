@@ -24,7 +24,6 @@ import {
   Camera,
   ArrowUpDown,
   Download,
-  Upload,
   Search,
   FolderPlus,
   ChevronDown,
@@ -38,7 +37,7 @@ import {
 import { showConfirmDialog } from "../../lib/app-dialogs";
 import { cn, getAvatarCropStyle, parseAvatarCropJson } from "../../lib/utils";
 import { api } from "../../lib/api-client";
-import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
+import { SelectionActionBar } from "../ui/SelectionActionBar";
 
 type PersonaRow = {
   id: string;
@@ -122,7 +121,6 @@ export function PersonasPanel() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedPersonaIds, setSelectedPersonaIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -244,8 +242,7 @@ export function PersonasPanel() {
   const handleRenameGroup = useCallback(
     (groupId: string) => {
       const name = editGroupName.trim();
-      if (!name) return;
-      updatePGroup.mutate({ id: groupId, name });
+      if (name) updatePGroup.mutate({ id: groupId, name });
       setEditingGroupId(null);
       setEditGroupName("");
     },
@@ -390,6 +387,8 @@ export function PersonasPanel() {
     () => list.filter((persona) => !folderedPersonaIds.has(persona.id)),
     [list, folderedPersonaIds],
   );
+  const visiblePersonaById = useMemo(() => new Map(list.map((persona) => [persona.id, persona])), [list]);
+  const folderFilterActive = search.trim().length > 0 || activeTag !== null || favFilter !== "all";
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -406,15 +405,14 @@ export function PersonasPanel() {
   }, []);
 
   const handleExportSelected = useCallback(
-    async (format: ExportFormatChoice) => {
+    async () => {
       if (selectedPersonaIds.size === 0) return;
       setExportingSelected(true);
-      setExportDialogOpen(false);
       try {
         await api.downloadPost(
           "/characters/personas/export-bulk",
-          { ids: [...selectedPersonaIds], format },
-          format === "compatible" ? "compatible-personas.zip" : "marinara-personas.zip",
+          { ids: [...selectedPersonaIds], format: "native" },
+          "marinara-personas.zip",
         );
         toast.success(`Exported ${selectedPersonaIds.size} persona${selectedPersonaIds.size === 1 ? "" : "s"}`);
       } catch (error) {
@@ -426,8 +424,40 @@ export function PersonasPanel() {
     [selectedPersonaIds],
   );
 
+  const handleDeleteSelected = useCallback(async () => {
+    const ids = [...selectedPersonaIds];
+    if (ids.length === 0) return;
+
+    if (
+      !(await showConfirmDialog({
+        title: "Delete Personas",
+        message: `Delete ${ids.length} persona${ids.length === 1 ? "" : "s"}? This cannot be undone.`,
+        confirmLabel: "Delete",
+        tone: "destructive",
+      }))
+    ) {
+      return;
+    }
+
+    const results = await Promise.allSettled(ids.map((id) => deletePersona.mutateAsync(id)));
+    const failedIds = ids.filter((_, index) => results[index]?.status === "rejected");
+    const deletedCount = ids.length - failedIds.length;
+
+    if (deletedCount > 0) {
+      toast.success(`Deleted ${deletedCount} persona${deletedCount === 1 ? "" : "s"}`);
+    }
+
+    if (failedIds.length > 0) {
+      setSelectedPersonaIds(new Set(failedIds));
+      toast.error(`Failed to delete ${failedIds.length} persona${failedIds.length === 1 ? "" : "s"}`);
+      return;
+    }
+
+    exitSelectionMode();
+  }, [deletePersona, exitSelectionMode, selectedPersonaIds]);
+
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex min-h-full flex-col gap-2 p-3">
       {/* Actions */}
       <div className="flex gap-2">
         <button
@@ -440,7 +470,7 @@ export function PersonasPanel() {
         </button>
         <button
           onClick={() => openModal("import-persona")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="mari-chrome-control mari-chrome-control--primary flex-1 text-xs"
           title="Import"
         >
           <Download size="0.8125rem" /> <span className="md:hidden">Import</span>
@@ -451,10 +481,8 @@ export function PersonasPanel() {
             else setSelectionMode(true);
           }}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
-            selectionMode
-              ? "bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
+            "mari-chrome-control mari-chrome-control--primary flex-1 text-xs",
+            selectionMode && "mari-chrome-control--selected",
           )}
           title="Select"
         >
@@ -468,20 +496,20 @@ export function PersonasPanel() {
         <div className="relative flex-1">
           <Search
             size="0.8125rem"
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+            className="mari-chrome-field-icon absolute left-3 top-1/2 -translate-y-1/2"
           />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search personas"
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-[var(--muted-foreground)]/50 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            className="mari-chrome-field w-full py-2 pl-8 pr-3 text-xs"
           />
         </div>
         <div className="relative">
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
-            className="h-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-2.5 pr-7 text-[0.6875rem] outline-none transition-colors focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            className="mari-chrome-field h-full appearance-none py-2 pl-2.5 pr-7 text-[0.6875rem]"
             title="Sort order"
           >
             <option value="name-asc">A-Z</option>
@@ -492,9 +520,22 @@ export function PersonasPanel() {
           </select>
           <ArrowUpDown
             size="0.625rem"
-            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+            className="mari-chrome-field-icon pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
           />
         </div>
+      </div>
+
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCreateFolder}
+            className="mari-chrome-control mari-chrome-control--small flex-1 justify-start text-[0.6875rem]"
+          >
+            <FolderPlus size="0.75rem" />
+            New Folder
+          </button>
+        </div>
+        {parsedGroups.length > 0 && <p className="mari-folder-helper">Drag and drop personas to folders</p>}
       </div>
 
       {/* Filters */}
@@ -504,10 +545,8 @@ export function PersonasPanel() {
             key={opt}
             onClick={() => setFavFilter(opt)}
             className={cn(
-              "flex items-center gap-1 rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all",
-              favFilter === opt
-                ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+              "mari-chrome-control mari-chrome-control--compact",
+              favFilter === opt && "mari-chrome-control--selected",
             )}
           >
             {opt === "all" ? "All" : opt === "active" ? "Active" : "Inactive"}
@@ -517,10 +556,8 @@ export function PersonasPanel() {
           <button
             onClick={() => setTagsExpanded(!tagsExpanded)}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all",
-              activeTag
-                ? "bg-emerald-400/15 text-emerald-400 ring-1 ring-emerald-400/30"
-                : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+              "mari-chrome-control mari-chrome-control--compact",
+              activeTag && "mari-chrome-control--selected",
             )}
           >
             <Tag size="0.625rem" />
@@ -535,7 +572,7 @@ export function PersonasPanel() {
           {activeTag && (
             <button
               onClick={() => setActiveTag(null)}
-              className="flex items-center gap-1 rounded-full bg-[var(--destructive)]/10 px-2 py-0.5 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
+              className="mari-chrome-control mari-chrome-control--compact mari-chrome-control--danger"
             >
               <X size="0.5rem" /> Clear
             </button>
@@ -553,10 +590,8 @@ export function PersonasPanel() {
                 }
               }}
               className={cn(
-                "group/tag flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[0.625rem] font-medium transition-all",
-                activeTag === tag
-                  ? "bg-emerald-400/20 text-emerald-400 ring-1 ring-emerald-400/30"
-                  : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                "mari-chrome-control mari-chrome-control--compact group/tag cursor-pointer",
+                activeTag === tag && "mari-chrome-control--selected",
               )}
             >
               {tag}
@@ -576,73 +611,17 @@ export function PersonasPanel() {
         </div>
       )}
 
-      {selectionMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
-          <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedPersonaIds.size} selected
-          </span>
-          <button
-            onClick={() => setSelectedPersonaIds(new Set(list.map((persona) => persona.id)))}
-            disabled={list.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-emerald-400 transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            Select visible
-          </button>
-          <button
-            onClick={() => setSelectedPersonaIds(new Set())}
-            disabled={selectedPersonaIds.size === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={() => setExportDialogOpen(true)}
-            disabled={selectedPersonaIds.size === 0 || exportingSelected}
-            className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
-          >
-            <Upload size="0.6875rem" />
-            {exportingSelected ? "Exporting..." : "Export ZIP"}
-          </button>
-          <button
-            onClick={exitSelectionMode}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            Done
-          </button>
-        </div>
-      )}
-
-      <ExportFormatDialog
-        open={exportDialogOpen}
-        title="Export Personas"
-        description="Native keeps Marinara persona metadata. Compatible exports simple persona JSON for other tools."
-        compatibleDescription="Exports persona fields directly without the Marinara wrapper."
-        onClose={() => setExportDialogOpen(false)}
-        onSelect={handleExportSelected}
-      />
-
       {/* Hidden file input for avatar uploads */}
       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
 
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handleCreateFolder}
-            className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-          >
-            <FolderPlus size="0.75rem" />
-            New Folder
-          </button>
-        </div>
-        {parsedGroups.length > 0 && (
-          <p className="px-2.5 pb-1 text-[0.625rem] leading-snug text-[var(--muted-foreground)]/70">
-            Drag and drop personas to folders
-          </p>
-        )}
-
         {/* Folder rows */}
         {parsedGroups.map((group) => {
-          const isExpanded = expandedGroupId === group.id;
+          const folderMemberIds = folderFilterActive
+            ? group.memberIds.filter((personaId) => visiblePersonaById.has(personaId))
+            : group.memberIds;
+          if (folderFilterActive && folderMemberIds.length === 0) return null;
+          const isExpanded = (folderFilterActive && folderMemberIds.length > 0) || expandedGroupId === group.id;
           const isEditing = editingGroupId === group.id;
           return (
             <div
@@ -681,7 +660,7 @@ export function PersonasPanel() {
                       value={editGroupName}
                       onChange={(e) => setEditGroupName(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") handleRenameGroup(group.id);
+                        if (e.key === "Enter") e.currentTarget.blur();
                         if (e.key === "Escape") {
                           setEditingGroupId(null);
                           setEditGroupName("");
@@ -697,9 +676,9 @@ export function PersonasPanel() {
                     </>
                   )}
                 </div>
-                {group.memberIds.length > 0 && (
+                {folderMemberIds.length > 0 && (
                   <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">
-                    {group.memberIds.length}
+                    {folderMemberIds.length}
                   </span>
                 )}
 
@@ -710,9 +689,9 @@ export function PersonasPanel() {
                       setEditingGroupId(group.id);
                       setEditGroupName(group.name);
                     }}
-                    className="rounded-lg p-1 transition-colors hover:bg-[var(--accent)]"
-                    title="Rename folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small p-1"
+	                    title="Rename folder"
+	                  >
                     <Pencil size="0.6875rem" />
                   </button>
                   <button
@@ -731,9 +710,9 @@ export function PersonasPanel() {
                       deletePGroup.mutate(group.id);
                       if (expandedGroupId === group.id) setExpandedGroupId(null);
                     }}
-                    className="rounded-lg p-1 transition-colors hover:bg-[var(--destructive)]/15"
-                    title="Delete folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1"
+	                    title="Delete folder"
+	                  >
                     <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
                   </button>
                 </div>
@@ -742,11 +721,11 @@ export function PersonasPanel() {
               {/* Expanded member list */}
               {isExpanded && (
                 <div className="ml-4 flex flex-col gap-0.5 border-l border-[var(--border)]/20 pb-1 pl-1">
-                  {group.memberIds.length === 0 ? (
+                  {folderMemberIds.length === 0 ? (
                     <p className="py-2 text-[0.625rem] italic text-[var(--muted-foreground)]">Drop personas here.</p>
                   ) : (
                     <div className="flex flex-col gap-0.5">
-                      {group.memberIds.map((pid) => {
+                      {folderMemberIds.map((pid) => {
                         const p = personaMap.get(pid);
                         if (!p) return null;
                         const isBulkSelected = selectedPersonaIds.has(pid);
@@ -785,11 +764,13 @@ export function PersonasPanel() {
                             onTouchEnd={finishPersonaTouchDrag}
                             role="button"
                             tabIndex={0}
-                            className={cn(
-                              "group/member flex cursor-pointer items-center gap-2 rounded-lg p-1.5 text-xs transition-all hover:bg-[var(--sidebar-accent)]",
-                              selectionMode && isBulkSelected && "bg-emerald-400/8 ring-1 ring-emerald-400/40",
-                              draggedPersonaId === pid && "opacity-50",
-                            )}
+	                            className={cn(
+	                              "group/member flex cursor-pointer items-center gap-2 rounded-lg p-1.5 text-xs transition-all hover:bg-[var(--sidebar-accent)]",
+	                              selectionMode &&
+	                                isBulkSelected &&
+	                                "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+	                              draggedPersonaId === pid && "opacity-50",
+	                            )}
                           >
                             {selectionMode && (
                               <button
@@ -799,11 +780,11 @@ export function PersonasPanel() {
                                   toggleSelection(pid);
                                 }}
                                 className={cn(
-                                  "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
-                                  isBulkSelected
-                                    ? "border-emerald-400 bg-emerald-400 text-white"
-                                    : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
-                                )}
+	                                  "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+	                                  isBulkSelected
+	                                    ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]"
+	                                    : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
+	                                )}
                                 aria-label={isBulkSelected ? "Deselect persona" : "Select persona"}
                               >
                                 <Check size="0.75rem" />
@@ -909,12 +890,15 @@ export function PersonasPanel() {
           return (
             <div
               key={persona.id}
-              className={cn(
-                "group relative flex items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)] cursor-pointer",
-                selectionMode && isBulkSelected && "ring-1 ring-emerald-400/40 bg-emerald-400/8",
-                active && "ring-1 ring-emerald-400/40 bg-emerald-400/5",
-                draggedPersonaId === persona.id && "opacity-50",
-              )}
+	              className={cn(
+	                "group relative flex items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)] cursor-pointer",
+	                selectionMode &&
+	                  isBulkSelected &&
+	                  "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+	                active &&
+	                  "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+	                draggedPersonaId === persona.id && "opacity-50",
+	              )}
               onClick={() => {
                 if (suppressPersonaClickRef.current) return;
                 if (selectionMode) {
@@ -1013,10 +997,10 @@ export function PersonasPanel() {
                       onClick={(e) => {
                         e.stopPropagation();
                         activatePersona.mutate(persona.id);
-                      }}
-                      className="rounded-lg p-1.5 text-emerald-400 transition-all active:scale-90 hover:bg-emerald-400/10"
-                      title="Set as active"
-                    >
+	                      }}
+	                      className="mari-chrome-control mari-chrome-control--small mari-chrome-control--selected p-1.5"
+	                      title="Set as active"
+	                    >
                       <Check size="0.75rem" />
                     </button>
                   )}
@@ -1028,10 +1012,10 @@ export function PersonasPanel() {
                           toast.success(`Duplicated "${persona.name}"`);
                         },
                       });
-                    }}
-                    className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all active:scale-90 hover:bg-sky-400/10 hover:text-sky-400"
-                    title="Duplicate"
-                  >
+	                      }}
+	                    className="mari-chrome-control mari-chrome-control--small p-1.5"
+	                    title="Duplicate"
+	                  >
                     <Copy size="0.75rem" />
                   </button>
                   <button
@@ -1049,9 +1033,9 @@ export function PersonasPanel() {
                       }
                       deletePersona.mutate(persona.id);
                     }}
-                    className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-                    title="Delete"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1.5"
+	                    title="Delete"
+	                  >
                     <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
                   </button>
                 </div>
@@ -1060,6 +1044,15 @@ export function PersonasPanel() {
           );
         })}
       </div>
+
+      {selectionMode && (
+        <SelectionActionBar
+          selectedCount={selectedPersonaIds.size}
+          onExport={() => void handleExportSelected()}
+          onDelete={handleDeleteSelected}
+          exporting={exportingSelected}
+        />
+      )}
     </div>
   );
 }

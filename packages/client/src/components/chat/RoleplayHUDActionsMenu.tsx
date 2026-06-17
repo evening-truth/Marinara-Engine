@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -22,10 +22,6 @@ import {
 import { ContextInjectionPanel } from "../agents/ContextInjectionPanel";
 import { ContinuityIssueChecklist } from "../agents/ContinuityIssueChecklist";
 
-const SecretPlotPanel = lazy(async () =>
-  import("../agents/SecretPlotPanel").then((m) => ({ default: m.SecretPlotPanel })),
-);
-
 interface ThoughtBubble {
   agentId: string;
   agentName: string;
@@ -33,7 +29,7 @@ interface ThoughtBubble {
   timestamp: number;
 }
 
-type AgentsMenuTab = "activity" | "injections" | "secret";
+type AgentsMenuTab = "activity" | "injections";
 
 interface RoleplayHUDActionsMenuProps {
   chatId: string;
@@ -58,7 +54,6 @@ interface RoleplayHUDActionsMenuProps {
   failedAgentFailures?: AgentFailure[];
   onClose: () => void;
   showInjectionsTab?: boolean;
-  showSecretPlotTab?: boolean;
 }
 
 export function RoleplayHUDActionsMenu({
@@ -84,7 +79,6 @@ export function RoleplayHUDActionsMenu({
   failedAgentFailures,
   onClose,
   showInjectionsTab,
-  showSecretPlotTab,
 }: RoleplayHUDActionsMenuProps) {
   const [tab, setTab] = useState<AgentsMenuTab>("activity");
   const uniqueAgentCount = new Set(thoughtBubbles.map((bubble) => bubble.agentId)).size;
@@ -105,7 +99,6 @@ export function RoleplayHUDActionsMenu({
   const tabs = [
     { id: "activity" as const, label: "Activity" },
     ...(showInjectionsTab ? [{ id: "injections" as const, label: "Injections" }] : []),
-    ...(showSecretPlotTab ? [{ id: "secret" as const, label: "Secret plot" }] : []),
   ] as const;
   const currentTabIndex = tabs.findIndex((t) => t.id === tab);
   const safeTabIndex = currentTabIndex >= 0 ? currentTabIndex : 0;
@@ -128,10 +121,7 @@ export function RoleplayHUDActionsMenu({
       setTab("activity");
       return;
     }
-    if (!showSecretPlotTab && tab === "secret") {
-      setTab("activity");
-    }
-  }, [showInjectionsTab, showSecretPlotTab, tab]);
+  }, [showInjectionsTab, tab]);
 
   return (
     <>
@@ -145,11 +135,7 @@ export function RoleplayHUDActionsMenu({
                   key={item.id}
                   type="button"
                   onClick={() => setTab(item.id)}
-                  title={
-                    item.id === "secret"
-                      ? "Values here are stored in agent memory - the same source used when injecting arc and directions before each reply."
-                      : undefined
-                  }
+                  title={undefined}
                   className={
                     active
                       ? "min-h-6 min-w-0 flex-1 rounded-md bg-[var(--card)] px-1.5 py-0.5 text-center text-[0.5625rem] font-semibold text-[var(--foreground)] ring-1 ring-[var(--border)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] max-md:min-h-7"
@@ -250,23 +236,6 @@ export function RoleplayHUDActionsMenu({
             />
           )}
         </>
-      )}
-
-      {activeTab === "secret" && showSecretPlotTab && (
-        <Suspense
-          fallback={
-            <div className="px-3 py-4 text-center text-[0.625rem] text-[var(--muted-foreground)]">
-              Loading secret plot...
-            </div>
-          }
-        >
-          <SecretPlotPanel
-            chatId={chatId}
-            messages={injectionSourceMessages}
-            isAgentProcessing={isAgentProcessing}
-            isGenerationBusy={isGenerationBusy}
-          />
-        </Suspense>
       )}
 
       {showFooterActions && (

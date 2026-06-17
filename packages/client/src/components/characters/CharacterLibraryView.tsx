@@ -24,9 +24,9 @@ type SortOption = "name-asc" | "name-desc" | "newest" | "oldest" | "favorites";
 const CHARACTER_LIBRARY_SORT_SESSION_KEY = "marinara:character-library-sort";
 const SORT_OPTIONS = ["name-asc", "name-desc", "newest", "oldest", "favorites"] as const satisfies SortOption[];
 const libraryToolbarButtonClass =
-  "inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-lg bg-[var(--secondary)] px-2 text-[0.75rem] font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)]";
+  "mari-chrome-control mari-chrome-control--small h-7 min-w-0 px-2 text-[0.75rem]";
 const libraryToolbarFieldClass =
-  "h-7 w-full rounded-lg border border-[var(--border)]/60 bg-[var(--secondary)]/80 text-[0.75rem] outline-none transition-colors focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20";
+  "mari-chrome-field mari-chrome-field--compact h-7 w-full text-[0.75rem]";
 
 type CharacterRow = {
   id: string;
@@ -187,7 +187,7 @@ function CharacterLibraryDetailCard({
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1.5">
                 <span
-                  className="inline-flex items-center gap-1 rounded-full bg-[var(--secondary)] px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)]"
+                  className="mari-chrome-muted-badge gap-1 px-2.5 py-1 text-[0.6875rem]"
                   title="Estimated from character card text fields; actual tokenizer counts vary by model."
                 >
                   <Hash size="0.75rem" />
@@ -351,7 +351,7 @@ export function CharacterLibraryView() {
           <div className="flex min-w-0 items-center gap-3">
             <button
               onClick={closeCharacterLibrary}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-[var(--border)]/60 bg-[var(--secondary)]/80 text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/35 hover:text-[var(--primary)] md:h-10 md:w-10"
+              className="mari-chrome-control h-9 w-9 rounded-2xl p-0 md:h-10 md:w-10"
               title="Close library"
             >
               <ArrowLeft size="0.95rem" />
@@ -389,7 +389,7 @@ export function CharacterLibraryView() {
             <div className="relative min-w-0">
               <Search
                 size="0.75rem"
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+                className="mari-chrome-field-icon pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2"
               />
               <input
                 value={search}
@@ -413,7 +413,7 @@ export function CharacterLibraryView() {
               </select>
               <ArrowUpDown
                 size="0.6875rem"
-                className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+                className="mari-chrome-field-icon pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2"
               />
             </div>
           </div>
@@ -515,7 +515,7 @@ export function CharacterLibraryView() {
 
                         <div className="mt-auto flex flex-wrap gap-1 sm:gap-1.5">
                           <span
-                            className="inline-flex items-center gap-1 rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)] sm:px-2 sm:py-1 sm:text-[0.625rem]"
+                            className="mari-chrome-muted-badge gap-1 px-1.5 py-0.5 text-[0.5625rem] sm:px-2 sm:py-1 sm:text-[0.625rem]"
                             title="Estimated from character card text fields; actual tokenizer counts vary by model."
                           >
                             <Hash size="0.5625rem" />

@@ -306,7 +306,6 @@ export async function runPreGenerationAgents(
       const agentName = agents.find((agent) => agent.type === result.agentType)?.name;
       if (text) injections.push({ agentType: result.agentType, agentName, text });
     }
-    // prompt_review is informational — the onResult callback streams it
   }
 
   return injections;

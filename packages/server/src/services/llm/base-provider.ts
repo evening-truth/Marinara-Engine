@@ -50,6 +50,12 @@ export interface ChatMessage {
   tool_calls?: LLMToolCall[];
   /** Base64 data URLs for multimodal image inputs */
   images?: string[];
+  /** Base64 data URLs for provider-native file/document inputs */
+  files?: Array<{
+    type: string;
+    data: string;
+    filename?: string;
+  }>;
   /** Provider-specific metadata (e.g. Gemini parts with thought signatures) */
   providerMetadata?: Record<string, unknown>;
 }
@@ -167,6 +173,7 @@ type ContextFitOptions = Pick<ChatOptions, "maxContext" | "maxTokens" | "tools" 
 const CHARS_PER_TOKEN = 4;
 const MESSAGE_OVERHEAD_TOKENS = 6;
 const IMAGE_TOKEN_ESTIMATE = 256;
+const FILE_TOKEN_ESTIMATE = 1_500;
 const CONTEXT_SAFETY_MARGIN_TOKENS = 64;
 const CONTEXT_SAFETY_MARGIN_RATIO = 0.02;
 const MIN_INPUT_BUDGET_TOKENS = 128;
@@ -221,6 +228,9 @@ function estimateMessageTokens(message: ChatMessage): number {
   if (message.images?.length) {
     total += message.images.length * IMAGE_TOKEN_ESTIMATE;
   }
+  if (message.files?.length) {
+    total += message.files.length * FILE_TOKEN_ESTIMATE;
+  }
   if (message.providerMetadata) {
     total += Math.min(estimateStructuredTokens(message.providerMetadata), 512);
   }
@@ -235,6 +245,7 @@ function cloneMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.map((message) => ({
     ...message,
     ...(message.images ? { images: [...message.images] } : {}),
+    ...(message.files ? { files: message.files.map((file) => ({ ...file })) } : {}),
     ...(message.tool_calls
       ? { tool_calls: message.tool_calls.map((call) => ({ ...call, function: { ...call.function } })) }
       : {}),

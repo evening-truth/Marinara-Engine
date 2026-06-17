@@ -15,7 +15,6 @@ import {
   Puzzle,
   Camera,
   Download,
-  Upload,
   Check,
   FolderPlus,
 } from "lucide-react";
@@ -36,6 +35,7 @@ import {
   getFolderImportEntries,
   getFolderManifestConfig,
   isAgentConfigDeleted,
+  isRetiredBuiltInAgentId,
   normalizeAgentPhaseForType,
   normalizeAgentPhaseValue,
   type AgentCategory,
@@ -43,6 +43,10 @@ import {
 import { showConfirmDialog } from "../../lib/app-dialogs";
 import { cn } from "../../lib/utils";
 import { downloadJsonFile } from "../../lib/download-json";
+import { downloadZipFile } from "../../lib/download-zip";
+import { sanitizeAgentSettingsForTransfer } from "../../lib/agent-transfer";
+import { isZipFile, readTextFileFromZip } from "../../lib/read-zip-text";
+import { SelectionActionBar } from "../ui/SelectionActionBar";
 import {
   getNextUnnamedLibraryFolderName,
   useCreateLibraryFolder,
@@ -87,7 +91,7 @@ function getAgentImportEntries(parsed: unknown) {
 }
 
 function serializeAgentConfig(agent: AgentConfigRow) {
-  const settings = parseAgentSettings(agent.settings);
+  const settings = sanitizeAgentSettingsForTransfer(parseAgentSettings(agent.settings));
   if (typeof settings.author !== "string" || !settings.author.trim()) {
     settings.author = "Unknown";
   }
@@ -150,7 +154,7 @@ function normalizeAgentImportEntry(entry: unknown) {
   if (!type || !name) return null;
   const phase = normalizeAgentPhaseForType(type, normalizeAgentPhaseValue(source.phase));
 
-  const settings = parseAgentSettings(source.settings);
+  const settings = sanitizeAgentSettingsForTransfer(parseAgentSettings(source.settings));
   if (typeof source.author === "string" && !settings.author) {
     settings.author = source.author;
   }
@@ -168,7 +172,7 @@ function normalizeAgentImportEntry(entry: unknown) {
     description,
     phase,
     enabled: parseBooleanValue(source.enabled),
-    connectionId: typeof source.connectionId === "string" ? source.connectionId : null,
+    connectionId: null,
     imagePath: null,
     promptTemplate: typeof source.promptTemplate === "string" ? source.promptTemplate : "",
     settings,
@@ -222,7 +226,10 @@ export function AgentsPanel() {
   );
   // Custom agents = DB entries whose type doesn't match any built-in
   const customAgents = useMemo(
-    () => visibleAgentConfigs.filter((config) => !BUILT_IN_AGENT_TYPE_SET.has(config.type)),
+    () =>
+      visibleAgentConfigs.filter(
+        (config) => !BUILT_IN_AGENT_TYPE_SET.has(config.type) && !isRetiredBuiltInAgentId(config.type),
+      ),
     [visibleAgentConfigs],
   );
   const configByType = useMemo(
@@ -259,11 +266,19 @@ export function AgentsPanel() {
   }, [agentFolders]);
 
   const agentSearchQuery = agentSearch.trim().toLowerCase();
+  const agentSearchActive = agentSearchQuery.length > 0;
   const matchesAgentSearch = (agent: { name: string; description: string; category: string }) =>
     !agentSearchQuery ||
     agent.name.toLowerCase().includes(agentSearchQuery) ||
     agent.description.toLowerCase().includes(agentSearchQuery) ||
     agent.category.toLowerCase().includes(agentSearchQuery);
+  const getAgentSearchData = (agent: AgentConfigRow) => ({
+    name: agent.name,
+    description: agent.description,
+    category: BUILT_IN_AGENT_TYPE_SET.has(agent.type)
+      ? (BUILT_IN_AGENTS.find((entry) => entry.id === agent.type)?.category ?? "misc")
+      : "custom",
+  });
   const agentCategorySections: Array<{ category: AgentCategory; title: string; icon: ReactNode }> = [
     { category: "writer", title: "Writer Agents", icon: <PenLine size="0.8125rem" /> },
     { category: "tracker", title: "Tracker Agents", icon: <Radar size="0.8125rem" /> },
@@ -280,27 +295,12 @@ export function AgentsPanel() {
         }),
     )
     .sort((a, b) => a.name.localeCompare(b.name));
-  const visibleFolderAgentIds = agentFolders.flatMap((folder) => {
-    if (folder.id !== expandedFolderId) return [];
-    return folder.itemIds.filter((id) => {
+  const hasVisibleFolderAgents = agentFolders.some((folder) =>
+    folder.itemIds.some((id) => {
       const agent = selectableAgentById.get(id);
-      if (!agent) return false;
-      return matchesAgentSearch({
-        name: agent.name,
-        description: agent.description,
-        category: BUILT_IN_AGENT_TYPE_SET.has(agent.type)
-          ? (BUILT_IN_AGENTS.find((entry) => entry.id === agent.type)?.category ?? "misc")
-          : "custom",
-      });
-    });
-  });
-  const visibleSelectableAgentIds = [
-    ...visibleBuiltInDisplayAgents
-      .filter((agent) => !folderedAgentIds.has(agent.id) && matchesAgentSearch(agent))
-      .map((agent) => agent.id),
-    ...visibleCustomAgents.map((agent) => agent.id),
-    ...visibleFolderAgentIds,
-  ];
+      return agent ? matchesAgentSearch(getAgentSearchData(agent)) : false;
+    }),
+  );
   const hasVisibleAgents =
     agentCategorySections.some((section) =>
       visibleBuiltInDisplayAgents.some(
@@ -308,7 +308,7 @@ export function AgentsPanel() {
       ),
     ) ||
     visibleCustomAgents.length > 0 ||
-    agentFolders.some((folder) => folder.itemIds.some((id) => selectableAgentById.has(id)));
+    hasVisibleFolderAgents;
   const selectedAgents = useMemo(
     () => selectableAgents.filter((agent) => selectedAgentIds.has(agent.id)),
     [selectableAgents, selectedAgentIds],
@@ -350,8 +350,7 @@ export function AgentsPanel() {
   const handleRenameFolder = useCallback(
     (folderId: string) => {
       const name = editFolderName.trim();
-      if (!name) return;
-      updateAgentFolder.mutate({ id: folderId, name });
+      if (name) updateAgentFolder.mutate({ id: folderId, name });
       setEditingFolderId(null);
       setEditFolderName("");
     },
@@ -375,16 +374,21 @@ export function AgentsPanel() {
 
     setExportingSelected(true);
     try {
-      downloadJsonFile(
-        {
-          kind: "marinara.agent-folder",
-          version: 1,
-          exportedAt: new Date().toISOString(),
-          folderName: "Agents",
-          agents: selectedAgents.map(serializeAgentFolderEntry),
-        },
-        "marinara-agents.json",
-      );
+      const envelope = {
+        kind: "marinara.agent-folder",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        folderName: "Agents",
+        agents: selectedAgents.map(serializeAgentFolderEntry),
+      };
+      if (selectedAgents.length > 1) {
+        downloadZipFile(
+          [{ path: "marinara-agents.json", content: JSON.stringify(envelope, null, 2) }],
+          "marinara-agents.zip",
+        );
+      } else {
+        downloadJsonFile(envelope, "marinara-agents.json");
+      }
       toast.success(`Exported ${selectedAgents.length} agent${selectedAgents.length === 1 ? "" : "s"}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to export agents");
@@ -435,7 +439,7 @@ export function AgentsPanel() {
       if (!file) return;
 
       try {
-        const text = await file.text();
+        const text = isZipFile(file) ? await readTextFileFromZip(file, ["marinara-agents.json"]) : await file.text();
         const parsed = JSON.parse(text);
         const entries = getAgentImportEntries(parsed);
         if (entries.length === 0) throw new Error("No agents found in file");
@@ -589,7 +593,7 @@ export function AgentsPanel() {
         const payload = event.dataTransfer.getData("application/x-marinara-agent-ids");
         handleAgentDrop(null, payload ? (JSON.parse(payload) as string[]) : undefined);
       }}
-      className="flex flex-col gap-2 p-3"
+      className="flex min-h-full flex-col gap-2 p-3"
     >
       <input
         ref={agentImageInputRef}
@@ -601,7 +605,7 @@ export function AgentsPanel() {
       <input
         ref={agentImportInputRef}
         type="file"
-        accept="application/json,.json"
+        accept="application/json,application/zip,.json,.zip"
         className="hidden"
         onChange={handleImportAgents}
       />
@@ -619,7 +623,7 @@ export function AgentsPanel() {
         </button>
         <button
           onClick={() => agentImportInputRef.current?.click()}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="mari-chrome-control mari-chrome-control--primary flex-1 text-xs"
           title="Import agents"
         >
           <Download size="0.8125rem" /> <span className="md:hidden">Import</span>
@@ -631,10 +635,8 @@ export function AgentsPanel() {
           }}
           disabled={selectableAgents.length === 0}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40",
-            selectionMode
-              ? "bg-[var(--primary)]/10 text-[var(--foreground)] ring-1 ring-[var(--primary)]/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
+            "mari-chrome-control mari-chrome-control--primary flex-1 text-xs",
+            selectionMode && "mari-chrome-control--selected",
           )}
           title="Select agents"
         >
@@ -649,63 +651,16 @@ export function AgentsPanel() {
         <div className="rounded-lg bg-emerald-500/10 px-2 py-1.5 text-xs text-emerald-500">{agentImportSuccess}</div>
       )}
 
-      {selectionMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
-          <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedAgents.length} selected
-          </span>
-          <button
-            onClick={() => setSelectedAgentIds(new Set(visibleSelectableAgentIds))}
-            disabled={visibleSelectableAgentIds.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            Select visible
-          </button>
-          <button
-            onClick={() => setSelectedAgentIds(new Set())}
-            disabled={selectedAgents.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleDeleteSelectedAgents}
-            disabled={selectedAgents.length === 0}
-            className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-          >
-            <Trash2 size="0.6875rem" />
-            Delete
-          </button>
-          <button
-            onClick={handleExportSelectedAgents}
-            disabled={selectedAgents.length === 0 || exportingSelected}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[0.625rem] font-medium transition-all hover:brightness-110 disabled:opacity-40",
-              AGENT_GRADIENT_BUTTON,
-            )}
-          >
-            <Upload size="0.6875rem" />
-            {exportingSelected ? "Exporting..." : "Export"}
-          </button>
-          <button
-            onClick={exitSelectionMode}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            Done
-          </button>
-        </div>
-      )}
-
       <div className="relative">
         <Search
           size="0.8125rem"
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+          className="mari-chrome-field-icon pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
         />
         <input
           value={agentSearch}
           onChange={(event) => setAgentSearch(event.target.value)}
           placeholder="Search agents"
-          className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-[var(--muted-foreground)]/50 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+          className="mari-chrome-field w-full py-2 pl-8 pr-3 text-xs"
         />
       </div>
 
@@ -719,32 +674,23 @@ export function AgentsPanel() {
         <div className="flex items-center gap-1">
           <button
             onClick={handleCreateFolder}
-            className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
+            className="mari-chrome-control mari-chrome-control--small flex-1 justify-start text-[0.6875rem]"
           >
             <FolderPlus size="0.75rem" />
             New Folder
           </button>
         </div>
         {agentFolders.length > 0 && (
-          <p className="px-2.5 pb-1 text-[0.625rem] leading-snug text-[var(--muted-foreground)]/70">
-            Drag and drop agents to folders
-          </p>
+          <p className="mari-folder-helper">Drag and drop agents to folders</p>
         )}
         {agentFolders.map((folder) => {
-          const isExpanded = expandedFolderId === folder.id;
           const isEditing = editingFolderId === folder.id;
           const folderAgents = folder.itemIds
             .map((id) => selectableAgentById.get(id))
             .filter((agent): agent is AgentConfigRow => Boolean(agent))
-            .filter((agent) =>
-              matchesAgentSearch({
-                name: agent.name,
-                description: agent.description,
-                category: BUILT_IN_AGENT_TYPE_SET.has(agent.type)
-                  ? (BUILT_IN_AGENTS.find((entry) => entry.id === agent.type)?.category ?? "misc")
-                  : "custom",
-              }),
-            );
+            .filter((agent) => matchesAgentSearch(getAgentSearchData(agent)));
+          if (agentSearchActive && folderAgents.length === 0) return null;
+          const isExpanded = (agentSearchActive && folderAgents.length > 0) || expandedFolderId === folder.id;
           return (
             <div
               key={folder.id}
@@ -781,7 +727,7 @@ export function AgentsPanel() {
                       value={editFolderName}
                       onChange={(event) => setEditFolderName(event.target.value)}
                       onKeyDown={(event) => {
-                        if (event.key === "Enter") handleRenameFolder(folder.id);
+                        if (event.key === "Enter") event.currentTarget.blur();
                         if (event.key === "Escape") {
                           setEditingFolderId(null);
                           setEditFolderName("");
@@ -795,9 +741,9 @@ export function AgentsPanel() {
                     <div className="truncate text-xs font-medium text-[var(--muted-foreground)]">{folder.name}</div>
                   )}
                 </div>
-                {folder.itemIds.length > 0 && (
+                {(agentSearchActive ? folderAgents.length : folder.itemIds.length) > 0 && (
                   <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">
-                    {folder.itemIds.length}
+                    {agentSearchActive ? folderAgents.length : folder.itemIds.length}
                   </span>
                 )}
                 <div className="absolute right-2 top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
@@ -807,9 +753,9 @@ export function AgentsPanel() {
                       setEditingFolderId(folder.id);
                       setEditFolderName(folder.name);
                     }}
-                    className="rounded-lg p-1 transition-colors hover:bg-[var(--accent)]"
-                    title="Rename folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small p-1"
+	                    title="Rename folder"
+	                  >
                     <Pencil size="0.6875rem" />
                   </button>
                   <button
@@ -818,9 +764,9 @@ export function AgentsPanel() {
                       deleteAgentFolder.mutate(folder.id);
                       if (expandedFolderId === folder.id) setExpandedFolderId(null);
                     }}
-                    className="rounded-lg p-1 transition-colors hover:bg-[var(--destructive)]/15"
-                    title="Delete folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1"
+	                    title="Delete folder"
+	                  >
                     <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
                   </button>
                 </div>
@@ -940,6 +886,15 @@ export function AgentsPanel() {
             )
           )}
         </PanelSection>
+      )}
+
+      {selectionMode && (
+        <SelectionActionBar
+          selectedCount={selectedAgents.length}
+          onExport={() => void handleExportSelectedAgents()}
+          onDelete={handleDeleteSelectedAgents}
+          exporting={exportingSelected}
+        />
       )}
     </div>
   );
@@ -1065,8 +1020,8 @@ function renderAgentCard({
       {!selectionMode && (
         <div className="absolute right-2 top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
           <button
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-90"
-            title="Edit agent"
+	            className="mari-chrome-control mari-chrome-control--small p-1.5"
+	            title="Edit agent"
             onClick={(event) => {
               event.stopPropagation();
               openAgentDetail(custom ? id : type);
@@ -1076,8 +1031,8 @@ function renderAgentCard({
           </button>
           {onDelete && (
             <button
-              className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-              title="Delete agent"
+	              className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1.5"
+	              title="Delete agent"
               onClick={(event) => {
                 event.stopPropagation();
                 void onDelete();

@@ -2,7 +2,7 @@
 // Agent Executor — Single & Batched LLM execution
 // ──────────────────────────────────────────────
 import type { BaseLLMProvider, ChatMessage, LLMToolDefinition, LLMToolCall, LLMUsage } from "../llm/base-provider.js";
-import type { AgentResult, AgentContext, AgentResultType, AgentCallDebugEvent } from "@marinara-engine/shared";
+import type { AgentResult, AgentContext, AgentResultType, AgentCallDebugEvent, WrapFormat } from "@marinara-engine/shared";
 import {
   compactQuestProgressForContext,
   DEFAULT_AGENT_CONTEXT_SIZE,
@@ -13,6 +13,7 @@ import {
 } from "@marinara-engine/shared";
 import { isDebugAgentsEnabled } from "../../config/runtime-config.js";
 import { logger } from "../../lib/logger.js";
+import { wrapContent } from "../prompt/format-engine.js";
 
 const MAX_AGENT_CONTEXT_MESSAGES = 200;
 const EXPRESSION_AGENT_RECENT_CONTEXT_MESSAGES = 2;
@@ -58,6 +59,15 @@ export interface AgentToolContext {
 function getMusicProvider(settings: Record<string, unknown> | null | undefined): "spotify" | "youtube" {
   const raw = settings?.musicProvider ?? settings?.musicPlayerSource;
   return raw === "youtube" ? "youtube" : "spotify";
+}
+
+function normalizeAgentContextWrapFormat(value: unknown): WrapFormat {
+  return value === "markdown" || value === "none" || value === "xml" ? value : "xml";
+}
+
+function formatAgentContextBlock(content: string, sectionName: string, format: WrapFormat): string {
+  if (format === "none") return `${sectionName}\n${content.trim()}`;
+  return wrapContent(content, sectionName, format);
 }
 
 function musicDjUsesYoutube(config: Pick<AgentExecConfig, "type" | "settings">): boolean {
@@ -1785,9 +1795,13 @@ function buildAgentExtras(context: AgentContext, agentTypes: string[] = []): str
   }
 
   if (context.memory._secretPlotState) {
-    parts.push(`<secret_plot_state>`);
-    parts.push(JSON.stringify(context.memory._secretPlotState));
-    parts.push(`</secret_plot_state>`);
+    const secretPlotState = JSON.stringify(context.memory._secretPlotState);
+    const wrapped = formatAgentContextBlock(
+      secretPlotState,
+      "Secret Plot State",
+      normalizeAgentContextWrapFormat(context.wrapFormat),
+    );
+    if (wrapped) parts.push(wrapped);
   }
 
   return parts.join("\n");
@@ -1805,19 +1819,15 @@ const AGENT_RESULT_TYPE_MAP: Record<string, AgentResultType> = {
   illustrator: "image_prompt",
   "lorebook-keeper": "lorebook_update",
   "card-evolution-auditor": "character_card_update",
-  "prompt-reviewer": "prompt_review",
   combat: "game_state_update",
   background: "background_change",
   "character-tracker": "character_tracker_update",
   "persona-stats": "persona_stats_update",
   "custom-tracker": "custom_tracker_update",
-  "chat-summary": "chat_summary",
   spotify: "spotify_control",
-  youtube: "youtube_control",
   "knowledge-retrieval": "context_injection",
   haptic: "haptic_command",
   cyoa: "cyoa_choices",
-  "secret-plot-driver": "secret_plot",
 };
 
 const AGENT_RESULT_TYPES = new Set<AgentResultType>([
@@ -1832,12 +1842,10 @@ const AGENT_RESULT_TYPES = new Set<AgentResultType>([
   "director_event",
   "lorebook_update",
   "character_card_update",
-  "prompt_review",
   "background_change",
   "character_tracker_update",
   "persona_stats_update",
   "custom_tracker_update",
-  "chat_summary",
   "spotify_control",
   "youtube_control",
   "haptic_command",
@@ -1879,18 +1887,14 @@ const JSON_AGENTS = new Set([
   "illustrator",
   "lorebook-keeper",
   "card-evolution-auditor",
-  "prompt-reviewer",
   "combat",
   "background",
   "character-tracker",
   "persona-stats",
   "custom-tracker",
-  "chat-summary",
   "spotify",
-  "youtube",
   "haptic",
   "cyoa",
-  "secret-plot-driver",
 ]);
 
 /**

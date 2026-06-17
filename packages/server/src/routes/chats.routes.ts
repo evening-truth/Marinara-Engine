@@ -12,7 +12,7 @@ import {
   appendChatSummaryEntryToMetadata,
   compileChatSummaryEntries,
   createChatSummaryEntry,
-  getDefaultAgentPrompt,
+  DEFAULT_CHAT_SUMMARY_PROMPT,
   markAutonomousUnreadSchema,
   nameToXmlTag,
   normalizeChatSummaryEntries,
@@ -39,6 +39,7 @@ import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { createAgentsStorage } from "../services/storage/agents.storage.js";
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
+import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { createGameStateStorage, type GameStateVisibleAnchor } from "../services/storage/game-state.storage.js";
 import { createRegexScriptsStorage } from "../services/storage/regex-scripts.storage.js";
 import { getLocalSidecarProvider, LOCAL_SIDECAR_MODEL } from "../services/llm/local-sidecar.js";
@@ -74,6 +75,8 @@ import {
 import { applyRegexScriptsToPromptMessages } from "../services/regex/regex-application.js";
 import { sanitizeGameNpcAvatarUrls } from "../services/game/npc-avatar-utils.js";
 import { applyImmersiveHtmlPromptInjection } from "../services/generation/immersive-html-injection.js";
+import { parseLorebookWriteApprovalText } from "./generate/agent-write-approval.js";
+import { persistLorebookKeeperUpdates } from "./generate/lorebook-keeper-utils.js";
 
 type TrackerWrapFormat = "xml" | "markdown" | "none";
 type EntryStateOverrides = Record<string, { ephemeral?: number | null; enabled?: boolean }>;
@@ -711,6 +714,97 @@ export async function chatsRoutes(app: FastifyInstance) {
 
     if (!updated) return reply.status(404).send({ error: "Chat not found" });
     return updated;
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body: {
+      kind?: unknown;
+      text?: unknown;
+      payload?: unknown;
+      agentName?: unknown;
+      agentType?: unknown;
+    };
+  }>("/:id/agent-write-approval/commit", async (req, reply) => {
+    const chat = await storage.getById(req.params.id);
+    if (!chat) return reply.status(404).send({ error: "Chat not found" });
+
+    const body = req.body ?? {};
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (!text) return reply.status(400).send({ error: "Approval text is required" });
+
+    if (body.kind === "summary_update") {
+      const payload = isRecord(body.payload) ? body.payload : {};
+      const messageIds = Array.isArray(payload.messageIds)
+        ? payload.messageIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        : [];
+      const messageCount =
+        typeof payload.messageCount === "number" && Number.isFinite(payload.messageCount)
+          ? Math.max(1, Math.trunc(payload.messageCount))
+          : messageIds.length || undefined;
+      const promptTemplateId =
+        typeof payload.promptTemplateId === "string" && payload.promptTemplateId.trim()
+          ? payload.promptTemplateId.trim()
+          : null;
+      let combined: string | null = text;
+      let createdEntry: ChatSummaryEntry | null = null;
+      let summaryEntries: ChatSummaryEntry[] = [];
+      const updated = await storage.patchMetadata(req.params.id, (freshMeta) => {
+        const now = new Date().toISOString();
+        const result = appendChatSummaryEntryToMetadata(
+          freshMeta,
+          {
+            kind: "rolling",
+            origin: "automated",
+            sourceMode: "agent",
+            content: text,
+            enabled: true,
+            ...(messageCount ? { messageCount } : {}),
+            ...(messageIds.length > 0 ? { messageIds } : {}),
+            promptTemplateId,
+            createdAt: now,
+            updatedAt: now,
+          },
+          { createId: newId, now },
+        );
+        combined = result.summary;
+        createdEntry = result.entry;
+        summaryEntries = result.entries;
+        return {
+          summary: result.summary,
+          summaryEntries: result.entries,
+        };
+      });
+      if (!updated) return reply.status(404).send({ error: "Chat not found" });
+      return { ok: true, summary: combined, entry: createdEntry, entries: summaryEntries };
+    }
+
+    if (body.kind === "lorebook_update") {
+      const payload = isRecord(body.payload) ? body.payload : {};
+      const updates = parseLorebookWriteApprovalText(text);
+      if (updates.length === 0) {
+        return reply.status(400).send({ error: "No lorebook entries found in approval text" });
+      }
+      const preferredTargetLorebookId =
+        typeof payload.preferredTargetLorebookId === "string" && payload.preferredTargetLorebookId.trim()
+          ? payload.preferredTargetLorebookId.trim()
+          : null;
+      const writableLorebookIds = Array.isArray(payload.writableLorebookIds)
+        ? payload.writableLorebookIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        : null;
+      const lorebooksStore = createLorebooksStorage(app.db);
+      const targetLorebookId = await persistLorebookKeeperUpdates({
+        lorebooksStore,
+        chatId: req.params.id,
+        chatName: (chat as { name?: string | null }).name,
+        preferredTargetLorebookId,
+        writableLorebookIds,
+        updates,
+      });
+      return { ok: true, targetLorebookId };
+    }
+
+    return reply.status(400).send({ error: "Unsupported agent write approval kind" });
   });
 
   // Generate any missing conversation day/week summaries on demand. This uses
@@ -1657,7 +1751,7 @@ export async function chatsRoutes(app: FastifyInstance) {
             : [];
           const activePromptAgentIds = filterGameInternalAgentIds(chatMode, promptActiveAgentIds);
           const activeChatSummary =
-            chatMeta.enableAgents === true && activePromptAgentIds.includes("chat-summary")
+            chatMode === "roleplay" || chatMode === "visual_novel"
               ? ((chatMeta.summary as string) ?? "").trim() || null
               : null;
 
@@ -2465,7 +2559,7 @@ export async function chatsRoutes(app: FastifyInstance) {
   // ── Generate Summary ──
   // Calls the LLM to produce a rolling summary from the chat history,
   // saves it into chatMetadata.summary, and returns it.
-  // Model resolution: chat-summary agent connection → default-for-agents → chat connection.
+  // Model resolution: default-for-agents → chat connection.
   app.post<{ Params: { id: string } }>("/:id/generate-summary", async (req, reply) => {
     const chat = await storage.getById(req.params.id);
     if (!chat) return reply.status(404).send({ error: "Chat not found" });
@@ -2494,15 +2588,11 @@ export async function chatsRoutes(app: FastifyInstance) {
     const connections = createConnectionsStorage(app.db);
 
     // Model resolution chain:
-    // 1. Chat Summary agent's own connection override
-    // 2. Default-for-agents connection
-    // 3. Chat's active connection
-    const { createAgentsStorage } = await import("../services/storage/agents.storage.js");
-    const agentsStore = createAgentsStorage(app.db);
-    const summaryAgentCfg = await agentsStore.getByType("chat-summary");
+    // 1. Default-for-agents connection
+    // 2. Chat's active connection
     const defaultAgentConn = await connections.getDefaultForAgents();
 
-    let resolvedConnId: string | null = summaryAgentCfg?.connectionId ?? defaultAgentConn?.id ?? null;
+    let resolvedConnId: string | null = defaultAgentConn?.id ?? null;
 
     // Fall back to the chat connection
     if (!resolvedConnId) {
@@ -2607,7 +2697,7 @@ export async function chatsRoutes(app: FastifyInstance) {
     const summaryPrompt =
       typeof selectedSummaryPrompt?.prompt === "string"
         ? selectedSummaryPrompt.prompt.trim()
-        : (summaryAgentCfg?.promptTemplate as string | undefined)?.trim() || getDefaultAgentPrompt("chat-summary");
+        : DEFAULT_CHAT_SUMMARY_PROMPT;
 
     const messages: Array<{ role: "system" | "user"; content: string }> = [
       { role: "system", content: summaryPrompt },

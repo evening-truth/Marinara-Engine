@@ -163,10 +163,14 @@ export interface ChatMetadata {
   summary: string | null;
   /** Structured rolling summary entries. Missing means legacy summary-only metadata. */
   summaryEntries?: ChatSummaryEntry[];
-  /** Recent message count used by manual rolling summary generation and the automated summary agent. */
+  /** Recent message count used by manual rolling summary generation and automatic summaries. */
   summaryContextSize?: number;
   /** User-message cadence for the automated roleplay summary updater. */
   summaryRunInterval?: number;
+  /** Whether the Chat Summary popover should automatically generate rolling Roleplay summaries. */
+  automaticSummaryEnabled?: boolean;
+  /** Last assistant message ID processed by the automatic Roleplay summary updater. */
+  lastAutomaticSummaryMessageId?: string | null;
   /** Chat-scoped manual summary prompt templates. Missing or empty uses the built-in default. */
   summaryPromptTemplates?: ChatSummaryPromptTemplate[];
   /** Selected manual summary prompt template ID. Null/omitted uses the built-in default. */
@@ -175,16 +179,32 @@ export interface ChatMetadata {
   tags: string[];
   /** Whether agents are enabled for this chat */
   enableAgents: boolean;
+  /** When true, lorebook and summary writes proposed by agents require user approval before persistence. */
+  agentWriteApprovalRequired?: boolean;
   /** Per-agent enable overrides (agentId → boolean) */
   agentOverrides: Record<string, boolean>;
   /** Agent IDs scoped to this chat. Non-empty = only these agents run; empty = use globally-enabled agents. */
   activeAgentIds: string[];
   /** Per-chat selected named prompt template for each agent type. Missing/default = the agent's default prompt. */
   agentPromptTemplateIds?: Record<string, string>;
+  /** Whether Illustrator should append matched character card appearance text to image prompts. */
+  illustratorIncludeCharacterAppearance?: boolean;
+  /** Whether Illustrator should send matching character/persona avatar references to image providers. */
+  illustratorUseAvatarReferences?: boolean;
+  /** Whether Conversation selfie commands should send the matching character avatar as a reference image. */
+  selfieUseAvatarReferences?: boolean;
+  /** Whether Game Mode scene illustrations should send matching character/persona avatar references. */
+  gameImageUseAvatarReferences?: boolean;
+  /** Whether Game Mode scene illustrations should append matched character appearance descriptions. */
+  gameImageIncludeCharacterAppearance?: boolean;
   /** Per-chat source overrides for knowledge agents. */
   knowledgeAgentSources?: Partial<Record<"knowledge-retrieval" | "knowledge-router", KnowledgeAgentSourceSettings>>;
   /** Narrative Director mode used when Push Story is armed. */
   narrativeDirectorMode?: "natural" | "random";
+  /** Whether Narrative Director maintains a hidden Secret Plot arc for this roleplay chat. */
+  narrativeDirectorSecretPlotEnabled?: boolean;
+  /** Assistant-message cadence for Narrative Director Secret Plot maintenance. */
+  narrativeDirectorSecretPlotRunInterval?: number;
   /** Explicit target lorebook for the Lorebook Keeper in this chat. Null/omitted = auto-pick. */
   lorebookKeeperTargetLorebookId?: string | null;
   /** How many assistant responses behind the latest available one Lorebook Keeper should read from. */
@@ -220,10 +240,18 @@ export interface ChatMetadata {
    * card styling is opt-in per chat.
    */
   cardCssMode?: "disabled" | "exclusive" | "chat";
-  /** Display scale for roleplay Expression Engine sprites. */
+  /** Legacy display scale for roleplay Expression Engine sprites. */
   spriteScale?: number;
-  /** Display opacity for roleplay Expression Engine sprites. */
+  /** Display scale for roleplay Expression Engine expression sprites. Falls back to spriteScale. */
+  expressionSpriteScale?: number;
+  /** Display scale for roleplay Expression Engine full-body sprites. Falls back to spriteScale. */
+  fullBodySpriteScale?: number;
+  /** Legacy display opacity for roleplay Expression Engine sprites. */
   spriteOpacity?: number;
+  /** Display opacity for roleplay Expression Engine expression sprites. Falls back to spriteOpacity. */
+  expressionSpriteOpacity?: number;
+  /** Display opacity for roleplay Expression Engine full-body sprites. Falls back to spriteOpacity. */
+  fullBodySpriteOpacity?: number;
   /** Saved freeform positions for enabled roleplay sprites. */
   spritePlacements?: Record<string, SpritePlacement>;
   /** When true, roleplay message avatars use the per-message Expression Engine sprite when one is available. */
@@ -232,8 +260,6 @@ export interface ChatMetadata {
   groupScenarioOverride?: boolean;
   /** The shared scenario text used when groupScenarioOverride is enabled */
   groupScenarioText?: string;
-  /** When true, show the Secret Plot tab in the roleplay Agents menu (edits apply to agent memory, same as generation). */
-  showSecretPlotPanel?: boolean;
   /** When true, show the Injections tab in the roleplay Agents menu for cached prompt injections. */
   showInjectionsPanel?: boolean;
   /** Prose Guardian per-chat banned words/settings applied to the rewrite prompt. */
@@ -319,6 +345,8 @@ export interface ChatMetadata {
   gameCurrentSessionStartedAt?: string;
   /** Current game state (exploration, dialogue, combat, travel_rest) */
   gameActiveState?: import("./game.js").GameActiveState;
+  /** Whether the game should maintain visible custom HUD widgets. */
+  enableCustomWidgets?: boolean;
   /** Whether GM is a standalone narrator or an existing character */
   gameGmMode?: import("./game.js").GameGmMode;
   /** Character ID used as GM (when gameGmMode is "character") */
@@ -347,6 +375,10 @@ export interface ChatMetadata {
   gameCombatState?: import("./game.js").GameCombatStateSnapshot | null;
   /** User's initial game setup preferences */
   gameSetupConfig?: import("./game.js").GameSetupConfig | null;
+  /** Generated game blueprint, including campaign plan and initial HUD widgets. */
+  gameBlueprint?: Record<string, unknown> | null;
+  /** Runtime HUD widget state shown in Game Mode. */
+  gameWidgetState?: import("./game.js").HudWidget[];
   /** Tracked NPCs with reputation */
   gameNpcs?: import("./game.js").GameNpc[];
   /** Current-session turn number when the last rare generated scene illustration was created. */
@@ -435,6 +467,17 @@ export interface Message {
   extra: MessageExtra;
 }
 
+/** A file or image attached to a chat message. */
+export interface MessageAttachment {
+  type: string;
+  data?: string;
+  url?: string;
+  filename?: string;
+  name?: string;
+  prompt?: string;
+  galleryId?: string;
+}
+
 /** Additional data attached to a message. */
 export interface MessageExtra {
   /** Display-formatted text (may differ from raw content) */
@@ -445,6 +488,8 @@ export interface MessageExtra {
   tokenCount: number | null;
   /** Generation metadata */
   generationInfo: GenerationInfo | null;
+  /** User-uploaded or generated attachments associated with this message. */
+  attachments?: MessageAttachment[] | null;
   /** When true, this message marks the "new start" of the conversation — all earlier messages are excluded from context */
   isConversationStart?: boolean;
   /** Model's reasoning/thinking content (if available) */
@@ -529,6 +574,8 @@ export interface GenerateRequest {
   regenerateMessageId: string | null;
   /** Override connection for this generation */
   connectionId: string | null;
+  /** One-shot attachments sent with the user message. */
+  attachments?: MessageAttachment[];
   /** One-shot Narrative Director mode for this generation, if the user armed Push Story. */
   narrativeDirectorMode?: "natural" | "random" | null;
 }

@@ -724,6 +724,9 @@ function enforceStrictRoles(messages: ChatMLMessage[]): ChatMLMessage[] {
     if (source.images?.length) {
       target.images = [...(target.images ?? []), ...source.images];
     }
+    if (source.files?.length) {
+      target.files = [...(target.files ?? []), ...source.files];
+    }
     if (source.providerMetadata) {
       target.providerMetadata = source.providerMetadata;
     }

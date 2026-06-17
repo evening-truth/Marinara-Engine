@@ -781,16 +781,16 @@ export function ConnectionEditor() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
-      <div className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
+      <div className="mari-editor-header">
         <button
           onClick={handleClose}
-          className="shrink-0 rounded-xl p-2 transition-all hover:bg-[var(--accent)] active:scale-95"
+          className="mari-editor-action inline-flex shrink-0"
         >
           <ArrowLeft size="1.125rem" />
         </button>
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-500 text-white shadow-sm">
+        <div className="mari-editor-icon-tile">
           <Link size="1.125rem" />
         </div>
         <input
@@ -799,33 +799,33 @@ export function ConnectionEditor() {
             setLocalName(e.target.value);
             markDirty();
           }}
-          className="min-w-0 flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-[var(--muted-foreground)]"
+          className="mari-editor-title-input min-w-0 flex-1 placeholder:text-[var(--marinara-editor-muted)]"
           placeholder="Connection name…"
         />
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="mari-editor-actions flex shrink-0">
           {saveError && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-red-400">
+            <span className="mari-editor-status mr-2 text-red-400">
               <AlertCircle size="0.6875rem" /> <span className="max-md:hidden">Save failed</span>
             </span>
           )}
           {savedFlash && !dirty && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-emerald-400">
+            <span className="mari-editor-status mr-2 text-emerald-400">
               <Check size="0.6875rem" /> <span className="max-md:hidden">Saved</span>
             </span>
           )}
           {dirty && !saveError && (
-            <span className="mr-2 text-[0.625rem] font-medium text-amber-400 max-md:hidden">Unsaved</span>
+            <span className="mari-editor-status mr-2 text-amber-400 max-md:hidden">Unsaved</span>
           )}
           <button
             onClick={handleSave}
             disabled={updateConnection.isPending || saveConnectionDefaults.isPending}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-blue-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
+            className="mari-editor-action mari-editor-action--primary inline-flex disabled:opacity-50"
           >
             <Save size="0.8125rem" /> <span className="max-md:hidden">Save</span>
           </button>
           <button
             onClick={handleExportConnection}
-            className="rounded-xl p-2 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-95"
+            className="mari-editor-action inline-flex"
             title="Export connection"
             aria-label="Export connection"
           >
@@ -833,11 +833,11 @@ export function ConnectionEditor() {
           </button>
           <button
             onClick={handleDelete}
-            className="rounded-xl p-2 transition-all hover:bg-[var(--destructive)]/15 active:scale-95"
+            className="mari-editor-action mari-editor-action--danger inline-flex"
             title="Delete connection"
             aria-label="Delete connection"
           >
-            <Trash2 size="0.9375rem" className="text-[var(--destructive)]" />
+            <Trash2 size="0.9375rem" />
           </button>
         </div>
       </div>
@@ -884,8 +884,8 @@ export function ConnectionEditor() {
       )}
 
       {/* ── Body ── */}
-      <div className="flex-1 overflow-y-auto p-6 max-md:p-4">
-        <div className="mx-auto max-w-2xl space-y-6">
+      <div className="mari-editor-content max-md:p-4">
+        <div className="mari-editor-content-inner space-y-6">
           {/* ── Connection Name ── */}
           <FieldGroup
             label="Connection Name"

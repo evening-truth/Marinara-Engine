@@ -325,16 +325,16 @@ export function PresetEditor() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-3 max-md:gap-2 max-md:px-3">
+      <div className="mari-editor-header">
         <button
           onClick={handleClose}
-          className="rounded-xl p-2 transition-all hover:bg-[var(--accent)] active:scale-95"
+          className="mari-editor-action inline-flex"
         >
           <ArrowLeft size="1.125rem" />
         </button>
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-400 to-violet-500 text-white shadow-sm max-md:h-8 max-md:w-8">
+        <div className="mari-editor-icon-tile">
           <FileText size="1.125rem" className="max-md:!h-[0.875rem] max-md:!w-[0.875rem]" />
         </div>
         <input
@@ -344,20 +344,20 @@ export function PresetEditor() {
             setLocalName(e.target.value);
             markDirty();
           }}
-          className="h-10 min-w-0 flex-1 self-stretch bg-transparent text-lg font-semibold outline-none placeholder:text-[var(--muted-foreground)] max-md:text-base"
+          className="mari-editor-title-input min-w-0 flex-1 placeholder:text-[var(--marinara-editor-muted)]"
           placeholder="Preset name…"
         />
-        <div className="flex items-center gap-1.5">
+        <div className="mari-editor-actions flex">
           <button
             onClick={handleSave}
             disabled={updatePreset.isPending}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-4 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-50"
+            className="mari-editor-action mari-editor-action--primary inline-flex disabled:opacity-50"
           >
             <Save size="0.8125rem" /> Save
           </button>
           <button
             onClick={() => api.download(`/prompts/${presetDetailId}/export`)}
-            className="rounded-xl p-2 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+            className="mari-editor-action inline-flex"
             title="Export preset"
           >
             <svg
@@ -379,9 +379,9 @@ export function PresetEditor() {
           </button>
           <button
             onClick={handleDelete}
-            className="rounded-xl p-2 transition-all hover:bg-[var(--destructive)]/15 active:scale-95"
+            className="mari-editor-action mari-editor-action--danger inline-flex"
           >
-            <Trash2 size="0.9375rem" className="text-[var(--destructive)]" />
+            <Trash2 size="0.9375rem" />
           </button>
         </div>
       </div>
@@ -424,12 +424,12 @@ export function PresetEditor() {
       )}
 
       {/* ── Body: Tab rail + Content ── */}
-      <div className="flex flex-1 overflow-hidden @max-5xl:flex-col">
+      <div className="mari-editor-body @max-5xl:flex-col">
         <EditorTabRail tabs={TABS} activeId={activeTab} onChange={setActiveTab} />
 
         {/* Content area */}
-        <div className="flex-1 overflow-y-auto p-6 @max-5xl:p-4">
-          <div className="mx-auto max-w-2xl space-y-6">
+        <div className="mari-editor-content @max-5xl:p-4">
+          <div className="mari-editor-content-inner space-y-6">
             {/* ── Overview Tab ── */}
             {activeTab === "overview" && (
               <OverviewTab
@@ -845,7 +845,7 @@ function SectionsTab({
         <div className="relative">
           <button
             onClick={() => setShowAddMenu(!showAddMenu)}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-3 py-2 text-xs font-medium text-white shadow-md transition-all hover:shadow-lg active:scale-[0.98]"
+            className="mari-editor-action mari-editor-action--primary inline-flex"
           >
             <Plus size="0.8125rem" /> Add Section
           </button>
@@ -2111,7 +2111,7 @@ function ExpandedEditorModal({
     <PresetModalPortal>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-6 max-md:pt-[max(1.5rem,env(safe-area-inset-top))]">
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
-        <div className="relative flex h-[80vh] w-full max-w-3xl flex-col rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl shadow-black/50">
+        <div className="mari-editor-shell relative flex h-[80vh] w-full max-w-3xl flex-col rounded-2xl border border-[var(--marinara-editor-border)] bg-[var(--marinara-editor-surface-bg)] shadow-2xl shadow-black/50">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
             <h3 className="text-sm font-semibold">{title}</h3>
@@ -2149,7 +2149,7 @@ function ExpandedEditorModal({
             <p className="text-[0.625rem] text-[var(--muted-foreground)]">Changes auto-save. Press Escape to close.</p>
             <button
               onClick={handleClose}
-              className="rounded-xl bg-gradient-to-r from-purple-400 to-violet-500 px-4 py-1.5 text-xs font-medium text-white shadow-md hover:shadow-lg active:scale-[0.98]"
+              className="mari-editor-action mari-editor-action--primary mari-editor-action--compact inline-flex px-4 py-1.5"
             >
               Done
             </button>

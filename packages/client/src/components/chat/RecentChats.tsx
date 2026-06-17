@@ -58,9 +58,6 @@ export function RecentChats() {
 
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-1.5">
-      <p className="text-[0.625rem] font-medium text-[var(--muted-foreground)]/50 tracking-wide uppercase">
-        Recent Chats
-      </p>
       {recentChats.length === 0 ? (
         <p className="rounded-lg border border-[var(--border)]/45 bg-[var(--card)]/45 px-3 py-1.5 text-xs text-[var(--muted-foreground)]/70">
           No chats yet
@@ -111,8 +108,7 @@ function RecentChatChip({
     <button
       onClick={onClick}
       className={cn(
-        "group relative flex max-w-[8rem] shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)]/50 bg-[var(--card)]/50 px-2 py-1.5",
-        "transition-all duration-150 hover:border-[var(--primary)]/40 hover:bg-[var(--card)] hover:shadow-sm",
+        "mari-chrome-control mari-chrome-control--small group relative max-w-[8rem] shrink-0 px-2 py-1.5",
         "cursor-pointer",
       )}
     >

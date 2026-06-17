@@ -9,6 +9,7 @@ import { chats, chatPresets } from "../../db/schema/index.js";
 import { newId, now } from "../../utils/id-generator.js";
 import {
   CHAT_PRESET_EXCLUDED_METADATA_KEYS,
+  isRetiredBuiltInAgentId,
   type ChatMode,
   type ChatPresetSettings,
   type CreateChatPresetInput,
@@ -21,6 +22,33 @@ const SCENE_POINTER_METADATA_KEYS = new Set(["activeSceneChatId", "sceneBusyChar
 
 function isPresetExcludedMetadataKey(key: string) {
   return EXCLUDED_METADATA_SET.has(key) || SCENE_POINTER_METADATA_KEYS.has(key) || key.startsWith("scene");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sanitizePresetAgentIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((agentId): agentId is string => {
+    return typeof agentId === "string" && agentId.trim().length > 0 && !isRetiredBuiltInAgentId(agentId);
+  });
+}
+
+function sanitizePresetAgentMap(value: unknown) {
+  if (!isRecord(value)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [agentId, agentValue] of Object.entries(value)) {
+    if (isRetiredBuiltInAgentId(agentId)) continue;
+    out[agentId] = agentValue;
+  }
+  return out;
+}
+
+function sanitizePresetMetadataValue(key: string, value: unknown) {
+  if (key === "activeAgentIds") return sanitizePresetAgentIds(value);
+  if (key === "agentOverrides" || key === "agentPromptTemplateIds") return sanitizePresetAgentMap(value);
+  return value;
 }
 
 interface ChatPresetRow {
@@ -59,7 +87,7 @@ export function sanitizePresetMetadata(metadata: Record<string, unknown> | undef
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if (isPresetExcludedMetadataKey(key)) continue;
-    out[key] = value;
+    out[key] = sanitizePresetMetadataValue(key, value);
   }
   return out;
 }

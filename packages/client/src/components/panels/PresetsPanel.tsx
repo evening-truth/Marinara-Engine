@@ -37,6 +37,7 @@ import { useUIStore } from "../../stores/ui.store";
 import { api } from "../../lib/api-client";
 import { showConfirmDialog } from "../../lib/app-dialogs";
 import { ChoiceSelectionModal } from "../presets/ChoiceSelectionModal";
+import { SelectionActionBar } from "../ui/SelectionActionBar";
 import {
   Plus,
   Download,
@@ -289,10 +290,11 @@ export function PresetsPanel() {
     return (presets as unknown as PresetRow[]).filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
-        (p.description ?? "").toLowerCase().includes(q) ||
-        (p.author ?? "").toLowerCase().includes(q),
+      (p.description ?? "").toLowerCase().includes(q) ||
+      (p.author ?? "").toLowerCase().includes(q),
     );
   }, [presets, search]);
+  const presetSearchActive = search.trim().length > 0;
 
   const presetById = useMemo(() => new Map(filteredPresets.map((preset) => [preset.id, preset])), [filteredPresets]);
 
@@ -573,8 +575,7 @@ export function PresetsPanel() {
   const handleRenameFolder = useCallback(
     (folderId: string) => {
       const name = editFolderName.trim();
-      if (!name) return;
-      updatePresetFolder.mutate({ id: folderId, name });
+      if (name) updatePresetFolder.mutate({ id: folderId, name });
       setEditingFolderId(null);
       setEditFolderName("");
     },
@@ -660,12 +661,15 @@ export function PresetsPanel() {
       return (
         <div
           key={preset.id}
-          className={cn(
-            "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
-            selectionMode && isBulkSelected && "ring-1 ring-purple-400/40 bg-purple-400/10",
-            isSelected && "ring-1 ring-purple-400/40 bg-purple-400/5",
-            draggedPresetId === preset.id && "opacity-50",
-          )}
+	          className={cn(
+	            "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+	            selectionMode &&
+	              isBulkSelected &&
+	              "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+	            isSelected &&
+	              "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+	            draggedPresetId === preset.id && "opacity-50",
+	          )}
           draggable
           onDragStart={(event) => {
             const ids = getDraggedPresetIds(preset.id);
@@ -689,11 +693,11 @@ export function PresetsPanel() {
             {selectionMode && (
               <div
                 className={cn(
-                  "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
-                  isBulkSelected
-                    ? "border-purple-400 bg-purple-400 text-white"
-                    : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
-                )}
+	                  "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+	                  isBulkSelected
+	                    ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]"
+	                    : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
+	                )}
               >
                 <Check size="0.75rem" />
               </div>
@@ -709,11 +713,11 @@ export function PresetsPanel() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-sm font-medium">{preset.name}</span>
-                {isDefault && (
-                  <span className="shrink-0 rounded bg-purple-400/15 px-1 py-0.5 text-[0.5625rem] font-medium text-purple-400">
-                    DEFAULT
-                  </span>
-                )}
+	                {isDefault && (
+	                  <span className="mari-chrome-muted-badge shrink-0 rounded px-1 py-0.5 text-[0.5625rem]">
+	                    DEFAULT
+	                  </span>
+	                )}
               </div>
               <div className="flex items-center gap-2 text-[0.6875rem] text-[var(--muted-foreground)]">
                 <span className="flex items-center gap-0.5">
@@ -734,12 +738,10 @@ export function PresetsPanel() {
                     event.stopPropagation();
                     selectPreset(preset.id);
                   }}
-                  className={cn(
-                    "rounded-lg p-1.5 transition-all active:scale-90",
-                    isSelected
-                      ? "bg-purple-400/15 text-purple-400"
-                      : "text-[var(--muted-foreground)] hover:bg-[var(--primary)]/10 hover:text-[var(--primary)]",
-                  )}
+	                  className={cn(
+	                    "mari-chrome-control mari-chrome-control--small p-1.5",
+	                    isSelected && "mari-chrome-control--selected",
+	                  )}
                   title={isSelected ? "Unassign from chat" : "Assign to chat"}
                 >
                   <Check size="0.75rem" />
@@ -764,10 +766,10 @@ export function PresetsPanel() {
                 onClick={(event) => {
                   event.stopPropagation();
                   duplicatePreset.mutate(preset.id);
-                }}
-                className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 active:scale-90"
-                title="Duplicate"
-              >
+	                }}
+	                className="mari-chrome-control mari-chrome-control--small p-1.5"
+	                title="Duplicate"
+	              >
                 <Copy size="0.75rem" />
               </button>
               <button
@@ -784,9 +786,9 @@ export function PresetsPanel() {
                     deletePreset.mutate(preset.id);
                   }
                 }}
-                className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-                title="Delete"
-              >
+	                className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1.5"
+	                title="Delete"
+	              >
                 <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
               </button>
             </div>
@@ -814,7 +816,7 @@ export function PresetsPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex min-h-full flex-col gap-2 p-3">
       {/* Action buttons */}
       <div className="flex gap-2">
         <button
@@ -826,7 +828,7 @@ export function PresetsPanel() {
         </button>
         <button
           onClick={() => openModal("import-preset")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="mari-chrome-control mari-chrome-control--primary flex-1 text-xs"
           title="Import"
         >
           <Download size="0.8125rem" /> <span className="md:hidden">Import</span>
@@ -837,10 +839,8 @@ export function PresetsPanel() {
             else setSelectionMode(true);
           }}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
-            selectionMode
-              ? "bg-purple-400/15 text-purple-400 ring-1 ring-purple-400/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
+            "mari-chrome-control mari-chrome-control--primary flex-1 text-xs",
+            selectionMode && "mari-chrome-control--selected",
           )}
           title="Select"
         >
@@ -848,87 +848,45 @@ export function PresetsPanel() {
         </button>
       </div>
 
-      {selectionMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
-          <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedPresetIds.size} selected
-          </span>
-          <button
-            onClick={() => setSelectedPresetIds(new Set(filteredPresets.map((preset) => preset.id)))}
-            disabled={filteredPresets.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-purple-400 transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            Select visible
-          </button>
-          <button
-            onClick={() => setSelectedPresetIds(new Set())}
-            disabled={selectedPresetIds.size === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={selectedPresetIds.size === 0}
-            className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-          >
-            <Trash2 size="0.6875rem" />
-            Delete
-          </button>
-          <button
-            onClick={handleExportSelected}
-            disabled={selectedPresetIds.size === 0 || exportingSelected}
-            className="inline-flex items-center gap-1 rounded-lg bg-purple-500 px-2.5 py-1 text-[0.625rem] font-medium text-white transition-all hover:opacity-90 disabled:opacity-40"
-          >
-            <Upload size="0.6875rem" />
-            {exportingSelected ? "Exporting..." : "Export ZIP"}
-          </button>
-          <button
-            onClick={exitSelectionMode}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            Done
-          </button>
-        </div>
-      )}
-
       {/* Search */}
       <div className="relative">
         <Search
           size="0.8125rem"
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+          className="mari-chrome-field-icon pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
         />
         <input
           type="text"
           placeholder="Search presets…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-xl bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs text-[var(--foreground)] ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          className="mari-chrome-field w-full py-2 pl-8 pr-3 text-xs"
         />
+      </div>
+
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCreateFolder}
+            className="mari-chrome-control mari-chrome-control--small flex-1 justify-start text-[0.6875rem]"
+          >
+            <FolderPlus size="0.75rem" />
+            New Folder
+          </button>
+        </div>
+        {presetFolders.length > 0 && (
+          <p className="mari-folder-helper">Drag and drop presets to folders</p>
+        )}
       </div>
 
       <PanelSection title="Presets" icon={<FileText size="0.8125rem" />}>
         <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handleCreateFolder}
-              className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-            >
-              <FolderPlus size="0.75rem" />
-              New Folder
-            </button>
-          </div>
-          {presetFolders.length > 0 && (
-            <p className="px-2.5 pb-1 text-[0.625rem] leading-snug text-[var(--muted-foreground)]/70">
-              Drag and drop presets to folders
-            </p>
-          )}
           {presetFolders.map((folder) => {
-            const isExpanded = expandedFolderId === folder.id;
             const isEditing = editingFolderId === folder.id;
             const folderItems = folder.itemIds
               .map((id) => presetById.get(id))
               .filter((item): item is PresetRow => Boolean(item));
+            if (presetSearchActive && folderItems.length === 0) return null;
+            const isExpanded = (presetSearchActive && folderItems.length > 0) || expandedFolderId === folder.id;
             return (
               <div
                 key={folder.id}
@@ -965,7 +923,7 @@ export function PresetsPanel() {
                         value={editFolderName}
                         onChange={(event) => setEditFolderName(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter") handleRenameFolder(folder.id);
+                          if (event.key === "Enter") event.currentTarget.blur();
                           if (event.key === "Escape") {
                             setEditingFolderId(null);
                             setEditFolderName("");
@@ -981,9 +939,9 @@ export function PresetsPanel() {
                       </>
                     )}
                   </div>
-                  {folder.itemIds.length > 0 && (
+                  {(presetSearchActive ? folderItems.length : folder.itemIds.length) > 0 && (
                     <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">
-                      {folder.itemIds.length}
+                      {presetSearchActive ? folderItems.length : folder.itemIds.length}
                     </span>
                   )}
                   <div className="absolute right-2 top-1/2 flex -translate-y-1/2 shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
@@ -993,9 +951,9 @@ export function PresetsPanel() {
                         setEditingFolderId(folder.id);
                         setEditFolderName(folder.name);
                       }}
-                      className="rounded-lg p-1 transition-colors hover:bg-[var(--accent)]"
-                      title="Rename folder"
-                    >
+	                      className="mari-chrome-control mari-chrome-control--small p-1"
+	                      title="Rename folder"
+	                    >
                       <Pencil size="0.6875rem" />
                     </button>
                     <button
@@ -1004,9 +962,9 @@ export function PresetsPanel() {
                         deletePresetFolder.mutate(folder.id);
                         if (expandedFolderId === folder.id) setExpandedFolderId(null);
                       }}
-                      className="rounded-lg p-1 transition-colors hover:bg-[var(--destructive)]/15"
-                      title="Delete folder"
-                    >
+	                      className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1"
+	                      title="Delete folder"
+	                    >
                       <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
                     </button>
                   </div>
@@ -1107,6 +1065,15 @@ export function PresetsPanel() {
         deleteCustomTool={deleteCustomTool}
       />
 
+      {selectionMode && (
+        <SelectionActionBar
+          selectedCount={selectedPresetIds.size}
+          onExport={() => void handleExportSelected()}
+          onDelete={handleDeleteSelected}
+          exporting={exportingSelected}
+        />
+      )}
+
       {/* Choice selection modal */}
       {activeChat && (
         <ChoiceSelectionModal
@@ -1164,13 +1131,13 @@ function RegexSection({
         <div className="flex items-center gap-1">
           <button
             onClick={handleCreateRegex}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-400/10 hover:text-purple-400"
+            className="mari-chrome-control mari-chrome-control--small p-1.5"
             title="Create regex"
           >
             <Plus size="0.8125rem" />
           </button>
           <label
-            className="inline-flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-400/10 hover:text-purple-400"
+            className="mari-chrome-control mari-chrome-control--small cursor-pointer p-1.5"
             title="Import regexes from JSON"
           >
             <input type="file" accept="application/json" className="hidden" onChange={handleImportRegex} />
@@ -1179,7 +1146,7 @@ function RegexSection({
           <button
             onClick={handleExportRegex}
             disabled={sortedRegexScripts.length === 0}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-400/10 hover:text-purple-400 disabled:cursor-not-allowed disabled:opacity-35"
+            className="mari-chrome-control mari-chrome-control--small p-1.5"
             title="Export regexes to JSON"
           >
             <Upload size="0.8125rem" />
@@ -1248,7 +1215,7 @@ function RegexSection({
               >
                 <GripVertical size="0.8125rem" />
               </button>
-              <Regex size="0.875rem" className="mt-0.5 shrink-0 text-purple-400" />
+              <Regex size="0.875rem" className="mt-0.5 shrink-0 text-[var(--marinara-chat-chrome-button-text)]" />
               <button className="min-w-0 flex-1 text-left" onClick={() => openRegexDetail(script.id)}>
                 <div className="text-xs font-medium">{script.name}</div>
                 <div className="mt-0.5 flex items-center gap-1">
@@ -1265,29 +1232,30 @@ function RegexSection({
                   </span>
                 </div>
               </button>
-              <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-purple-400"
-                title={enabled ? "Disable regex" : "Enable regex"}
-                onClick={(event) => {
+	              <button
+	                className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
+	                title={enabled ? "Disable regex" : "Enable regex"}
+	                onClick={(event) => {
                   event.stopPropagation();
                   updateRegex.mutate({ id: script.id, enabled: !enabled });
                 }}
               >
-                {enabled ? (
-                  <ToggleRight size="0.875rem" className="text-purple-400" />
-                ) : (
-                  <ToggleLeft size="0.875rem" className="text-[var(--muted-foreground)]" />
-                )}
-              </button>
-              <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-purple-400"
-                title="Edit regex"
-                onClick={() => openRegexDetail(script.id)}
+	                {enabled ? (
+	                  <ToggleRight size="0.875rem" />
+	                ) : (
+	                  <ToggleLeft size="0.875rem" />
+	                )}
+	              </button>
+	              <button
+	                className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
+	                title="Edit regex"
+	                onClick={() => openRegexDetail(script.id)}
               >
                 <Pencil size="0.8125rem" />
               </button>
               <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
+                type="button"
+                className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger mt-0.5 shrink-0 p-1"
                 title="Delete regex"
                 onClick={async () => {
                   if (
@@ -1302,7 +1270,7 @@ function RegexSection({
                   }
                 }}
               >
-                <Trash2 size="0.8125rem" />
+                <Trash2 size="0.8125rem" className="text-[var(--destructive)]" />
               </button>
             </div>
           );
@@ -1343,13 +1311,13 @@ function FunctionsSection({
         <div className="flex items-center gap-1">
           <button
             onClick={handleCreateFunction}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-400/10 hover:text-purple-400"
+            className="mari-chrome-control mari-chrome-control--small p-1.5"
             title="Create function"
           >
             <Plus size="0.8125rem" />
           </button>
           <label
-            className="inline-flex cursor-pointer items-center justify-center rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-400/10 hover:text-purple-400"
+            className="mari-chrome-control mari-chrome-control--small cursor-pointer p-1.5"
             title="Import functions from JSON"
           >
             <input type="file" accept="application/json,.json" className="hidden" onChange={handleImportFunctions} />
@@ -1358,7 +1326,7 @@ function FunctionsSection({
           <button
             onClick={handleExportFunctions}
             disabled={customToolRows.length === 0}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-400/10 hover:text-purple-400 disabled:cursor-not-allowed disabled:opacity-35"
+            className="mari-chrome-control mari-chrome-control--small p-1.5"
             title="Export functions to JSON"
           >
             <Upload size="0.8125rem" />
@@ -1388,7 +1356,7 @@ function FunctionsSection({
                 !enabled && "opacity-50",
               )}
             >
-              <Wrench size="0.875rem" className="mt-0.5 shrink-0 text-purple-400" />
+              <Wrench size="0.875rem" className="mt-0.5 shrink-0 text-[var(--marinara-chat-chrome-button-text)]" />
               <button className="min-w-0 flex-1 text-left" onClick={() => openToolDetail(tool.id)}>
                 <div className="truncate font-mono text-xs font-medium">{tool.name}</div>
                 <div className="mt-0.5 flex min-w-0 items-center gap-1">
@@ -1408,29 +1376,30 @@ function FunctionsSection({
                   {tool.description || "No description"}
                 </div>
               </button>
-              <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-purple-400"
-                title={enabled ? "Disable function" : "Enable function"}
-                onClick={(event) => {
+	              <button
+	                className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
+	                title={enabled ? "Disable function" : "Enable function"}
+	                onClick={(event) => {
                   event.stopPropagation();
                   updateCustomTool.mutate({ id: tool.id, enabled: !enabled });
                 }}
               >
-                {enabled ? (
-                  <ToggleRight size="0.875rem" className="text-purple-400" />
-                ) : (
-                  <ToggleLeft size="0.875rem" className="text-[var(--muted-foreground)]" />
-                )}
-              </button>
-              <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-purple-400"
-                title="Edit function"
-                onClick={() => openToolDetail(tool.id)}
+	                {enabled ? (
+	                  <ToggleRight size="0.875rem" />
+	                ) : (
+	                  <ToggleLeft size="0.875rem" />
+	                )}
+	              </button>
+	              <button
+	                className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
+	                title="Edit function"
+	                onClick={() => openToolDetail(tool.id)}
               >
                 <Pencil size="0.8125rem" />
               </button>
               <button
-                className="mt-0.5 shrink-0 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
+                type="button"
+                className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger mt-0.5 shrink-0 p-1"
                 title="Delete function"
                 onClick={async () => {
                   if (
@@ -1445,7 +1414,7 @@ function FunctionsSection({
                   }
                 }}
               >
-                <Trash2 size="0.8125rem" />
+                <Trash2 size="0.8125rem" className="text-[var(--destructive)]" />
               </button>
             </div>
           );
@@ -1497,7 +1466,7 @@ function PanelSection({
             size="0.75rem"
             className={cn("text-[var(--muted-foreground)] transition-transform", open && "rotate-180")}
           />
-          <span className="text-purple-400">{icon}</span>
+          <span className="text-[var(--marinara-chat-chrome-button-text)]">{icon}</span>
           {title}
         </button>
         {action}

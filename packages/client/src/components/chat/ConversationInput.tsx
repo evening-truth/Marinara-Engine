@@ -67,6 +67,7 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "yaml",
   "yml",
 ]);
+const PDF_ATTACHMENT_MIME_TYPE = "application/pdf";
 
 const CONVERSATION_HIDDEN_SLASH_COMMANDS = new Set(["impersonate", "impersonate_prompt"]);
 
@@ -80,8 +81,9 @@ function getFileExtension(fileName: string): string {
 }
 
 function inferAttachmentType(file: File): string {
-  if (file.type) return file.type;
   const extension = getFileExtension(file.name);
+  if (extension === "pdf") return PDF_ATTACHMENT_MIME_TYPE;
+  if (file.type) return file.type;
   if (extension === "json" || extension === "jsonl") return "application/json";
   if (extension === "csv") return "text/csv";
   if (extension === "md" || extension === "markdown") return "text/markdown";
@@ -95,6 +97,7 @@ function isSupportedChatAttachment(file: File): boolean {
   if (file.type.startsWith("image/")) return true;
   if (file.type.startsWith("text/")) return true;
   const type = inferAttachmentType(file);
+  if (type === PDF_ATTACHMENT_MIME_TYPE) return true;
   if (
     type === "application/json" ||
     type === "application/xml" ||
@@ -368,7 +371,7 @@ export function ConversationInput({
         }
         if (!isSupportedChatAttachment(file)) {
           toast.error(
-            `${file.name || "That file"} is not supported in chat. Attach images or text files like JSON, TXT, Markdown, or CSV.`,
+            `${file.name || "That file"} is not supported in chat. Attach images, PDFs, or text files like JSON, TXT, Markdown, or CSV.`,
           );
           return false;
         }
@@ -1375,7 +1378,13 @@ export function ConversationInput({
               className="flex items-center gap-1.5 rounded-lg bg-foreground/10 px-2.5 py-1.5 text-xs ring-1 ring-foreground/10"
             >
               {att.type.startsWith("image/") ? null : (
-                <FileText size="0.875rem" className="shrink-0 text-foreground/45" />
+                <FileText
+                  size="0.875rem"
+                  className={cn(
+                    "shrink-0",
+                    att.type === PDF_ATTACHMENT_MIME_TYPE ? "text-[var(--primary)]" : "text-foreground/45",
+                  )}
+                />
               )}
               <span className="max-w-[120px] truncate">{att.name}</span>
               <button
@@ -1411,7 +1420,7 @@ export function ConversationInput({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,.txt,.md,.markdown,.json,.jsonl,.csv,.log,.xml,.yaml,.yml"
+          accept="image/*,application/pdf,.pdf,.txt,.md,.markdown,.json,.jsonl,.csv,.log,.xml,.yaml,.yml"
           multiple
           className="hidden"
           onChange={(e) => {

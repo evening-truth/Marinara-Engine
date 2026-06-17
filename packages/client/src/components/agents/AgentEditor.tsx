@@ -96,12 +96,8 @@ import {
   type CustomAgentCapabilityMap,
   type ToolDefinition,
 } from "@marinara-engine/shared";
+import { sanitizeAgentSettingsForTransfer } from "../../lib/agent-transfer";
 import { downloadJsonFile } from "../../lib/download-json";
-
-const AGENT_GRADIENT_SURFACE =
-  "bg-gradient-to-br from-violet-500 via-fuchsia-500 to-pink-500 text-white shadow-purple-500/25";
-const AGENT_GRADIENT_BUTTON =
-  "bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 text-white shadow-md shadow-purple-500/20 hover:shadow-lg hover:shadow-purple-500/25";
 
 function parseActivationKeywordsText(value: string): string[] {
   const seen = new Set<string>();
@@ -376,6 +372,12 @@ function normalizeOptionalNumber(value: unknown): number | "" {
   return typeof value === "number" && Number.isFinite(value) ? value : "";
 }
 
+function normalizePositiveInteger(value: unknown, fallback: number, max: number): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(1, Math.min(max, Math.trunc(numeric)));
+}
+
 function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
@@ -451,6 +453,7 @@ export function AgentEditor() {
   const [localAutoGenerateAvatars, setLocalAutoGenerateAvatars] = useState(false);
   const [localAutoGenerateBackgrounds, setLocalAutoGenerateBackgrounds] = useState(false);
   const [localUseAvatarReferences, setLocalUseAvatarReferences] = useState(false);
+  const [localIncludeCharacterAppearance, setLocalIncludeCharacterAppearance] = useState(false);
   const [localImagePositivePrompt, setLocalImagePositivePrompt] = useState("");
   const [localImageNegativePrompt, setLocalImageNegativePrompt] = useState("");
   const [localProseGuardianBanned, setLocalProseGuardianBanned] = useState(DEFAULT_PROSE_GUARDIAN_BANNED_WORDS);
@@ -458,6 +461,8 @@ export function AgentEditor() {
   const [localProseGuardianPrefer, setLocalProseGuardianPrefer] = useState("");
   const [localProseGuardianHoldForRewrite, setLocalProseGuardianHoldForRewrite] = useState(true);
   const [localDirectorMode, setLocalDirectorMode] = useState<NarrativeDirectorMode>("natural");
+  const [localSecretPlotEnabled, setLocalSecretPlotEnabled] = useState(false);
+  const [localSecretPlotRunInterval, setLocalSecretPlotRunInterval] = useState(8);
   const [spotifyStatus, setSpotifyStatus] = useState<{
     connected: boolean;
     expired: boolean;
@@ -532,9 +537,13 @@ export function AgentEditor() {
               ? settings.writableLorebookIds[0]
               : "";
       setLocalEnabledTools(enabledTools);
-      setLocalLorebookWriteEnabled(settings.lorebookWriteEnabled === true || enabledTools.includes(LOREBOOK_WRITE_TOOL_NAME));
+      setLocalLorebookWriteEnabled(
+        settings.lorebookWriteEnabled === true || enabledTools.includes(LOREBOOK_WRITE_TOOL_NAME),
+      );
       setLocalWritableLorebookId(writableLorebookId);
-      setLocalMusicProvider(settings.musicProvider === "youtube" || settings.musicPlayerSource === "youtube" ? "youtube" : "spotify");
+      setLocalMusicProvider(
+        settings.musicProvider === "youtube" || settings.musicPlayerSource === "youtube" ? "youtube" : "spotify",
+      );
       setLocalSpotifyClientId(typeof settings.spotifyClientId === "string" ? settings.spotifyClientId : "");
       setLocalSourceLorebookIds(normalizeStringArray(settings.sourceLorebookIds));
       setLocalUseChatActiveLorebooks(
@@ -545,6 +554,10 @@ export function AgentEditor() {
       setLocalAutoGenerateBackgrounds(settings.autoGenerateBackgrounds === true);
       setLocalUseAvatarReferences(
         (settings.useAvatarReferences as boolean | undefined) ?? defaultSettings.useAvatarReferences === true,
+      );
+      setLocalIncludeCharacterAppearance(
+        (settings.includeCharacterAppearance as boolean | undefined) ??
+          defaultSettings.includeCharacterAppearance === true,
       );
       setLocalImagePositivePrompt((settings.imagePositivePrompt as string) ?? "");
       setLocalImageNegativePrompt((settings.imageNegativePrompt as string) ?? "");
@@ -573,6 +586,12 @@ export function AgentEditor() {
         (settings.holdForRewrite as boolean | undefined) ?? defaultSettings.holdForRewrite !== false,
       );
       setLocalDirectorMode(normalizeNarrativeDirectorMode(settings.directorMode ?? defaultSettings.directorMode));
+      setLocalSecretPlotEnabled(
+        (settings.secretPlotEnabled as boolean | undefined) ?? defaultSettings.secretPlotEnabled === true,
+      );
+      setLocalSecretPlotRunInterval(
+        normalizePositiveInteger(settings.secretPlotRunInterval ?? defaultSettings.secretPlotRunInterval, 8, 100),
+      );
       setLocalCustomCapabilities(normalizeCustomAgentCapabilities(settings));
       setLocalResultType(normalizeCustomResultType(settings.resultType));
       setLocalIncludePreGenInjections(settings.includePreGenInjections === true);
@@ -601,6 +620,7 @@ export function AgentEditor() {
       setLocalAutoGenerateAvatars(false);
       setLocalAutoGenerateBackgrounds(false);
       setLocalUseAvatarReferences(defaultSettings.useAvatarReferences === true);
+      setLocalIncludeCharacterAppearance(defaultSettings.includeCharacterAppearance === true);
       setLocalImagePositivePrompt("");
       setLocalImageNegativePrompt("");
       setLocalProseGuardianBanned(
@@ -612,6 +632,8 @@ export function AgentEditor() {
       setLocalProseGuardianPrefer(typeof defaultSettings.prefer === "string" ? defaultSettings.prefer : "");
       setLocalProseGuardianHoldForRewrite(defaultSettings.holdForRewrite !== false);
       setLocalDirectorMode(normalizeNarrativeDirectorMode(defaultSettings.directorMode));
+      setLocalSecretPlotEnabled(defaultSettings.secretPlotEnabled === true);
+      setLocalSecretPlotRunInterval(normalizePositiveInteger(defaultSettings.secretPlotRunInterval, 8, 100));
       setLocalCustomCapabilities({});
       setLocalResultType("context_injection");
       setLocalIncludePreGenInjections(false);
@@ -644,6 +666,7 @@ export function AgentEditor() {
       setLocalAutoGenerateAvatars(false);
       setLocalAutoGenerateBackgrounds(false);
       setLocalUseAvatarReferences(false);
+      setLocalIncludeCharacterAppearance(false);
       setLocalImagePositivePrompt("");
       setLocalImageNegativePrompt("");
       setLocalProseGuardianBanned(DEFAULT_PROSE_GUARDIAN_BANNED_WORDS);
@@ -651,6 +674,8 @@ export function AgentEditor() {
       setLocalProseGuardianPrefer("");
       setLocalProseGuardianHoldForRewrite(true);
       setLocalDirectorMode("natural");
+      setLocalSecretPlotEnabled(false);
+      setLocalSecretPlotRunInterval(8);
       setLocalCustomCapabilities({});
       setLocalResultType("context_injection");
       setLocalIncludePreGenInjections(false);
@@ -668,9 +693,7 @@ export function AgentEditor() {
   const isSpotifyAgent = agentDetailId === "spotify" || dbConfig?.type === "spotify";
   const isMusicAgent = isSpotifyAgent;
 
-  // Legacy YouTube DJ agent — free Data API key, in-app embedded player
-  const isYoutubeAgent = agentDetailId === "youtube" || dbConfig?.type === "youtube";
-  const showsYoutubeSettings = isMusicAgent || isYoutubeAgent;
+  const showsYoutubeSettings = isMusicAgent;
 
   // Lorebook Keeper agent — run interval setting
   const isLorebookKeeperAgent = agentDetailId === "lorebook-keeper" || dbConfig?.type === "lorebook-keeper";
@@ -683,9 +706,6 @@ export function AgentEditor() {
 
   // Illustrator agent — run interval setting
   const isIllustratorAgent = agentDetailId === "illustrator" || dbConfig?.type === "illustrator";
-
-  // Chat Summary agent — uses "Triggers After" instead of context size
-  const isChatSummaryAgent = agentDetailId === "chat-summary" || dbConfig?.type === "chat-summary";
 
   // Knowledge Retrieval agent — lorebook source selector
   const isKnowledgeRetrievalAgent = agentDetailId === "knowledge-retrieval" || dbConfig?.type === "knowledge-retrieval";
@@ -914,7 +934,12 @@ export function AgentEditor() {
         ...(localImageConnectionId ? { imageConnectionId: localImageConnectionId } : {}),
         ...(localAutoGenerateAvatars ? { autoGenerateAvatars: true } : {}),
         ...(localAutoGenerateBackgrounds ? { autoGenerateBackgrounds: true } : {}),
-        ...(isIllustratorAgent ? { useAvatarReferences: localUseAvatarReferences } : {}),
+        ...(isIllustratorAgent
+          ? {
+              useAvatarReferences: localUseAvatarReferences,
+              includeCharacterAppearance: localIncludeCharacterAppearance,
+            }
+          : {}),
         ...(isProseGuardianAgent
           ? {
               banned: localProseGuardianBanned.trim() || DEFAULT_PROSE_GUARDIAN_BANNED_WORDS,
@@ -924,7 +949,13 @@ export function AgentEditor() {
             }
           : {}),
         ...(isContinuityAgent ? { holdForRewrite: localProseGuardianHoldForRewrite } : {}),
-        ...(isDirectorAgent ? { directorMode: localDirectorMode } : {}),
+        ...(isDirectorAgent
+          ? {
+              directorMode: localDirectorMode,
+              secretPlotEnabled: localSecretPlotEnabled,
+              secretPlotRunInterval: localSecretPlotRunInterval,
+            }
+          : {}),
         ...(localImagePositivePrompt.trim() ? { imagePositivePrompt: localImagePositivePrompt.trim() } : {}),
         ...(localImageNegativePrompt.trim() ? { imageNegativePrompt: localImageNegativePrompt.trim() } : {}),
       },
@@ -984,11 +1015,14 @@ export function AgentEditor() {
     localAutoGenerateAvatars,
     localAutoGenerateBackgrounds,
     localUseAvatarReferences,
+    localIncludeCharacterAppearance,
     localProseGuardianBanned,
     localProseGuardianAvoid,
     localProseGuardianPrefer,
     localProseGuardianHoldForRewrite,
     localDirectorMode,
+    localSecretPlotEnabled,
+    localSecretPlotRunInterval,
     localImagePositivePrompt,
     localImageNegativePrompt,
     dbConfig,
@@ -1030,10 +1064,6 @@ export function AgentEditor() {
     const writableLorebookId = localWritableLorebookId.trim();
     const lorebookWriterEnabled =
       isEditingCustomAgent && localLorebookWriteEnabled && customCapabilities.edit_lorebooks === true;
-    if (lorebookWriterEnabled && !writableLorebookId) {
-      toast.error("Select a target lorebook before exporting lorebook writing for this agent.");
-      return;
-    }
     const effectiveEnabledTools = Array.from(
       new Set(
         lorebookWriterEnabled
@@ -1044,7 +1074,7 @@ export function AgentEditor() {
     const savedAuthor = localAuthor.trim() || (builtIn ? DEFAULT_AGENT_AUTHOR : "Unknown");
     const savedPromptTemplates = normalizeAgentPromptTemplateOptions(localPromptTemplates);
     const exportingMusicAgent = agentType === "spotify";
-    const settings = {
+    const settings = sanitizeAgentSettingsForTransfer({
       author: savedAuthor,
       promptTemplates: savedPromptTemplates,
       ...(isEditingCustomAgent ? { customCapabilities } : {}),
@@ -1070,7 +1100,12 @@ export function AgentEditor() {
       ...(localImageConnectionId ? { imageConnectionId: localImageConnectionId } : {}),
       ...(localAutoGenerateAvatars ? { autoGenerateAvatars: true } : {}),
       ...(localAutoGenerateBackgrounds ? { autoGenerateBackgrounds: true } : {}),
-      ...(isIllustratorAgent ? { useAvatarReferences: localUseAvatarReferences } : {}),
+      ...(isIllustratorAgent
+        ? {
+            useAvatarReferences: localUseAvatarReferences,
+            includeCharacterAppearance: localIncludeCharacterAppearance,
+          }
+        : {}),
       ...(isProseGuardianAgent
         ? {
             banned: localProseGuardianBanned.trim() || DEFAULT_PROSE_GUARDIAN_BANNED_WORDS,
@@ -1080,10 +1115,16 @@ export function AgentEditor() {
           }
         : {}),
       ...(isContinuityAgent ? { holdForRewrite: localProseGuardianHoldForRewrite } : {}),
-      ...(isDirectorAgent ? { directorMode: localDirectorMode } : {}),
+      ...(isDirectorAgent
+        ? {
+            directorMode: localDirectorMode,
+            secretPlotEnabled: localSecretPlotEnabled,
+            secretPlotRunInterval: localSecretPlotRunInterval,
+          }
+        : {}),
       ...(localImagePositivePrompt.trim() ? { imagePositivePrompt: localImagePositivePrompt.trim() } : {}),
       ...(localImageNegativePrompt.trim() ? { imageNegativePrompt: localImageNegativePrompt.trim() } : {}),
-    };
+    });
     const agentEntry = createFolderEntry({
       folderName: "Agents",
       itemName: agentType,
@@ -1094,7 +1135,7 @@ export function AgentEditor() {
         description: localDescription,
         phase: savedPhase,
         enabled: localAgentEnabled,
-        connectionId: localConnectionId || null,
+        connectionId: null,
         imagePath: null,
         promptTemplate: localPrompt,
         settings,
@@ -1186,7 +1227,9 @@ export function AgentEditor() {
   const normalizedLocalPhase = normalizeAgentPhaseForType(currentAgentType, localPhase);
   const phaseMeta = PHASE_META[normalizedLocalPhase];
   const effectivePhase =
-    (isCustomAgent || isNewCustomAgent) && localResultType === "text_rewrite" ? "post_processing" : normalizedLocalPhase;
+    (isCustomAgent || isNewCustomAgent) && localResultType === "text_rewrite"
+      ? "post_processing"
+      : normalizedLocalPhase;
   const showTurnDataAccess = (isCustomAgent || isNewCustomAgent) && effectivePhase === "post_processing";
   const visibleBuiltInTools = useMemo(
     () =>
@@ -1239,23 +1282,18 @@ export function AgentEditor() {
   const isPending = updateAgent.isPending || createAgent.isPending;
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-[var(--background)]">
+    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-4 py-3 max-md:gap-2 max-md:px-3">
+      <div className="mari-editor-header">
         <button
           type="button"
           onClick={handleClose}
           aria-label="Back to agents"
-          className="rounded-xl p-2 transition-all hover:bg-[var(--accent)] active:scale-95"
+          className="mari-editor-action inline-flex"
         >
           <ArrowLeft size="1.125rem" />
         </button>
-        <div
-          className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-xl shadow-sm max-md:h-8 max-md:w-8",
-            AGENT_GRADIENT_SURFACE,
-          )}
-        >
+        <div className="mari-editor-icon-tile">
           <Sparkles size="1.125rem" className="max-md:!h-[0.875rem] max-md:!w-[0.875rem]" />
         </div>
         <input
@@ -1264,34 +1302,31 @@ export function AgentEditor() {
             setLocalName(e.target.value);
             markDirty();
           }}
-          className="flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-[var(--muted-foreground)] max-md:text-base"
+          className="mari-editor-title-input min-w-0 flex-1 placeholder:text-[var(--marinara-editor-muted)]"
           placeholder="Agent name…"
         />
-        <div className="flex items-center gap-1.5 max-md:w-full max-md:justify-end max-md:border-t max-md:border-[var(--border)]/30 max-md:pt-2">
+        <div className="mari-editor-actions flex max-md:w-full max-md:justify-end max-md:border-t max-md:border-[var(--marinara-editor-divider)] max-md:pt-2">
           {saveError && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-red-400">
+            <span className="mari-editor-status mr-2 text-red-400">
               <AlertCircle size="0.6875rem" /> Save failed
             </span>
           )}
           {savedFlash && !dirty && (
-            <span className="mr-2 flex items-center gap-1 text-[0.625rem] font-medium text-emerald-400">
+            <span className="mari-editor-status mr-2 text-emerald-400">
               <Check size="0.6875rem" /> Saved
             </span>
           )}
-          {dirty && !saveError && <span className="mr-2 text-[0.625rem] font-medium text-amber-400">Unsaved</span>}
+          {dirty && !saveError && <span className="mari-editor-status mr-2 text-amber-400">Unsaved</span>}
           <button
             onClick={handleSave}
             disabled={isPending}
-            className={cn(
-              "flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium transition-all active:scale-[0.98] disabled:opacity-50",
-              AGENT_GRADIENT_BUTTON,
-            )}
+            className="mari-editor-action mari-editor-action--primary inline-flex disabled:opacity-50"
           >
             <Save size="0.8125rem" /> <span className="max-md:hidden">Save</span>
           </button>
           <button
             onClick={handleExportAgent}
-            className="rounded-xl p-2 text-[var(--muted-foreground)] transition-all hover:bg-[var(--accent)] hover:text-[var(--foreground)] active:scale-95"
+            className="mari-editor-action inline-flex"
             title="Export agent"
             aria-label="Export agent"
           >
@@ -1300,11 +1335,11 @@ export function AgentEditor() {
           {isCustomAgent && dbConfig && (
             <button
               onClick={handleDelete}
-              className="rounded-xl p-2 transition-all hover:bg-[var(--destructive)]/15 active:scale-95"
+              className="mari-editor-action mari-editor-action--danger inline-flex"
               title="Delete agent"
               aria-label="Delete agent"
             >
-              <Trash2 size="0.9375rem" className="text-[var(--destructive)]" />
+              <Trash2 size="0.9375rem" />
             </button>
           )}
         </div>
@@ -1366,8 +1401,8 @@ export function AgentEditor() {
       )}
 
       {/* ── Body ── */}
-      <div className="flex-1 overflow-y-auto p-6 max-md:p-4">
-        <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mari-editor-content max-md:p-4">
+        <div className="mari-editor-content-inner mari-editor-content-inner--wide space-y-6">
           {/* ── Description ── */}
           <FieldGroup
             label="Description"
@@ -1803,6 +1838,22 @@ export function AgentEditor() {
                 Sends references only for characters or persona names matched in the Illustrator request. Works best
                 with providers that support reference images (NovelAI, Stability, A1111, ComfyUI).
               </p>
+              <label className="mt-3 flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={localIncludeCharacterAppearance}
+                  onChange={(e) => {
+                    setLocalIncludeCharacterAppearance(e.target.checked);
+                    markDirty();
+                  }}
+                  className="rounded border-[var(--border)] bg-[var(--secondary)] text-[var(--primary)] focus:ring-[var(--ring)]"
+                />
+                <span className="text-sm">Attach matching character appearance descriptions to image prompts</span>
+              </label>
+              <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                Adds only matched visible names as lines like Name&apos;s Appearance: card appearance. Characters can be
+                found from the full character database, even when they are not attached to the current chat.
+              </p>
             </FieldGroup>
           )}
 
@@ -1928,33 +1979,27 @@ export function AgentEditor() {
             help="Controls how much recent chat context the agent reads and how much output room it reserves. If max output is too high for the model context, prompt context can be trimmed."
           >
             <div className="grid gap-3 sm:grid-cols-2">
-              {!isChatSummaryAgent ? (
-                <div>
-                  <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-                    Context Size
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="number"
-                      min={1}
-                      max={200}
-                      value={localContextSize}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setLocalContextSize(v === "" ? "" : Math.max(1, Math.min(200, parseInt(v) || 1)));
-                        markDirty();
-                      }}
-                      placeholder={String(DEFAULT_AGENT_CONTEXT_SIZE)}
-                      className="w-28 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm tabular-nums ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                    />
-                    <span className="text-[0.6875rem] text-[var(--muted-foreground)]">messages</span>
-                  </div>
+              <div>
+                <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+                  Context Size
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={localContextSize}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLocalContextSize(v === "" ? "" : Math.max(1, Math.min(200, parseInt(v) || 1)));
+                      markDirty();
+                    }}
+                    placeholder={String(DEFAULT_AGENT_CONTEXT_SIZE)}
+                    className="w-28 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm tabular-nums ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                  />
+                  <span className="text-[0.6875rem] text-[var(--muted-foreground)]">messages</span>
                 </div>
-              ) : (
-                <div className="rounded-xl bg-[var(--accent)]/50 px-3 py-2.5 text-[0.6875rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-                  Chat Summary context size is managed in the Chat Summary panel inside each chat.
-                </div>
-              )}
+              </div>
               <div>
                 <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
                   Max Output Tokens
@@ -1980,12 +2025,10 @@ export function AgentEditor() {
                 </div>
               </div>
             </div>
-            {!isChatSummaryAgent && (
-              <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                Each agent only sees its own context size. When agents are batched together (same model), the highest
-                context size in the batch is used and output budgets are combined.
-              </p>
-            )}
+            <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+              Each agent only sees its own context size. When agents are batched together (same model), the highest
+              context size in the batch is used and output budgets are combined.
+            </p>
             <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
               For 8k local models, try {DEFAULT_AGENT_MAX_TOKENS.toLocaleString()} or lower so the agent prompt keeps
               enough room.
@@ -2230,35 +2273,6 @@ export function AgentEditor() {
             </FieldGroup>
           )}
 
-          {isChatSummaryAgent && (
-            <FieldGroup
-              label="Triggers After"
-              icon={<Clock size="0.875rem" className="text-[var(--primary)]" />}
-              help="How many user messages must be sent since the last automatic summary before the agent triggers again. The context size for each summary generation is set in the Chat Summary panel in the chat itself."
-            >
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  min={1}
-                  max={200}
-                  value={localRunInterval}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setLocalRunInterval(v === "" ? "" : Math.max(1, Math.min(200, parseInt(v) || 1)));
-                    markDirty();
-                  }}
-                  placeholder="5"
-                  className="w-28 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm tabular-nums ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                />
-                <span className="text-[0.6875rem] text-[var(--muted-foreground)]">user messages</span>
-              </div>
-              <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                The automatic summary will trigger after this many user messages have been sent since the last summary
-                update.
-              </p>
-            </FieldGroup>
-          )}
-
           {/* ── Run Interval (Lorebook Keeper) ── */}
           {isLorebookKeeperAgent && (
             <FieldGroup
@@ -2356,6 +2370,64 @@ export function AgentEditor() {
                   </button>
                 ))}
               </div>
+            </FieldGroup>
+          )}
+
+          {isDirectorAgent && (
+            <FieldGroup
+              label="Secret Plot"
+              icon={<Sparkles size="0.875rem" className="text-[var(--primary)]" />}
+              help="Default hidden arc maintenance for Roleplay chats that use Narrative Director."
+            >
+              <button
+                type="button"
+                aria-pressed={localSecretPlotEnabled}
+                onClick={() => {
+                  setLocalSecretPlotEnabled((value) => !value);
+                  markDirty();
+                }}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-xl p-3 text-left text-xs ring-1 transition-all",
+                  localSecretPlotEnabled
+                    ? "bg-[var(--primary)]/10 ring-[var(--primary)] text-[var(--foreground)]"
+                    : "ring-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--accent)]",
+                )}
+              >
+                {localSecretPlotEnabled ? (
+                  <ToggleRight size="1.25rem" className="mt-0.5 shrink-0 text-emerald-400" />
+                ) : (
+                  <ToggleLeft size="1.25rem" className="mt-0.5 shrink-0" />
+                )}
+                <span className="min-w-0">
+                  <span className="block font-semibold">Maintain hidden arc</span>
+                  <span className="mt-0.5 block text-[0.625rem] leading-tight">
+                    Store and inject a spoilered long-term arc for Roleplay chats.
+                  </span>
+                </span>
+              </button>
+              {localSecretPlotEnabled && (
+                <div className="mt-3">
+                  <label className="mb-1 block text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
+                    Run Interval
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={localSecretPlotRunInterval}
+                      onChange={(event) => {
+                        setLocalSecretPlotRunInterval(
+                          normalizePositiveInteger(event.target.value, localSecretPlotRunInterval, 100),
+                        );
+                        markDirty();
+                      }}
+                      className="w-28 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm tabular-nums ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    />
+                    <span className="text-[0.6875rem] text-[var(--muted-foreground)]">assistant messages</span>
+                  </div>
+                </div>
+              )}
             </FieldGroup>
           )}
 
@@ -2774,7 +2846,11 @@ export function AgentEditor() {
                       setLocalYoutubeApiKey(e.target.value);
                       setYoutubeError(null);
                     }}
-                    placeholder={youtubeConfigured ? "•••••••• key configured — paste a new one to replace" : "Paste your YouTube Data API key (AIza…)"}
+                    placeholder={
+                      youtubeConfigured
+                        ? "•••••••• key configured — paste a new one to replace"
+                        : "Paste your YouTube Data API key (AIza…)"
+                    }
                     className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder-white/30 outline-none focus:border-red-500/50 focus:ring-1 focus:ring-red-500/20 font-mono"
                   />
                 </div>
@@ -2856,7 +2932,9 @@ export function AgentEditor() {
                       </a>{" "}
                       and create (or pick) a project.
                     </li>
-                    <li>Enable the <strong>YouTube Data API v3</strong>.</li>
+                    <li>
+                      Enable the <strong>YouTube Data API v3</strong>.
+                    </li>
                     <li>
                       Go to <strong>Credentials → Create credentials → API key</strong>, then paste it above.
                     </li>
@@ -2866,8 +2944,8 @@ export function AgentEditor() {
                     </li>
                   </ol>
                   <p className="mt-1 text-[0.625rem] text-white/30">
-                    The free quota (~100 searches/day) is plenty for a personal DJ. Enable the agent, then it picks music
-                    as the scene&apos;s mood shifts.
+                    The free quota (~100 searches/day) is plenty for a personal DJ. Enable the agent, then it picks
+                    music as the scene&apos;s mood shifts.
                   </p>
                 </div>
               </div>
@@ -3241,7 +3319,10 @@ export function AgentEditor() {
               ) : (
                 <div className="space-y-3">
                   {localPromptTemplates.map((option, index) => (
-                    <div key={option.id} className="rounded-xl bg-[var(--secondary)]/70 p-3 ring-1 ring-[var(--border)]">
+                    <div
+                      key={option.id}
+                      className="rounded-xl bg-[var(--secondary)]/70 p-3 ring-1 ring-[var(--border)]"
+                    >
                       <div className="mb-2 flex items-center gap-2">
                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[var(--background)] text-[0.6875rem] font-semibold text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
                           {index + 1}
@@ -3263,9 +3344,7 @@ export function AgentEditor() {
                       </div>
                       <input
                         value={option.description ?? ""}
-                        onChange={(e) =>
-                          handleUpdatePromptTemplate(option.id, { description: e.target.value })
-                        }
+                        onChange={(e) => handleUpdatePromptTemplate(option.id, { description: e.target.value })}
                         className="mb-2 w-full rounded-lg bg-[var(--background)] px-2.5 py-1.5 text-xs ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
                         placeholder="Short description shown in Chat Settings"
                       />

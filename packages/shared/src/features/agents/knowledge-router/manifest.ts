@@ -8,6 +8,7 @@ export const knowledgeRouterAgentManifest = {
   phase: "pre_generation",
   enabledByDefault: false,
   category: "writer",
+  modeAllowlist: ["roleplay", "visual_novel"],
   defaultTools: [],
   defaultSettings: {
     useChatActiveLorebooks: true,

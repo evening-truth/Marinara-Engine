@@ -42,13 +42,13 @@ const STEPS: TourStep[] = [
   {
     target: null,
     title: "Welcome to Marinara Engine!",
-    body: "Hi! I'm Professor Mari, and I will show you where the important pieces of Marinara live. This is a quick orientation tour, so you can skip it if you already know your way around.",
+    body: "Hi! I'm Professor Mari, your assistant and guide! First time around? Allow me to show you around. This is a quick orientation tour, so you can skip it if you already know your way around, but skipping will make me sad a little.",
     sprite: { src: "/sprites/mari/Mari_wave.png" },
   },
   {
     target: "panel-bot-browser",
     title: "Browser",
-    body: "The Browser helps you discover and import downloadable cards and resources. Start here when you want new characters or ready-made material to bring into your library.",
+    body: "The Browser allows you to browse and import downloadable character cards and resources. Start here when you want new characters or ready-made material to bring into your library.",
     side: "bottom",
     openPanel: "bot-browser",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
@@ -56,7 +56,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-characters",
     title: "Characters",
-    body: "Characters are the cards your chats speak as. Create them, edit their metadata and writing fields, organize them into folders, or import cards from other tools.",
+    body: "Characters are who your AI is going to play or speak as. Create them, edit their descriptions, dialogue examples, organize them into folders, or make them pretty (I can also create those for you).",
     side: "bottom",
     openPanel: "characters",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
@@ -64,7 +64,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-lorebooks",
     title: "Lorebooks",
-    body: "Lorebooks hold reusable world facts, memories, rules, locations, and character details. Entries trigger when their keys appear, giving the model extra context only when it matters.",
+    body: "Lorebooks hold compendiums about worlds, memories, rules, locations, and extra character details. Entries trigger when their keys appear, giving the model extra context only when it matters (and saving your wallet from sending 200k tokens each turn).",
     side: "bottom",
     openPanel: "lorebooks",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
@@ -72,7 +72,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-presets",
     title: "Presets",
-    body: "Presets control prompt structure. Use them to decide how instructions, history, lore, agents, and output rules are assembled before a model receives a request.",
+    body: "Presets control prompt structure. They're templates that build what the model receives and in what order. If you're new to prompt engineering, you can leave this alone for now and use the default preset (or download one from the community).",
     side: "bottom",
     openPanel: "presets",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
@@ -80,7 +80,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-connections",
     title: "Connections",
-    body: "Connections are the first thing to set up before chatting. Add your provider, model, endpoint, and API key here so Marinara knows where to send generations.",
+    body: "Connections are the first thing to set up before chatting. Add your provider, model, endpoint, and API key here, so you can chat with your AI.",
     side: "bottom",
     openPanel: "connections",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
@@ -88,7 +88,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-agents",
     title: "Agents",
-    body: "Agents add optional abilities on top of chats. They can track state, retrieve knowledge, process messages, trigger images, guide story events, and more depending on what you enable.",
+    body: "Agents work alongside the main model to provide additional functionality on top of chats. They can track state, retrieve knowledge, process messages, trigger images, guide story events, and more depending on what you enable.",
     side: "bottom",
     openPanel: "agents",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
@@ -96,7 +96,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-personas",
     title: "Personas",
-    body: "Personas define who you are in a chat. Give yourself a name, avatar, description, scenario details, and metadata so characters know who they are speaking to.",
+    body: "Personas define who you are in a chat. Give yourself a name, avatar, description, scenario details, and pretty colors, so characters know who they are speaking to.",
     side: "bottom",
     openPanel: "personas",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
@@ -113,7 +113,7 @@ const STEPS: TourStep[] = [
   {
     target: "sidebar-toggle",
     title: "Chats",
-    body: "Now let's open the Chats tab. This is where your Conversations, Roleplays, and Games live, with folders, search, sorting, and branch-aware chat lists.",
+    body: "Now let's open the Chats tab. This is where your Conversations, Roleplays, and Games live. You can create new chats, switch between them, and manage them here.",
     side: "right",
     openSidebar: true,
     sprite: { src: "/sprites/mari/Mari_point_middle_left.png" },
@@ -121,7 +121,7 @@ const STEPS: TourStep[] = [
   {
     target: "chat-mode-conversation",
     title: "Conversation Mode",
-    body: "Conversation mode feels like private DMs. Use it for casual character chats, statuses, schedules, autonomous messages, commands, selfies, and quick back-and-forth texting.",
+    body: "Conversation mode is like chatting via DMs or groups on Discord. Use it for general texting with your characters. Mind that they have their lives, can trade selfies with you and even message you on their own!",
     side: "right",
     chatMode: "conversation",
     sprite: { src: "/sprites/mari/Mari_point_middle_left.png" },
@@ -129,7 +129,7 @@ const STEPS: TourStep[] = [
   {
     target: "chat-mode-roleplay",
     title: "Roleplay Mode",
-    body: "Roleplay mode is for co-writing scenes and immersive stories. It supports richer narration, lorebooks, branches, summaries, author's notes, trackers, agents, galleries, and roleplay-focused controls.",
+    body: "Roleplay mode is for roleplaying scenes and immersive stories. It supports richer narration, lorebooks, agents, long-time memory systems, author's notes, trackers, and co-writing controls.",
     side: "right",
     chatMode: "roleplay",
     sprite: { src: "/sprites/mari/Mari_point_middle_left.png" },
@@ -137,7 +137,7 @@ const STEPS: TourStep[] = [
   {
     target: "chat-mode-game",
     title: "Game Mode",
-    body: "Game mode turns Marinara into an RPG-style adventure with an AI Game Master. Use it for party members, goals, maps, dice, session history, journals, combat, and custom HUD widgets.",
+    body: "Game mode turns the chat into a visual novel RPG-style adventure with an AI Game Master. Sit back and enjoy the game, having party members, goals, maps, dice rolls, session history, journals, combat, and custom HUD widgets.",
     side: "right",
     chatMode: "game",
     sprite: { src: "/sprites/mari/Mari_point_middle_left.png" },
@@ -145,7 +145,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-settings",
     title: "Migrating from SillyTavern?",
-    body: "If you have characters, chats, or presets from SillyTavern, open Settings and use the Import tab. Marinara can bring those files in so you do not have to rebuild your library by hand.",
+    body: "If you have characters, chats, or presets from SillyTavern, open Settings and use the Import tab. I can bring those files in so you do not have to rebuild your library by hand.",
     side: "bottom",
     openPanel: "settings",
     settingsTab: "import",
@@ -154,7 +154,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-connections",
     title: "You're All Set!",
-    body: "Professor Mari is available from the Home page whenever you need help. For your first real step, set up a Connection so Marinara can talk to a model.\n\nThank you for trying Marinara Engine. Have fun, and please report bugs or rough edges through the ME Discord or GitHub so we can keep improving it.",
+    body: "I'm available from the Home page whenever you need help. For your first real step, set up a Connection. After that, try creating a new chat. Don't worry, I will be there to guide you. Thank you for trying Marinara Engine. Have fun, and please report bugs or rough edges through our Discord or GitHub so we can keep improving it.",
     side: "bottom",
     openPanel: "connections",
     sprite: { src: "/sprites/mari/Mari_greet.png" },
@@ -171,12 +171,50 @@ interface Rect {
 }
 
 const PAD = 8; // px padding around the spotlight cutout
+const MOBILE_BREAKPOINT = 640;
+const TOPBAR_FALLBACK_HEIGHT = 48;
+const TUTORIAL_TOP_GAP = 12;
+const TUTORIAL_DESKTOP_WIDTH = 340;
 
 function getTargetRect(target: string): Rect | null {
   const el = document.querySelector(`[data-tour="${target}"]`);
   if (!el) return null;
   const r = el.getBoundingClientRect();
   return { top: r.top, left: r.left, width: r.width, height: r.height };
+}
+
+function getViewportWidth(): number {
+  return typeof window === "undefined" ? 1024 : window.innerWidth;
+}
+
+function getViewportHeight(): number {
+  return typeof window === "undefined" ? 768 : window.innerHeight;
+}
+
+function getTopbarBottom(): number {
+  if (typeof document === "undefined") return TOPBAR_FALLBACK_HEIGHT;
+  const topbar = document.querySelector<HTMLElement>('[data-component="TopBar"]');
+  return Math.max(TOPBAR_FALLBACK_HEIGHT, topbar?.getBoundingClientRect().bottom ?? TOPBAR_FALLBACK_HEIGHT);
+}
+
+function getTutorialTopOffset(): number {
+  return getTopbarBottom() + TUTORIAL_TOP_GAP;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(value, max));
+}
+
+function isPanelTourTarget(target: string | null): boolean {
+  return target?.startsWith("panel-") ?? false;
+}
+
+function isTopbarTourTarget(target: string | null): boolean {
+  return target === "sidebar-toggle" || isPanelTourTarget(target);
+}
+
+function isChatModeTourTarget(target: string | null): boolean {
+  return target?.startsWith("chat-mode-") ?? false;
 }
 
 function _buildClipPath(rect: Rect): string {
@@ -202,32 +240,81 @@ function _buildClipPath(rect: Rect): string {
 
 // ─── Tooltip position ─────────────────────────
 
-function computeTooltipStyle(rect: Rect, side: "top" | "bottom" | "left" | "right" = "right"): React.CSSProperties {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const isMobile = vw < 640;
+function computeTooltipStyle(rect: Rect, step: TourStep): React.CSSProperties {
+  const vw = getViewportWidth();
+  const vh = getViewportHeight();
+  const isMobile = vw < MOBILE_BREAKPOINT;
   const VIEWPORT_MARGIN = isMobile ? 12 : 16;
-  const TOOLTIP_W = isMobile ? Math.min(vw - VIEWPORT_MARGIN * 2, 320) : Math.min(320, vw - VIEWPORT_MARGIN * 2);
+  const TOOLTIP_W = isMobile
+    ? Math.min(vw - VIEWPORT_MARGIN * 2, 320)
+    : Math.min(TUTORIAL_DESKTOP_WIDTH, vw - VIEWPORT_MARGIN * 2);
   const GAP = isMobile ? 8 : 16;
+  const topOffset = getTutorialTopOffset();
+  const availableViewportHeight = Math.max(200, vh - topOffset - VIEWPORT_MARGIN);
+  const side = step.side ?? "right";
   const available = {
     right: vw - (rect.left + rect.width + GAP + PAD) - VIEWPORT_MARGIN,
     left: rect.left - GAP - PAD - VIEWPORT_MARGIN,
     bottom: vh - (rect.top + rect.height + GAP + PAD) - VIEWPORT_MARGIN,
-    top: rect.top - GAP - PAD - VIEWPORT_MARGIN,
+    top: rect.top - GAP - PAD - topOffset,
   };
 
-  // On small screens, always center horizontally and position below target
+  // On small screens, always center below the topbar.
   if (isMobile) {
-    const top = Math.min(rect.top + rect.height + GAP + PAD, vh * 0.55);
     return {
       position: "fixed",
-      top,
+      top: topOffset,
       left: (vw - TOOLTIP_W) / 2,
       width: TOOLTIP_W,
-      maxHeight: `${Math.max(200, vh - top - VIEWPORT_MARGIN)}px`,
+      maxHeight: `${availableViewportHeight}px`,
       overflowY: "auto" as const,
       overflowX: "hidden" as const,
       overscrollBehavior: "contain" as const,
+    };
+  }
+
+  if (isPanelTourTarget(step.target)) {
+    const top = Math.max(topOffset, rect.top + rect.height + GAP);
+    const left = clampNumber(rect.left + rect.width - TOOLTIP_W, VIEWPORT_MARGIN, vw - TOOLTIP_W - VIEWPORT_MARGIN);
+    return {
+      position: "fixed",
+      top,
+      left,
+      width: TOOLTIP_W,
+      maxHeight: `${Math.max(200, vh - top - VIEWPORT_MARGIN)}px`,
+      overflowY: "auto",
+      overflowX: "hidden",
+      overscrollBehavior: "contain",
+    };
+  }
+
+  if (isTopbarTourTarget(step.target)) {
+    const top = topOffset;
+    const left = clampNumber(rect.left + rect.width + GAP, VIEWPORT_MARGIN, vw - TOOLTIP_W - VIEWPORT_MARGIN);
+    return {
+      position: "fixed",
+      top,
+      left,
+      width: TOOLTIP_W,
+      maxHeight: `${availableViewportHeight}px`,
+      overflowY: "auto",
+      overflowX: "hidden",
+      overscrollBehavior: "contain",
+    };
+  }
+
+  if (isChatModeTourTarget(step.target)) {
+    const top = Math.max(topOffset, rect.top);
+    const left = clampNumber(rect.left + rect.width + GAP, VIEWPORT_MARGIN, vw - TOOLTIP_W - VIEWPORT_MARGIN);
+    return {
+      position: "fixed",
+      top,
+      left,
+      width: TOOLTIP_W,
+      maxHeight: `${Math.max(200, vh - top - VIEWPORT_MARGIN)}px`,
+      overflowY: "auto",
+      overflowX: "hidden",
+      overscrollBehavior: "contain",
     };
   }
 
@@ -259,32 +346,32 @@ function computeTooltipStyle(rect: Rect, side: "top" | "bottom" | "left" | "righ
   let left = 0;
 
   if (placement === "right") {
-    maxHeight = Math.max(minScrollableHeight, vh - VIEWPORT_MARGIN * 2);
+    maxHeight = Math.min(Math.max(minScrollableHeight, availableViewportHeight), availableViewportHeight);
     top = rect.top + rect.height / 2 - maxHeight / 2;
     left = rect.left + rect.width + GAP + PAD;
     if (left + TOOLTIP_W > vw - VIEWPORT_MARGIN) {
       left = rect.left - TOOLTIP_W - GAP - PAD;
     }
   } else if (placement === "left") {
-    maxHeight = Math.max(minScrollableHeight, vh - VIEWPORT_MARGIN * 2);
+    maxHeight = Math.min(Math.max(minScrollableHeight, availableViewportHeight), availableViewportHeight);
     top = rect.top + rect.height / 2 - maxHeight / 2;
     left = rect.left - TOOLTIP_W - GAP - PAD;
     if (left < VIEWPORT_MARGIN) {
       left = rect.left + rect.width + GAP + PAD;
     }
   } else if (placement === "bottom") {
-    maxHeight = Math.max(minScrollableHeight, Math.min(vh - VIEWPORT_MARGIN * 2, available.bottom));
+    maxHeight = Math.max(minScrollableHeight, Math.min(availableViewportHeight, available.bottom));
     top = rect.top + rect.height + GAP + PAD;
     left = rect.left + rect.width / 2 - TOOLTIP_W / 2;
   } else {
-    maxHeight = Math.max(minScrollableHeight, Math.min(vh - VIEWPORT_MARGIN * 2, available.top));
+    maxHeight = Math.max(minScrollableHeight, Math.min(availableViewportHeight, available.top));
     top = rect.top - GAP - PAD - maxHeight;
     left = rect.left + rect.width / 2 - TOOLTIP_W / 2;
   }
 
-  // Clamp within viewport
+  // Clamp within the viewport area below the topbar.
   left = Math.max(VIEWPORT_MARGIN, Math.min(left, vw - TOOLTIP_W - VIEWPORT_MARGIN));
-  top = Math.max(VIEWPORT_MARGIN, Math.min(top, vh - maxHeight - VIEWPORT_MARGIN));
+  top = Math.max(topOffset, Math.min(top, Math.max(topOffset, vh - maxHeight - VIEWPORT_MARGIN)));
 
   return {
     position: "fixed",
@@ -406,10 +493,18 @@ function OnboardingTutorialInner() {
 
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<Rect | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => getViewportWidth() < MOBILE_BREAKPOINT);
   const rafRef = useRef<number>(0);
 
   const currentStep = STEPS[step];
   const isLast = step === STEPS.length - 1;
+
+  useEffect(() => {
+    const updateViewportMode = () => setIsMobileViewport(getViewportWidth() < MOBILE_BREAKPOINT);
+    updateViewportMode();
+    window.addEventListener("resize", updateViewportMode);
+    return () => window.removeEventListener("resize", updateViewportMode);
+  }, []);
 
   // ── Side-effects when step changes ──
   useEffect(() => {
@@ -437,7 +532,7 @@ function OnboardingTutorialInner() {
   // Track the target element position (handles resize/scroll)
   const lastRectRef = useRef<Rect | null>(null);
   const updateRect = useCallback(() => {
-    if (!currentStep?.target) {
+    if (isMobileViewport || !currentStep?.target) {
       if (lastRectRef.current !== null) {
         lastRectRef.current = null;
         setTargetRect(null);
@@ -458,7 +553,7 @@ function OnboardingTutorialInner() {
       setTargetRect(r);
     }
     rafRef.current = requestAnimationFrame(updateRect);
-  }, [currentStep?.target]);
+  }, [currentStep?.target, isMobileViewport]);
 
   useEffect(() => {
     updateRect();
@@ -478,12 +573,14 @@ function OnboardingTutorialInner() {
     }
   }, [isLast, finish]);
 
-  const isCentered = !currentStep.target || !targetRect;
+  const isCentered = isMobileViewport || !currentStep.target || !targetRect;
+  const centeredTopOffset = getTutorialTopOffset();
+  const centeredCardMaxHeight = Math.max(220, getViewportHeight() - centeredTopOffset - 16);
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[9999]">
       {/* Pulsing highlight ring around the target element */}
-      {targetRect && (
+      {!isMobileViewport && targetRect && (
         <div
           className="pointer-events-none fixed rounded-xl ring-2 ring-[var(--primary)] animate-pulse"
           style={{
@@ -498,7 +595,10 @@ function OnboardingTutorialInner() {
 
       {/* Centered steps use a flex wrapper so Framer Motion transforms don't override CSS centering */}
       {isCentered ? (
-        <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
+        <div
+          className="pointer-events-none fixed inset-x-0 bottom-3 flex items-center justify-center px-3"
+          style={{ top: centeredTopOffset }}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={step}
@@ -506,8 +606,8 @@ function OnboardingTutorialInner() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.96 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl ring-1 ring-[var(--primary)]/20 max-h-[90vh] overflow-x-hidden overflow-y-auto"
-              style={{ width: Math.min(380, window.innerWidth - 32) }}
+              className="pointer-events-auto overflow-x-hidden overflow-y-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl ring-1 ring-[var(--primary)]/20"
+              style={{ width: Math.min(380, getViewportWidth() - 32), maxHeight: centeredCardMaxHeight }}
             >
               <TourCardContent step={step} currentStep={currentStep} isLast={isLast} onNext={next} onSkip={finish} />
             </motion.div>
@@ -522,7 +622,7 @@ function OnboardingTutorialInner() {
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
             transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             className="pointer-events-auto rounded-2xl border border-[var(--border)] bg-[var(--popover)] p-5 shadow-2xl ring-1 ring-[var(--primary)]/20"
-            style={computeTooltipStyle(targetRect!, currentStep.side)}
+            style={computeTooltipStyle(targetRect!, currentStep)}
           >
             <TourCardContent step={step} currentStep={currentStep} isLast={isLast} onNext={next} onSkip={finish} />
           </motion.div>

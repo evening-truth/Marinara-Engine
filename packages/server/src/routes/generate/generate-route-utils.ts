@@ -17,6 +17,7 @@ export type SimpleMessage = {
   role: "system" | "user" | "assistant";
   content: string;
   images?: string[];
+  files?: Array<{ type: string; data: string; filename?: string }>;
   contextKind?: "prompt" | "history" | "injection";
 };
 export type SpeakerPrefixMessage = SimpleMessage & {
@@ -41,6 +42,7 @@ function createEmptyPlayerStats(): PlayerStats {
 
 const TEXT_ATTACHMENT_CHAR_LIMIT = 60_000;
 const IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT = 6 * 1024 * 1024;
+const FILE_ATTACHMENT_PROVIDER_BYTE_LIMIT = 20 * 1024 * 1024;
 const TEXT_ATTACHMENT_EXTENSIONS = new Set([
   "csv",
   "json",
@@ -479,10 +481,12 @@ export function buildUserMessageRegenerationInstruction(message: { content?: unk
 export function buildUserMessageRegenerationPrompt(message: { content?: unknown; extra?: unknown }): SimpleMessage {
   const attachments = parsePromptAttachments(message.extra);
   const images = extractImageAttachmentDataUrls(attachments);
+  const files = extractFileAttachmentInputs(attachments);
   return {
     role: "user",
     content: buildUserMessageRegenerationInstruction(message),
     ...(images.length ? { images } : {}),
+    ...(files.length ? { files } : {}),
   };
 }
 
@@ -491,6 +495,7 @@ export function buildUserMessageRegenerationPromptFromSource(source: SimpleMessa
     role: "user",
     content: buildUserMessageRegenerationInstruction({ content: source.content }),
     ...(source.images?.length ? { images: source.images } : {}),
+    ...(source.files?.length ? { files: source.files } : {}),
   };
 }
 
@@ -507,10 +512,12 @@ export function buildUserMessageRegenerationSourceMessage(message: {
   const attachments = parsePromptAttachments(message.extra);
   const content = appendReadableAttachmentsToContent(original, attachments);
   const images = extractImageAttachmentDataUrls(attachments);
+  const files = extractFileAttachmentInputs(attachments);
   return {
     role: "user",
     content,
     ...(images.length ? { images } : {}),
+    ...(files.length ? { files } : {}),
   };
 }
 
@@ -636,6 +643,34 @@ export function extractImageAttachmentDataUrls(attachments: PromptAttachment[] |
     .map((attachment) => attachment.data)
     .filter((data): data is string => typeof data === "string" && data.length > 0)
     .filter((data) => estimateDataUrlBytes(data) <= IMAGE_ATTACHMENT_PROVIDER_BYTE_LIMIT);
+}
+
+export function extractFileAttachmentInputs(
+  attachments: PromptAttachment[] | undefined,
+): Array<{ type: string; data: string; filename: string }> {
+  return (attachments ?? []).flatMap((attachment) => {
+    const type = normalizeProviderFileAttachmentType(attachment);
+    if (!type || typeof attachment.data !== "string") return [];
+    if (estimateDataUrlBytes(attachment.data) > FILE_ATTACHMENT_PROVIDER_BYTE_LIMIT) return [];
+    const data = normalizeDataUrlMimeType(attachment.data, type);
+    if (!data) return [];
+    return [{ type, data, filename: getAttachmentFilename(attachment) }];
+  });
+}
+
+function normalizeProviderFileAttachmentType(attachment: PromptAttachment): string | null {
+  const type = typeof attachment.type === "string" ? attachment.type.toLowerCase().trim() : "";
+  const filename = getAttachmentFilename(attachment).toLowerCase();
+  if (type === "application/pdf" || filename.endsWith(".pdf")) return "application/pdf";
+  return null;
+}
+
+function normalizeDataUrlMimeType(dataUrl: string, mimeType: string): string | null {
+  const commaIndex = dataUrl.indexOf(",");
+  if (!dataUrl.startsWith("data:") || commaIndex < 0) return null;
+  const meta = dataUrl.slice(5, commaIndex).toLowerCase();
+  if (!meta.includes(";base64")) return null;
+  return `data:${mimeType};base64,${dataUrl.slice(commaIndex + 1)}`;
 }
 
 function estimateDataUrlBytes(dataUrl: string): number {

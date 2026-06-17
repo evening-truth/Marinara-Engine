@@ -26,7 +26,6 @@ import {
   PenLine,
   ScrollText,
   Settings2,
-  Swords,
   ChevronUp,
   ArrowRightLeft,
   User,
@@ -437,17 +436,9 @@ function ActiveContextLinksButton({
       </div>
       <div className="space-y-1">
         {characterIds.map((id, index) => (
-          <button
-            key={id}
-            type="button"
-            role="menuitem"
-            className={itemClassName}
-            onClick={() => openCharacter(id)}
-          >
+          <button key={id} type="button" role="menuitem" className={itemClassName} onClick={() => openCharacter(id)}>
             <User size="0.8125rem" className={iconClassName} />
-            <span className="min-w-0 flex-1 truncate">
-              {characterMap.get(id)?.name ?? `Character ${index + 1}`}
-            </span>
+            <span className="min-w-0 flex-1 truncate">{characterMap.get(id)?.name ?? `Character ${index + 1}`}</span>
             <span className="shrink-0 text-[0.625rem] text-foreground/45">Card</span>
           </button>
         ))}
@@ -458,9 +449,7 @@ function ActiveContextLinksButton({
             <div key={id} className="space-y-1">
               <button type="button" role="menuitem" className={itemClassName} onClick={() => openLorebook(id)}>
                 <BookOpen size="0.8125rem" className={iconClassName} />
-                <span className="min-w-0 flex-1 truncate">
-                  {lorebookNameById.get(id) ?? `Lorebook ${index + 1}`}
-                </span>
+                <span className="min-w-0 flex-1 truncate">{lorebookNameById.get(id) ?? `Lorebook ${index + 1}`}</span>
                 <span className="shrink-0 text-[0.625rem] text-foreground/45">
                   {entries.length > 0 ? `${entries.length} hit${entries.length === 1 ? "" : "s"}` : "Lorebook"}
                 </span>
@@ -521,44 +510,40 @@ function ActiveContextLinksButton({
         <BookOpen size="0.875rem" />
       </button>
       {open &&
-        (isMobile
-          ? createPortal(
-              <div
-                ref={panelRef}
-                role="menu"
-                className={cn(
-                  ROLEPLAY_POPOVER_SHELL,
-                  ROLEPLAY_POPOVER_SCROLL_AREA,
-                  "fixed z-[9999] overflow-y-auto p-2",
-                )}
-                style={
-                  mobileFrame
-                    ? {
-                        top: mobileFrame.top,
-                        left: mobileFrame.left,
-                        width: mobileFrame.width,
-                        maxHeight: mobileFrame.maxHeight,
-                      }
-                    : undefined
-                }
-              >
-                {activeContextContent}
-              </div>,
-              document.body,
-            )
-          : (
-              <div
-                ref={panelRef}
-                role="menu"
-                className={cn(
-                  ROLEPLAY_POPOVER_SHELL,
-                  ROLEPLAY_POPOVER_SCROLL_AREA,
-                  "absolute right-0 top-full z-50 mt-2 max-h-[min(32rem,calc(100vh-6rem))] w-72 overflow-y-auto p-2",
-                )}
-              >
-                {activeContextContent}
-              </div>
-          ))}
+        (isMobile ? (
+          createPortal(
+            <div
+              ref={panelRef}
+              role="menu"
+              className={cn(ROLEPLAY_POPOVER_SHELL, ROLEPLAY_POPOVER_SCROLL_AREA, "fixed z-[9999] overflow-y-auto p-2")}
+              style={
+                mobileFrame
+                  ? {
+                      top: mobileFrame.top,
+                      left: mobileFrame.left,
+                      width: mobileFrame.width,
+                      maxHeight: mobileFrame.maxHeight,
+                    }
+                  : undefined
+              }
+            >
+              {activeContextContent}
+            </div>,
+            document.body,
+          )
+        ) : (
+          <div
+            ref={panelRef}
+            role="menu"
+            className={cn(
+              ROLEPLAY_POPOVER_SHELL,
+              ROLEPLAY_POPOVER_SCROLL_AREA,
+              "absolute right-0 top-full z-50 mt-2 max-h-[min(32rem,calc(100vh-6rem))] w-72 overflow-y-auto p-2",
+            )}
+          >
+            {activeContextContent}
+          </div>
+        ))}
     </div>
   );
 }
@@ -570,7 +555,7 @@ function SummaryButton({
   summaryContextSize,
   summaryPromptTemplates,
   activeSummaryPromptTemplateId,
-  enableAgents,
+  automaticSummaryEnabled,
   activeAgentIds,
   summaryRunInterval,
   automaticSummariesAvailable,
@@ -582,7 +567,7 @@ function SummaryButton({
   summaryContextSize: number;
   summaryPromptTemplates?: ComponentProps<typeof SummaryPopover>["promptTemplates"];
   activeSummaryPromptTemplateId?: string | null;
-  enableAgents: boolean;
+  automaticSummaryEnabled: boolean;
   activeAgentIds: string[];
   summaryRunInterval?: number;
   automaticSummariesAvailable: boolean;
@@ -648,7 +633,7 @@ function SummaryButton({
             contextSize={summaryContextSize}
             promptTemplates={summaryPromptTemplates}
             activePromptTemplateId={activeSummaryPromptTemplateId}
-            enableAgents={enableAgents}
+            automaticSummaryEnabled={automaticSummaryEnabled}
             activeAgentIds={activeAgentIds}
             summaryRunInterval={summaryRunInterval}
             automaticSummariesAvailable={automaticSummariesAvailable}
@@ -722,11 +707,7 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
           createPortal(
             <div
               ref={panelRef}
-              className={cn(
-                ROLEPLAY_POPOVER_SHELL,
-                ROLEPLAY_POPOVER_SCROLL_AREA,
-                "fixed z-[9999] overflow-y-auto p-3",
-              )}
+              className={cn(ROLEPLAY_POPOVER_SHELL, ROLEPLAY_POPOVER_SCROLL_AREA, "fixed z-[9999] overflow-y-auto p-3")}
               style={
                 mobileFrame
                   ? {
@@ -799,11 +780,14 @@ type RoleplaySurfaceProps = {
   spriteCharacterIds: string[];
   spriteDisplayModes: SpriteDisplayMode[];
   spriteExpressions: Record<string, string>;
-  expressionAvatarsEnabled: boolean;
   expressionAvatarResolver?: ExpressionAvatarResolver;
   spritePlacements: Record<string, SpritePlacement>;
   spriteScale: number;
+  expressionSpriteScale: number;
+  fullBodySpriteScale: number;
   spriteOpacity: number;
+  expressionSpriteOpacity: number;
+  fullBodySpriteOpacity: number;
   spriteArrangeMode: boolean;
   enabledAgentTypes: Set<string>;
   chatCharIds: string[];
@@ -869,7 +853,8 @@ type RoleplaySurfaceProps = {
   onSpriteSideChange: (side: SpriteSide) => void;
   onToggleSpriteArrange: () => void;
   onExpressionChange: (characterId: string, expression: string, options?: { immediate?: boolean }) => void;
-  onSpritePlacementChange: (characterId: string, placement: SpritePlacement) => void;
+  onSpritePlacementChange: (placementKey: string, placement: SpritePlacement) => void;
+  onFinishSpritePlacement: () => void;
   onDeleteConfirm: () => void;
   onDeleteSwipe: () => void;
   onDeleteMore: () => void;
@@ -899,11 +884,14 @@ export function ChatRoleplaySurface({
   spriteCharacterIds,
   spriteDisplayModes,
   spriteExpressions,
-  expressionAvatarsEnabled,
   expressionAvatarResolver,
   spritePlacements,
   spriteScale,
+  expressionSpriteScale,
+  fullBodySpriteScale,
   spriteOpacity,
+  expressionSpriteOpacity,
+  fullBodySpriteOpacity,
   spriteArrangeMode,
   enabledAgentTypes,
   chatCharIds,
@@ -970,6 +958,7 @@ export function ChatRoleplaySurface({
   onToggleSpriteArrange,
   onExpressionChange,
   onSpritePlacementChange,
+  onFinishSpritePlacement,
   onDeleteConfirm,
   onDeleteSwipe,
   onDeleteMore,
@@ -998,11 +987,7 @@ export function ChatRoleplaySurface({
   const [chromeHeights, setChromeHeights] = useState({ top: 0, bottom: 0 });
   const hideEchoChamberOnMobile =
     sidebarOpen || rightPanelOpen || settingsOpen || filesOpen || galleryOpen || wizardOpen;
-  const overlaySpriteDisplayModes = expressionAvatarsEnabled
-    ? spriteDisplayModes.filter((mode) => mode !== "expressions")
-    : spriteDisplayModes;
-  const showSpriteOverlay =
-    expressionAgentEnabled && spriteCharacterIds.length > 0 && overlaySpriteDisplayModes.length > 0;
+  const showSpriteOverlay = expressionAgentEnabled && spriteCharacterIds.length > 0 && spriteDisplayModes.length > 0;
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -1131,6 +1116,9 @@ export function ChatRoleplaySurface({
   const summaryActiveAgentIds = Array.isArray(chatMeta.activeAgentIds)
     ? chatMeta.activeAgentIds.filter((agentId): agentId is string => typeof agentId === "string")
     : [];
+  const automaticSummaryEnabled =
+    chatMeta.automaticSummaryEnabled === true ||
+    (chatMeta.enableAgents === true && summaryActiveAgentIds.includes("chat-summary"));
   const summaryRunInterval =
     typeof chatMeta.summaryRunInterval === "number" && Number.isFinite(chatMeta.summaryRunInterval)
       ? chatMeta.summaryRunInterval
@@ -1153,13 +1141,18 @@ export function ChatRoleplaySurface({
               characterIds={spriteCharacterIds}
               messages={msgPayload}
               side={spritePosition}
-              spriteDisplayModes={overlaySpriteDisplayModes}
+              spriteDisplayModes={spriteDisplayModes}
               spriteExpressions={spriteExpressions}
               spritePlacements={spritePlacements}
               editing={spriteArrangeMode}
               spriteScale={spriteScale}
+              expressionSpriteScale={expressionSpriteScale}
+              fullBodySpriteScale={fullBodySpriteScale}
               spriteOpacity={spriteOpacity}
+              expressionSpriteOpacity={expressionSpriteOpacity}
+              fullBodySpriteOpacity={fullBodySpriteOpacity}
               onPlacementChange={onSpritePlacementChange}
+              onFinishPlacement={onFinishSpritePlacement}
             />
           </Suspense>
         )}
@@ -1197,10 +1190,7 @@ export function ChatRoleplaySurface({
                   </div>
                 )}
                 <div
-                  className={cn(
-                    "pointer-events-auto ml-auto flex shrink-0 items-center",
-                    CHAT_TOOLBAR_ICON_GAP_CLASS,
-                  )}
+                  className={cn("pointer-events-auto ml-auto flex shrink-0 items-center", CHAT_TOOLBAR_ICON_GAP_CLASS)}
                 >
                   <ChatBranchSelector
                     activeChatId={activeChatId}
@@ -1224,7 +1214,7 @@ export function ChatRoleplaySurface({
                           ? chatMeta.activeSummaryPromptTemplateId
                           : null
                       }
-                      enableAgents={chatMeta.enableAgents === true}
+                      automaticSummaryEnabled={automaticSummaryEnabled}
                       activeAgentIds={summaryActiveAgentIds}
                       summaryRunInterval={summaryRunInterval}
                       automaticSummariesAvailable={chatMode === "roleplay"}
@@ -1311,7 +1301,7 @@ export function ChatRoleplaySurface({
                               ? chatMeta.activeSummaryPromptTemplateId
                               : null
                           }
-                          enableAgents={chatMeta.enableAgents === true}
+                          automaticSummaryEnabled={automaticSummaryEnabled}
                           activeAgentIds={summaryActiveAgentIds}
                           summaryRunInterval={summaryRunInterval}
                           automaticSummariesAvailable={chatMode === "roleplay"}
@@ -1343,10 +1333,7 @@ export function ChatRoleplaySurface({
                 )}
                 {chat && !chatMeta.enableAgents && (
                   <div
-                    className={cn(
-                      "flex w-full items-center justify-end px-2 pb-1 pt-2",
-                      CHAT_TOOLBAR_ICON_GAP_CLASS,
-                    )}
+                    className={cn("flex w-full items-center justify-end px-2 pb-1 pt-2", CHAT_TOOLBAR_ICON_GAP_CLASS)}
                   >
                     <ChatToolbarMenu>
                       <ChatBranchSelector
@@ -1371,7 +1358,7 @@ export function ChatRoleplaySurface({
                             ? chatMeta.activeSummaryPromptTemplateId
                             : null
                         }
-                        enableAgents={chatMeta.enableAgents === true}
+                        automaticSummaryEnabled={automaticSummaryEnabled}
                         activeAgentIds={summaryActiveAgentIds}
                         summaryRunInterval={summaryRunInterval}
                         automaticSummariesAvailable={chatMode === "roleplay"}
@@ -1574,21 +1561,11 @@ export function ChatRoleplaySurface({
                     isForking={isForkingScene}
                   />
                 )}
-                {combatAgentEnabled && (
-                  <div className="flex justify-center py-1">
-                    <button
-                      onClick={onStartEncounter}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs text-foreground/50 transition-all hover:bg-foreground/10 hover:text-orange-300"
-                      title="Start Combat Encounter"
-                    >
-                      <Swords size="0.875rem" />
-                      <span>Encounter</span>
-                    </button>
-                  </div>
-                )}
                 <ChatInput
                   key={activeChatId}
                   mode={isRoleplay ? "roleplay" : "conversation"}
+                  combatAgentEnabled={combatAgentEnabled}
+                  onStartEncounter={onStartEncounter}
                   characterNames={characterNames}
                   groupResponseOrder={
                     chatCharIds.length > 1 && groupChatMode === "individual"

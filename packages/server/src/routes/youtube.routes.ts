@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
-// Routes: YouTube DJ (Data API v3 search)
+// Routes: Music DJ YouTube source (Data API v3 search)
 // ──────────────────────────────────────────────
-// The YouTube DJ agent returns a search query; the client plays the result in
+// Music DJ can return a YouTube search query; the client plays the result in
 // an embedded YouTube IFrame player. These routes (a) store the user's free
 // YouTube Data API key encrypted at rest and (b) resolve a query → video on the
 // server so the key never reaches the browser. No OAuth, no playback control.
@@ -63,7 +63,7 @@ function friendlyYoutubeError(status: number, body: string): string {
     return "YouTube Data API v3 is not enabled for this key's Google Cloud project. Open the Google Cloud Console API Library, enable “YouTube Data API v3”, wait a minute, then try again.";
   }
   if (reason === "keyinvalid" || blob.includes("api key not valid")) {
-    return "This YouTube Data API key is invalid. Re-check the key pasted in the YouTube DJ settings.";
+    return "This YouTube Data API key is invalid. Re-check the key pasted in Music DJ settings.";
   }
   if (reason === "keyexpired") {
     return "This YouTube Data API key has expired. Create a new key in Google Cloud Console.";
@@ -80,7 +80,7 @@ function friendlyYoutubeError(status: number, body: string): string {
 export async function youtubeRoutes(app: FastifyInstance) {
   const storage = createAgentsStorage(app.db);
 
-  /** Resolve the target agent: explicit id, else Music DJ, else the legacy YouTube built-in config. */
+  /** Resolve the target Music DJ config, with a legacy YouTube config fallback for older local profiles. */
   async function resolveAgent(agentId?: string) {
     if (agentId) return storage.getById(agentId);
     return (await storage.getByType("spotify")) ?? (await storage.getByType("youtube"));

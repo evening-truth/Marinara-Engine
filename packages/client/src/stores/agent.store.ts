@@ -2,7 +2,12 @@
 // Zustand Store: Agent Slice
 // ──────────────────────────────────────────────
 import { create } from "zustand";
-import type { AgentCallDebugEvent, AgentResult, CharacterCardFieldUpdate } from "@marinara-engine/shared";
+import type {
+  AgentCallDebugEvent,
+  AgentResult,
+  AgentWriteApprovalProposal,
+  CharacterCardFieldUpdate,
+} from "@marinara-engine/shared";
 import type { AgentFailure } from "../lib/agent-failures";
 
 /**
@@ -19,6 +24,13 @@ export interface PendingCardUpdate {
   characterName: string;
   updates: CharacterCardFieldUpdate[];
   agentName: string;
+  /** ms since epoch — used for stable ordering. */
+  timestamp: number;
+}
+
+export interface PendingAgentWriteApproval extends AgentWriteApprovalProposal {
+  /** Client-generated ID, used as key for dismissal. */
+  id: string;
   /** ms since epoch — used for stable ordering. */
   timestamp: number;
 }
@@ -105,11 +117,12 @@ interface AgentState {
     text: string;
   }>;
   cyoaChoicesChatId: string | null;
-  /** Latest YouTube DJ "play" intent. nonce bumps each pick so the player reacts. */
+  /** Latest Music DJ YouTube "play" intent. nonce bumps each pick so the player reacts. */
   youtubePlay: { searchQuery: string; mood: string; nonce: number } | null;
-  /** Latest YouTube DJ volume directive (0-100), independent of track changes. */
+  /** Latest Music DJ YouTube volume directive (0-100), independent of track changes. */
   youtubeVolume: number | null;
   pendingCardUpdates: PendingCardUpdate[];
+  pendingAgentWriteApprovals: PendingAgentWriteApproval[];
 
   // Actions
   setActiveAgents: (agents: string[]) => void;
@@ -137,6 +150,9 @@ interface AgentState {
   enqueuePendingCardUpdate: (entry: PendingCardUpdate) => void;
   dismissPendingCardUpdate: (id: string) => void;
   clearPendingCardUpdates: () => void;
+  enqueuePendingAgentWriteApproval: (entry: PendingAgentWriteApproval) => void;
+  dismissPendingAgentWriteApproval: (id: string) => void;
+  clearPendingAgentWriteApprovals: () => void;
   reset: () => void;
 }
 
@@ -157,6 +173,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   youtubePlay: null,
   youtubeVolume: null,
   pendingCardUpdates: [],
+  pendingAgentWriteApprovals: [],
 
   setActiveAgents: (agents) => set({ activeAgents: agents }),
   setProcessing: (processing) => set({ isProcessing: processing }),
@@ -238,6 +255,13 @@ export const useAgentStore = create<AgentState>((set) => ({
   dismissPendingCardUpdate: (id) =>
     set((s) => ({ pendingCardUpdates: s.pendingCardUpdates.filter((e) => e.id !== id) })),
   clearPendingCardUpdates: () => set({ pendingCardUpdates: [] }),
+  enqueuePendingAgentWriteApproval: (entry) =>
+    set((s) => ({ pendingAgentWriteApprovals: [...s.pendingAgentWriteApprovals, entry].slice(-20) })),
+  dismissPendingAgentWriteApproval: (id) =>
+    set((s) => ({
+      pendingAgentWriteApprovals: s.pendingAgentWriteApprovals.filter((entry) => entry.id !== id),
+    })),
+  clearPendingAgentWriteApprovals: () => set({ pendingAgentWriteApprovals: [] }),
 
   reset: () =>
     set({
@@ -257,5 +281,6 @@ export const useAgentStore = create<AgentState>((set) => ({
       youtubePlay: null,
       youtubeVolume: null,
       pendingCardUpdates: [],
+      pendingAgentWriteApprovals: [],
     }),
 }));

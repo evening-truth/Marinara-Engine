@@ -226,6 +226,16 @@ function imageParts(images?: string[]): Array<Record<string, unknown>> {
   return parts;
 }
 
+function fileParts(files?: ChatMessage["files"]): Array<Record<string, unknown>> {
+  if (!files?.length) return [];
+  const parts: Array<Record<string, unknown>> = [];
+  for (const file of files) {
+    const match = file.data.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) parts.push({ inline_data: { mime_type: match[1], data: match[2] } });
+  }
+  return parts;
+}
+
 function parseToolResultContent(content: string): Record<string, unknown> {
   const trimmed = content.trim();
   if (!trimmed) return { result: "" };
@@ -272,7 +282,7 @@ function formatGoogleContents(
     }
 
     if (message.role === "user" || message.role === "assistant") {
-      const parts = [...imageParts(message.images)];
+      const parts = [...fileParts(message.files), ...imageParts(message.images)];
       if (message.content?.trim()) parts.push({ text: message.content });
       if (parts.length > 0) contents.push({ role: message.role === "assistant" ? "model" : "user", parts });
     }
@@ -497,7 +507,9 @@ export class GoogleProvider extends BaseLLMProvider {
 
     // Convert to Gemini format — filter out empty-content messages
     const systemMessages = messages.filter((m) => m.role === "system" && m.content?.trim());
-    const chatMessages = messages.filter((m) => m.role !== "system" && m.content?.trim());
+    const chatMessages = messages.filter(
+      (m) => m.role !== "system" && (m.content?.trim() || m.images?.length || m.files?.length),
+    );
 
     const contents = chatMessages.map((m) => {
       // If this model message has stored Gemini parts (with thought signatures),
@@ -507,16 +519,8 @@ export class GoogleProvider extends BaseLLMProvider {
         return { role: "model" as const, parts: storedParts };
       }
 
-      const parts: Array<Record<string, unknown>> = [];
-      if (m.images?.length) {
-        for (const img of m.images) {
-          const match = img.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
-            parts.push({ inline_data: { mime_type: match[1], data: match[2] } });
-          }
-        }
-      }
-      parts.push({ text: m.content });
+      const parts: Array<Record<string, unknown>> = [...fileParts(m.files), ...imageParts(m.images)];
+      if (m.content?.trim()) parts.push({ text: m.content });
       return {
         role: m.role === "assistant" ? ("model" as const) : ("user" as const),
         parts,

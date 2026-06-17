@@ -5,6 +5,7 @@ import {
   getDefaultBuiltInAgentSettings,
   isBuiltInAgentRuntimeDisabled,
   isAgentConfigDeleted,
+  isRetiredBuiltInAgentId,
   LOCAL_SIDECAR_CONNECTION_ID,
   mergeBuiltInAgentSettings,
   resolveAgentPromptTemplate,
@@ -106,28 +107,6 @@ function getAgentFallbackPrompt(agentType: string, settings: Record<string, unkn
   return getDefaultAgentPrompt(agentType);
 }
 
-function resolveChatSummaryPromptTemplate(chatMetadata?: Record<string, unknown>): string | null {
-  if (!chatMetadata) return null;
-  const selectedId =
-    typeof chatMetadata.activeSummaryPromptTemplateId === "string"
-      ? chatMetadata.activeSummaryPromptTemplateId.trim()
-      : "";
-  if (!selectedId) return null;
-
-  const templates = Array.isArray(chatMetadata.summaryPromptTemplates) ? chatMetadata.summaryPromptTemplates : [];
-  const selected = templates.find(
-    (template): template is { id: string; prompt: string } =>
-      !!template &&
-      typeof template === "object" &&
-      !Array.isArray(template) &&
-      (template as Record<string, unknown>).id === selectedId &&
-      typeof (template as Record<string, unknown>).prompt === "string" &&
-      ((template as Record<string, unknown>).prompt as string).trim().length > 0,
-  );
-
-  return selected?.prompt.trim() ?? null;
-}
-
 async function resolveAgentConnectionProvider(args: {
   connections: ConnectionsStore;
   agentProviderCache: Map<string, AgentProviderCacheEntry>;
@@ -198,7 +177,10 @@ export async function resolveAgentPipelineAgents({
       .map((agent) => agent.type as string),
   );
   const enabledConfigs = configuredAgents.filter(
-    (agent) => !isAgentConfigDeleted(agent.settings) && !isBuiltInAgentRuntimeDisabled(agent.type as string),
+    (agent) =>
+      !isAgentConfigDeleted(agent.settings) &&
+      !isBuiltInAgentRuntimeDisabled(agent.type as string) &&
+      !isRetiredBuiltInAgentId(agent.type as string),
   );
   const resolvedAgents: ResolvedAgent[] = [];
   const agentProviderCache = new Map<string, AgentProviderCacheEntry>();
@@ -259,10 +241,6 @@ export async function resolveAgentPipelineAgents({
       settings,
       selectedPromptTemplateId: agentPromptTemplateSelections[cfg.type as string] ?? null,
     });
-    if (cfg.type === "chat-summary") {
-      selectedPromptTemplate = resolveChatSummaryPromptTemplate(chatMetadata) ?? selectedPromptTemplate;
-    }
-
     const effectiveConnectionId = resolveAgentConnectionId({
       requestedConnectionId: cfg.connectionId as string | null,
       defaultAgentConnectionId: defaultAgentConn?.id ?? null,
@@ -348,10 +326,6 @@ export async function resolveAgentPipelineAgents({
       settings: builtInSettings,
       selectedPromptTemplateId: agentPromptTemplateSelections[builtIn.id] ?? null,
     });
-    if (builtIn.id === "chat-summary") {
-      selectedPromptTemplate = resolveChatSummaryPromptTemplate(chatMetadata) ?? selectedPromptTemplate;
-    }
-
     resolvedAgents.push({
       id: `builtin:${builtIn.id}`,
       type: builtIn.id,

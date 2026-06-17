@@ -43,6 +43,7 @@ import { sendSseEvent, startSseReply } from "./sse.js";
 import {
   appendReadableAttachmentsToContent,
   dedupeLastMessageWrappers,
+  extractFileAttachmentInputs,
   extractImageAttachmentDataUrls,
   findTrackerContextInsertIndex,
   isMessageHiddenFromAI,
@@ -69,6 +70,7 @@ type DryRunPromptMessage = {
   role: "system" | "user" | "assistant";
   content: string;
   images?: string[];
+  files?: Array<{ type: string; data: string; filename?: string }>;
   contextKind?: "prompt" | "history" | "injection";
   characterId?: string | null;
   providerMetadata?: Record<string, unknown>;
@@ -699,6 +701,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       const extra = parseExtra(m.extra);
       const attachments = extra.attachments as PromptAttachment[] | undefined;
       const images = extractImageAttachmentDataUrls(attachments);
+      const files = extractFileAttachmentInputs(attachments);
       const geminiParts =
         !excludePastReasoning && isGoogleProvider && m.role === "assistant" && extra.geminiParts
           ? { providerMetadata: { geminiParts: extra.geminiParts } }
@@ -709,6 +712,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         contextKind: "history" as const,
         characterId: typeof m.characterId === "string" && m.characterId ? m.characterId : null,
         ...(images?.length ? { images } : {}),
+        ...(files.length ? { files } : {}),
         ...geminiParts,
       };
     });
@@ -1084,6 +1088,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
             contextKind: "history" as const,
             characterId: m.characterId ?? null,
             ...(m.images ? { images: m.images } : {}),
+            ...(m.files ? { files: m.files } : {}),
             ...(m.providerMetadata ? { providerMetadata: m.providerMetadata } : {}),
           })) as DryRunPromptMessage[])
         : [];
@@ -1303,6 +1308,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         role: m.role,
         content: m.content,
         ...(m.images ? { images: m.images } : {}),
+        ...(m.files ? { files: m.files } : {}),
       }));
     }
 
@@ -1512,6 +1518,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         content: string;
         contextKind?: "prompt" | "history" | "injection";
         images?: string[];
+        files?: Array<{ type: string; data: string; filename?: string }>;
         providerMetadata?: Record<string, unknown>;
       }>,
     ): ChatMessage[] =>
@@ -1520,6 +1527,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         content: message.content,
         ...(message.contextKind ? { contextKind: message.contextKind } : {}),
         ...(message.images?.length ? { images: message.images } : {}),
+        ...(message.files?.length ? { files: message.files } : {}),
         ...(message.providerMetadata ? { providerMetadata: message.providerMetadata } : {}),
       }));
 
@@ -1555,6 +1563,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
             role: message.role,
             content: message.content,
             ...(message.images?.length ? { images: message.images } : {}),
+            ...(message.files?.length ? { files: message.files } : {}),
             ...(message.providerMetadata ? { providerMetadata: message.providerMetadata } : {}),
           })),
           wrapFormat,

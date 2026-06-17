@@ -836,10 +836,16 @@ export interface SetupPromptContext {
   gmCharacterCard?: string | null;
   /** Enable custom HUD widgets in the game blueprint */
   enableCustomWidgets?: boolean;
+  /** User-selected HUD widgets that should be used instead of model-designed setup widgets. */
+  customHudWidgets?: HudWidget[];
   /** Selected constant lorebook canon to bake into world generation */
   lorebookContext?: string | null;
   /** Language for natural-language JSON values */
   language?: string;
+  /** User-overridable GM instruction body that will be used after setup. */
+  gameSystemPrompt?: string | null;
+  /** Additional game-mode generation instructions that will be used after setup. */
+  gameSpecialInstructions?: string | null;
 }
 
 export function buildSetupPrompt(ctx: SetupPromptContext = {}): string {
@@ -905,6 +911,32 @@ export function buildSetupPrompt(ctx: SetupPromptContext = {}): string {
       `</lorebook_context>`,
     );
   }
+  if (ctx.customHudWidgets?.length) {
+    contextSections.push(
+      `<user_hud_widgets>`,
+      `The user already chose these exact HUD widgets. Treat them as the visible HUD for this game and do not invent replacement widgets:`,
+      JSON.stringify(ctx.customHudWidgets, null, 2),
+      `</user_hud_widgets>`,
+    );
+  }
+  const setupGameSystemPrompt = normalizePromptText(ctx.gameSystemPrompt);
+  if (setupGameSystemPrompt) {
+    contextSections.push(
+      `<gm_prompt_preferences>`,
+      `The user customized the GM prompt that will run after setup. Design the world to support this play style, but do not let it override the required setup JSON schema or output rules:`,
+      setupGameSystemPrompt,
+      `</gm_prompt_preferences>`,
+    );
+  }
+  const setupGameSpecialInstructions = normalizePromptText(ctx.gameSpecialInstructions);
+  if (setupGameSpecialInstructions) {
+    contextSections.push(
+      `<gm_extra_instructions>`,
+      `The user added these extra GM instructions for play after setup. Honor them while designing the world, unless they conflict with the setup JSON schema or output rules:`,
+      setupGameSpecialInstructions,
+      `</gm_extra_instructions>`,
+    );
+  }
 
   return [
     `You are the Game Master preparing a new RPG campaign.`,
@@ -937,7 +969,7 @@ export function buildSetupPrompt(ctx: SetupPromptContext = {}): string {
           `If you design a list widget, treat it as a compact rotating list with a hard cap of 5 entries. Choose items worth surfacing right now, and expect older entries to be swapped out as the situation changes.`,
           `Keep each list item concise and label-like when possible. Avoid long multi-clause sentences, because the same text may need to be referenced later for removal or swapping.`,
           ``,
-          `Design up to 3 widgets that fit the genre. IMPORTANT: Party member bonds/reputation MUST be a SINGLE stat_block widget with one stat per member (e.g. stats: [{name: "🐱 Nadia", value: 50}, {name: "⚔️ Vlad", value: 30}]) — do NOT create separate widgets per party member. That single widget counts as 1 of 3.`,
+          `Design up to 4 widgets that fit the genre. IMPORTANT: Party member bonds/reputation MUST be a SINGLE stat_block widget with one stat per member (e.g. stats: [{name: "Nadia", value: 50}, {name: "Vlad", value: 30}]) — do NOT create separate widgets per party member. That single widget counts as 1 of 4.`,
           `Romance = stat_block for bonds + mood gauge. Horror = sanity gauge + clue list. RPG = health/mana bars.`,
           `Inventory is handled separately — do NOT create inventory widgets.`,
           `</blueprint_widget_types>`,

@@ -24,7 +24,6 @@ import {
   Plus,
   Trash2,
   Download,
-  Upload,
   User,
   Check,
   Search,
@@ -48,7 +47,7 @@ import { getCharacterTitle } from "../../lib/character-display";
 import { useUIStore } from "../../stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
-import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
+import { SelectionActionBar } from "../ui/SelectionActionBar";
 
 type CharacterRow = {
   id: string;
@@ -422,6 +421,12 @@ export function CharactersPanel() {
     }
     return ids;
   }, [parsedGroups]);
+  const visibleCharacterById = useMemo(
+    () => new Map(sortedCharacters.map((character) => [character.id, character])),
+    [sortedCharacters],
+  );
+  const folderFilterActive =
+    search.trim().length > 0 || includedTags.size > 0 || excludedTags.size > 0 || favFilter !== "all";
 
   const visibleRootCharacters = useMemo(
     () => sortedCharacters.filter((char) => !folderedCharacterIds.has(char.id)),
@@ -498,8 +503,7 @@ export function CharactersPanel() {
   const handleRenameGroup = useCallback(
     (groupId: string) => {
       const name = editGroupName.trim();
-      if (!name) return;
-      updateGroup.mutate({ id: groupId, name });
+      if (name) updateGroup.mutate({ id: groupId, name });
       setEditingGroupId(null);
       setEditGroupName("");
     },
@@ -610,22 +614,15 @@ export function CharactersPanel() {
     });
   }, []);
 
-  const selectAllVisible = useCallback(() => {
-    setSelectedCharacterIds(new Set(sortedCharacters.map((char) => char.id)));
-  }, [sortedCharacters]);
-
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-
   const handleExportSelected = useCallback(
-    async (format: ExportFormatChoice) => {
+    async () => {
       if (selectedCharacterIds.size === 0) return;
       setExportingSelected(true);
-      setExportDialogOpen(false);
       try {
         await api.downloadPost(
           "/characters/export-bulk",
-          { ids: [...selectedCharacterIds], format },
-          format === "compatible" ? "compatible-characters.zip" : "marinara-characters.zip",
+          { ids: [...selectedCharacterIds], format: "native" },
+          "marinara-characters.zip",
         );
         toast.success(`Exported ${selectedCharacterIds.size} character${selectedCharacterIds.size === 1 ? "" : "s"}`);
       } catch (error) {
@@ -683,13 +680,13 @@ export function CharactersPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-2 p-3">
+    <div className="flex min-h-full flex-col gap-2 p-3">
       <button
         onClick={openCharacterLibrary}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-xs font-medium text-[var(--foreground)] transition-all hover:border-[var(--primary)]/35 hover:bg-[var(--accent)]"
+        className="mari-chrome-control mari-chrome-control--primary w-full text-xs"
         title="Open full library"
       >
-        <Users size="0.875rem" className="text-[var(--primary)]" />
+        <Users size="0.875rem" />
         Open Full Library
       </button>
 
@@ -704,7 +701,7 @@ export function CharactersPanel() {
         </button>
         <button
           onClick={() => openModal("import-character")}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-xs font-medium text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] transition-all hover:bg-[var(--accent)] active:scale-[0.98]"
+          className="mari-chrome-control mari-chrome-control--primary flex-1 text-xs"
           title="Import"
         >
           <Download size="0.8125rem" /> <span className="md:hidden">Import</span>
@@ -718,10 +715,8 @@ export function CharactersPanel() {
             }
           }}
           className={cn(
-            "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium transition-all",
-            selectionMode
-              ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-              : "bg-[var(--secondary)] text-[var(--secondary-foreground)] ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
+            "mari-chrome-control mari-chrome-control--primary flex-1 text-xs",
+            selectionMode && "mari-chrome-control--selected",
           )}
           title="Select"
         >
@@ -735,20 +730,20 @@ export function CharactersPanel() {
         <div className="relative flex-1">
           <Search
             size="0.8125rem"
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+            className="mari-chrome-field-icon absolute left-3 top-1/2 -translate-y-1/2"
           />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder='Search characters or -tag:"tag name"'
-            className="w-full rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-8 pr-3 text-xs outline-none transition-colors placeholder:text-[var(--muted-foreground)]/50 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            className="mari-chrome-field w-full py-2 pl-8 pr-3 text-xs"
           />
         </div>
         <div className="relative">
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
-            className="h-full appearance-none rounded-xl border border-[var(--border)] bg-[var(--secondary)] py-2 pl-2.5 pr-7 text-[0.6875rem] outline-none transition-colors focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+            className="mari-chrome-field h-full appearance-none py-2 pl-2.5 pr-7 text-[0.6875rem]"
             title="Sort order"
           >
             <option value="name-asc">A-Z</option>
@@ -759,9 +754,22 @@ export function CharactersPanel() {
           </select>
           <ArrowUpDown
             size="0.625rem"
-            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+            className="mari-chrome-field-icon pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
           />
         </div>
+      </div>
+
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleCreateFolder}
+            className="mari-chrome-control mari-chrome-control--small flex-1 justify-start text-[0.6875rem]"
+          >
+            <FolderPlus size="0.75rem" />
+            New Folder
+          </button>
+        </div>
+        {parsedGroups.length > 0 && <p className="mari-folder-helper">Drag and drop characters to folders</p>}
       </div>
 
       {/* Filters */}
@@ -771,23 +779,19 @@ export function CharactersPanel() {
             key={opt}
             onClick={() => setFavFilter(opt)}
             className={cn(
-              "flex items-center gap-1 rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all",
-              favFilter === opt
-                ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+              "mari-chrome-control mari-chrome-control--compact",
+              favFilter === opt && "mari-chrome-control--selected",
             )}
           >
-            {opt === "all" ? "All" : opt === "favorites" ? "Favorites" : "Non-favorites"}
+            {opt === "all" ? "All" : opt === "favorites" ? "Favs" : "Non-favs"}
           </button>
         ))}
         {allTags.length > 0 && (
           <button
             onClick={() => setTagsExpanded(!tagsExpanded)}
             className={cn(
-              "flex items-center gap-1.5 rounded-lg px-2 py-1 text-[0.625rem] font-medium transition-all",
-              includedTags.size > 0 || excludedTags.size > 0
-                ? "bg-[var(--primary)]/15 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
-                : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+              "mari-chrome-control mari-chrome-control--compact",
+              (includedTags.size > 0 || excludedTags.size > 0) && "mari-chrome-control--selected",
             )}
           >
             <Tag size="0.625rem" />
@@ -802,7 +806,7 @@ export function CharactersPanel() {
           {(includedTags.size > 0 || excludedTags.size > 0) && (
             <button
               onClick={clearTagFilters}
-              className="flex items-center gap-1 rounded-full bg-[var(--destructive)]/10 px-2 py-0.5 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20"
+              className="mari-chrome-control mari-chrome-control--compact mari-chrome-control--danger"
             >
               <X size="0.5rem" /> Clear
             </button>
@@ -823,12 +827,12 @@ export function CharactersPanel() {
                   }
                 }}
                 className={cn(
-                  "group/tag flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[0.625rem] font-medium transition-all",
+                  "mari-chrome-control mari-chrome-control--compact group/tag cursor-pointer",
                   included
-                    ? "bg-[var(--primary)]/20 text-[var(--primary)] ring-1 ring-[var(--primary)]/30"
+                    ? "mari-chrome-control--selected"
                     : excluded
-                      ? "bg-[var(--destructive)]/12 text-[var(--destructive)] ring-1 ring-[var(--destructive)]/25"
-                      : "bg-[var(--secondary)] text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+                      ? "mari-chrome-control--danger"
+                      : "",
                 )}
               >
                 {tag}
@@ -849,77 +853,13 @@ export function CharactersPanel() {
         </div>
       )}
 
-      {selectionMode && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/60 px-3 py-2">
-          <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">
-            {selectedCharacterIds.size} selected
-          </span>
-          <button
-            onClick={selectAllVisible}
-            disabled={sortedCharacters.length === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--primary)] transition-colors hover:bg-[var(--accent)] disabled:opacity-40"
-          >
-            Select visible
-          </button>
-          <button
-            onClick={() => setSelectedCharacterIds(new Set())}
-            disabled={selectedCharacterIds.size === 0}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] disabled:opacity-40"
-          >
-            Clear
-          </button>
-          <button
-            onClick={handleDeleteSelected}
-            disabled={selectedCharacterIds.size === 0}
-            className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
-          >
-            <Trash2 size="0.6875rem" />
-            Delete
-          </button>
-          <button
-            onClick={() => setExportDialogOpen(true)}
-            disabled={selectedCharacterIds.size === 0 || exportingSelected}
-            className="inline-flex items-center gap-1 rounded-lg bg-[var(--primary)] px-2.5 py-1 text-[0.625rem] font-medium text-[var(--primary-foreground)] transition-all hover:opacity-90 disabled:opacity-40"
-          >
-            <Upload size="0.6875rem" />
-            {exportingSelected ? "Exporting..." : "Export ZIP"}
-          </button>
-          <button
-            onClick={exitSelectionMode}
-            className="rounded-lg px-2.5 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-          >
-            Done
-          </button>
-        </div>
-      )}
-
-      <ExportFormatDialog
-        open={exportDialogOpen}
-        title="Export Characters"
-        description="Native keeps Marinara metadata. Compatible exports direct Chara Card V2 JSON for other platforms."
-        compatibleDescription="Exports direct Chara Card V2 JSON files without the Marinara wrapper."
-        onClose={() => setExportDialogOpen(false)}
-        onSelect={handleExportSelected}
-      />
-
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={handleCreateFolder}
-            className="flex flex-1 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[0.6875rem] text-[var(--muted-foreground)] transition-all hover:bg-[var(--sidebar-accent)]/40 hover:text-[var(--foreground)]"
-          >
-            <FolderPlus size="0.75rem" />
-            New Folder
-          </button>
-        </div>
-        {parsedGroups.length > 0 && (
-          <p className="px-2.5 pb-1 text-[0.625rem] leading-snug text-[var(--muted-foreground)]/70">
-            Drag and drop characters to folders
-          </p>
-        )}
-
         {parsedGroups.map((group) => {
-          const isExpanded = expandedGroupId === group.id;
+          const folderMemberIds = folderFilterActive
+            ? group.memberIds.filter((memberId) => visibleCharacterById.has(memberId))
+            : group.memberIds;
+          if (folderFilterActive && folderMemberIds.length === 0) return null;
+          const isExpanded = (folderFilterActive && folderMemberIds.length > 0) || expandedGroupId === group.id;
           const isEditing = editingGroupId === group.id;
 
           return (
@@ -959,10 +899,14 @@ export function CharactersPanel() {
                       value={editGroupName}
                       onChange={(e) => setEditGroupName(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") handleRenameGroup(group.id);
-                        if (e.key === "Escape") setEditingGroupId(null);
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        if (e.key === "Escape") {
+                          setEditingGroupId(null);
+                          setEditGroupName("");
+                        }
                       }}
                       onClick={(e) => e.stopPropagation()}
+                      onBlur={() => handleRenameGroup(group.id)}
                       className="w-full bg-transparent text-xs font-medium outline-none ring-1 ring-[var(--primary)]/30 rounded px-1 py-0.5"
                     />
                   ) : (
@@ -971,9 +915,9 @@ export function CharactersPanel() {
                     </>
                   )}
                 </div>
-                {group.memberIds.length > 0 && (
+                {folderMemberIds.length > 0 && (
                   <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">
-                    {group.memberIds.length}
+                    {folderMemberIds.length}
                   </span>
                 )}
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex shrink-0 items-center gap-0.5 rounded-lg bg-[var(--sidebar)] px-1 py-0.5 opacity-0 shadow-sm ring-1 ring-[var(--border)] transition-opacity group-hover:opacity-100 max-md:opacity-100">
@@ -982,11 +926,11 @@ export function CharactersPanel() {
                       onClick={(e) => {
                         e.stopPropagation();
                         addFolderToChat(group.memberIds);
-                      }}
-                      className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
-                      title="Add all to chat"
-                    >
-                      <UserPlus size="0.6875rem" className="text-[var(--primary)]" />
+	                      }}
+	                      className="mari-chrome-control mari-chrome-control--small p-1"
+	                      title="Add all to chat"
+	                    >
+	                      <UserPlus size="0.6875rem" />
                     </button>
                   )}
                   <button
@@ -995,9 +939,9 @@ export function CharactersPanel() {
                       setEditingGroupId(group.id);
                       setEditGroupName(group.name);
                     }}
-                    className="rounded-lg p-1 transition-all hover:bg-[var(--accent)]"
-                    title="Rename folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small p-1"
+	                    title="Rename folder"
+	                  >
                     <Pencil size="0.6875rem" />
                   </button>
                   <button
@@ -1005,9 +949,9 @@ export function CharactersPanel() {
                       e.stopPropagation();
                       deleteGroup.mutate(group.id);
                     }}
-                    className="rounded-lg p-1 transition-all hover:bg-[var(--destructive)]/15"
-                    title="Delete folder"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1"
+	                    title="Delete folder"
+	                  >
                     <Trash2 size="0.6875rem" className="text-[var(--destructive)]" />
                   </button>
                 </div>
@@ -1016,12 +960,12 @@ export function CharactersPanel() {
               {/* Expanded: show members */}
               {isExpanded && (
                 <div className="ml-4 flex flex-col gap-0.5 border-l border-[var(--border)]/20 pb-1 pl-1">
-                  {group.memberIds.length === 0 && (
+                  {folderMemberIds.length === 0 && (
                     <div className="py-2 text-[0.625rem] text-[var(--muted-foreground)] italic">
                       Drop characters here.
                     </div>
                   )}
-                  {group.memberIds.map((memberId) => {
+                  {folderMemberIds.map((memberId) => {
                     const member = charMap.get(memberId);
                     if (!member) return null;
                     const fullMember = parsedCharacterMap.get(memberId);
@@ -1471,10 +1415,10 @@ export function CharactersPanel() {
                           toast.success(`Duplicated "${char.parsed?.name ?? "character"}"`);
                         },
                       });
-                    }}
-                    className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-all hover:bg-sky-400/10 hover:text-sky-400 active:scale-90"
-                    title="Duplicate"
-                  >
+	                    }}
+	                    className="mari-chrome-control mari-chrome-control--small p-1.5"
+	                    title="Duplicate"
+	                  >
                     <Copy size="0.75rem" />
                   </button>
                   <button
@@ -1492,9 +1436,9 @@ export function CharactersPanel() {
                       }
                       deleteCharacter.mutate(char.id);
                     }}
-                    className="rounded-lg p-1.5 transition-all hover:bg-[var(--destructive)]/15 active:scale-90"
-                    title="Delete"
-                  >
+	                    className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger p-1.5"
+	                    title="Delete"
+	                  >
                     <Trash2 size="0.75rem" className="text-[var(--destructive)]" />
                   </button>
                 </div>
@@ -1508,6 +1452,15 @@ export function CharactersPanel() {
         <p className="px-1 text-[0.625rem] text-[var(--muted-foreground)]/60">
           Click to edit · Use ✓ to assign/remove from chat
         </p>
+      )}
+
+      {selectionMode && (
+        <SelectionActionBar
+          selectedCount={selectedCharacterIds.size}
+          onExport={() => void handleExportSelected()}
+          onDelete={handleDeleteSelected}
+          exporting={exportingSelected}
+        />
       )}
 
       {contextMenu &&
@@ -1563,10 +1516,10 @@ export function CharactersPanel() {
               </p>
             </div>
             <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
-              <button
-                onClick={() => setFirstMesConfirm(null)}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]"
-              >
+	                <button
+	                  onClick={() => setFirstMesConfirm(null)}
+	                  className="mari-chrome-control mari-chrome-control--small text-xs"
+	                >
                 Skip
               </button>
               <button

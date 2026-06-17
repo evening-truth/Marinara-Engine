@@ -153,8 +153,6 @@ export function RoleplayHUD({
     return m;
   }, [chatForAgentsMenu?.metadata]);
   const showInjectionsTab = agentsMenuMetadata.showInjectionsPanel === true;
-  const showSecretPlotTab =
-    agentsMenuMetadata.showSecretPlotPanel === true && enabledAgentTypes.has("secret-plot-driver");
 
   const thoughtBubbles = useAgentStore((s) => s.thoughtBubbles);
   const isAgentProcessing = useAgentStore((s) => s.isProcessing);
@@ -310,7 +308,6 @@ export function RoleplayHUD({
           failedAgentTypes={failedAgentTypes}
           failedAgentFailures={failedAgentFailures}
           showInjectionsTab={showInjectionsTab}
-          showSecretPlotTab={showSecretPlotTab}
         />
 
         {/* ── Mobile: combined widgets, grouped with tracker and agent controls ── */}
@@ -539,7 +536,6 @@ interface ActionsGroupProps {
   failedAgentTypes: string[];
   failedAgentFailures: AgentFailure[];
   showInjectionsTab?: boolean;
-  showSecretPlotTab?: boolean;
 }
 
 function ActionsGroup({
@@ -561,7 +557,6 @@ function ActionsGroup({
   failedAgentTypes,
   failedAgentFailures,
   showInjectionsTab,
-  showSecretPlotTab,
 }: ActionsGroupProps) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -673,7 +668,6 @@ function ActionsGroup({
             failedAgentFailures={failedAgentFailures}
             onClose={() => setAgentsOpen(false)}
             showInjectionsTab={showInjectionsTab}
-            showSecretPlotTab={showSecretPlotTab}
           />
         </Suspense>
       </div>,
@@ -1124,7 +1118,7 @@ function CustomTrackerWidget({
             {previewLabel}
           </span>
         ) : (
-          <SlidersHorizontal size="0.875rem" className="text-cyan-400/60 max-md:h-3 max-md:w-3" />
+          <SlidersHorizontal size="0.875rem" className="max-md:h-3 max-md:w-3" />
         )}
       </button>
 
