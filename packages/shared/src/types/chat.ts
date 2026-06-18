@@ -268,8 +268,6 @@ export interface ChatMetadata {
   groupScenarioOverride?: boolean;
   /** The shared scenario text used when groupScenarioOverride is enabled */
   groupScenarioText?: string;
-  /** When true, show the Injections tab in the roleplay Agents menu for cached prompt injections. */
-  showInjectionsPanel?: boolean;
   /** Prose Guardian per-chat banned words/settings applied to the rewrite prompt. */
   proseGuardianBannedWords?: string | null;
   /** Prose Guardian per-chat prose habits to remove. */

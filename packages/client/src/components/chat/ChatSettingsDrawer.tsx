@@ -4728,8 +4728,8 @@ export function ChatSettingsDrawer({
                   label="Review Agent Outputs"
                   description={
                     agentWriteApprovalRequired
-                      ? "Lorebook, summary, and character card updates from agents wait for your approval."
-                      : "Lorebook and summary updates from agents can be committed automatically. Character card edits still ask first."
+                      ? "Lorebook, summary, character card updates, and reviewable writer-agent outputs wait for your approval."
+                      : "Lorebook and summary updates can be committed automatically. Character card edits still ask first."
                   }
                   enabled={agentWriteApprovalRequired}
                   onToggle={() =>
@@ -6207,82 +6207,6 @@ export function ChatSettingsDrawer({
                               description={cat.description}
                               count={activeInCat.length}
                             >
-                              {cat.key === "writer" && (
-                                <div className="ml-auto flex w-fit max-w-full flex-wrap justify-end gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateMeta.mutate({
-                                        id: chat.id,
-                                        reviewWriterAgentOutputs: metadata.reviewWriterAgentOutputs !== true,
-                                      })
-                                    }
-                                    aria-pressed={metadata.reviewWriterAgentOutputs === true}
-                                    className="flex max-w-full items-center gap-2 rounded-md bg-[var(--background)]/20 px-1.5 py-1 text-left text-[0.5625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]/35 hover:text-[var(--foreground)]"
-                                    title={
-                                      metadata.reviewWriterAgentOutputs === true
-                                        ? "Stop pausing before the main reply to review writer agent output."
-                                        : "Pause before the main reply so writer agent outputs can be reviewed and edited."
-                                    }
-                                  >
-                                    <span className="flex min-w-0 items-center gap-1.5">
-                                      <Pencil size="0.625rem" className="shrink-0 text-[var(--primary)]" />
-                                      <span className="truncate font-medium">Review outputs</span>
-                                    </span>
-                                    <span
-                                      className={cn(
-                                        "h-3.5 w-6 shrink-0 rounded-full p-0.5 transition-colors",
-                                        metadata.reviewWriterAgentOutputs === true
-                                          ? "bg-[var(--primary)]"
-                                          : "bg-[var(--muted-foreground)]/50",
-                                      )}
-                                    >
-                                      <span
-                                        className={cn(
-                                          "block h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform",
-                                          metadata.reviewWriterAgentOutputs === true && "translate-x-2.5",
-                                        )}
-                                      />
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      updateMeta.mutate({
-                                        id: chat.id,
-                                        showInjectionsPanel: metadata.showInjectionsPanel !== true,
-                                      })
-                                    }
-                                    aria-pressed={metadata.showInjectionsPanel === true}
-                                    className="flex max-w-full items-center gap-2 rounded-md bg-[var(--background)]/20 px-1.5 py-1 text-left text-[0.5625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)]/35 hover:text-[var(--foreground)]"
-                                    title={
-                                      metadata.showInjectionsPanel === true
-                                        ? "Hide the Injections tab in the roleplay Agents menu. This is mainly for troubleshooting custom injected text before regenerating the current reply."
-                                        : "Show the Injections tab in the roleplay Agents menu. This is mainly for troubleshooting custom injected text before regenerating the current reply."
-                                    }
-                                  >
-                                    <span className="flex min-w-0 items-center gap-1.5">
-                                      <FilePlus2 size="0.625rem" className="shrink-0 text-[var(--primary)]" />
-                                      <span className="truncate font-medium">Injections tab</span>
-                                    </span>
-                                    <span
-                                      className={cn(
-                                        "h-3.5 w-6 shrink-0 rounded-full p-0.5 transition-colors",
-                                        metadata.showInjectionsPanel === true
-                                          ? "bg-[var(--primary)]"
-                                          : "bg-[var(--muted-foreground)]/50",
-                                      )}
-                                    >
-                                      <span
-                                        className={cn(
-                                          "block h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform",
-                                          metadata.showInjectionsPanel === true && "translate-x-2.5",
-                                        )}
-                                      />
-                                    </span>
-                                  </button>
-                                </div>
-                              )}
                               {/* Active agents in this category */}
                               {activeInCat.length > 0 && (
                                 <div className="flex flex-col gap-1 mb-1.5">

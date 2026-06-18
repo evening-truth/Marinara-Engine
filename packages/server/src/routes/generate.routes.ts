@@ -4557,7 +4557,7 @@ export async function generateRoutes(app: FastifyInstance) {
 
           const shouldReviewWriterAgentOutputs =
             (chatMode === "roleplay" || chatMode === "visual_novel") &&
-            chatMeta.reviewWriterAgentOutputs === true &&
+            requireAgentWriteApproval &&
             reviewedAgentInjections.length === 0 &&
             !input.regenerateMessageId;
           const reviewableWriterInjections = contextInjections.filter((entry) =>
