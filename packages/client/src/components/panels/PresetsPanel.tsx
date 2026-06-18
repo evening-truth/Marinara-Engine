@@ -198,6 +198,7 @@ function serializeCustomTool(tool: CustomToolRow) {
     webhookUrl: tool.webhookUrl,
     staticResult: tool.staticResult,
     scriptBody: tool.scriptBody,
+    includeHiddenContext: parseBooleanValue(tool.includeHiddenContext),
     enabled: parseBooleanValue(tool.enabled),
   };
 }
@@ -221,6 +222,7 @@ function normalizeCustomToolImportEntry(entry: unknown) {
     webhookUrl: executionType === "webhook" && typeof source.webhookUrl === "string" ? source.webhookUrl : null,
     staticResult: executionType === "static" && typeof source.staticResult === "string" ? source.staticResult : null,
     scriptBody: executionType === "script" && typeof source.scriptBody === "string" ? source.scriptBody : null,
+    includeHiddenContext: parseBooleanValue(source.includeHiddenContext, false),
     enabled: parseBooleanValue(source.enabled),
   };
 }

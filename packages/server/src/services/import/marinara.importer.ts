@@ -617,6 +617,8 @@ async function importPreset(data: unknown, db: DB) {
         multiSelect: v.multiSelect === true || v.multiSelect === "true",
         separator: String(v.separator ?? ", "),
         randomPick: v.randomPick === true || v.randomPick === "true",
+        displayMode: v.displayMode === "buttons" || v.displayMode === "listbox" ? v.displayMode : "auto",
+        optionSort: v.optionSort === "alphabetical" ? "alphabetical" : "manual",
       });
     }
   }

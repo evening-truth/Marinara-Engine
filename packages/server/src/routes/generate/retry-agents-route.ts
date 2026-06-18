@@ -33,6 +33,11 @@ import { sidecarModelService } from "../../services/sidecar/sidecar-model.servic
 import { buildSpotifyDjConstraints } from "../../services/spotify/spotify-dj-constraints.js";
 import { resolveSpotifyCredentials } from "../../services/spotify/spotify.service.js";
 import { fingerprintChatSummary } from "../../services/prompt/chat-summary-fingerprint.js";
+import {
+  buildPromptMacroContext,
+  resolveCharacterMacroData,
+  resolvePromptMessageMacros,
+} from "../../services/prompt/index.js";
 import { getAssetManifest } from "../../services/game/asset-manifest.service.js";
 import { createAgentsStorage } from "../../services/storage/agents.storage.js";
 import { createCharactersStorage } from "../../services/storage/characters.storage.js";
@@ -384,6 +389,7 @@ async function resolvePersonaContext(
 async function buildRetryAgentContext(args: {
   cyoaAgentWillRun: boolean;
   chatId: string;
+  db: Parameters<typeof buildPromptMacroContext>[0]["db"];
   chat: any;
   chatMeta: Record<string, unknown>;
   recentMessages: any[];
@@ -406,6 +412,7 @@ async function buildRetryAgentContext(args: {
   const {
     cyoaAgentWillRun,
     chatId,
+    db,
     chat,
     chatMeta,
     recentMessages,
@@ -456,6 +463,40 @@ async function buildRetryAgentContext(args: {
   }
 
   const personaContext = await resolvePersonaContext(chars, chat);
+  const promptMacroContext = await buildPromptMacroContext({
+    db,
+    characterIds,
+    personaName: personaContext.personaName,
+    personaDescription: personaContext.personaDescription,
+    personaFields: personaContext.personaFields,
+    variables: {},
+    groupScenarioOverrideText:
+      typeof chatMeta.groupScenarioText === "string" && (chatMeta.groupScenarioText as string).trim()
+        ? (chatMeta.groupScenarioText as string).trim()
+        : null,
+    lastInput: [...recentMessages].reverse().find((message: any) => message.role === "user")?.content,
+    chatId,
+  });
+  const historyMacroProfilesById = (await resolveCharacterMacroData(db, allCharacterIds)).profilesById;
+  const resolveHistoryMessageMacros = <T extends { content: string; characterId?: string | null }>(
+    messages: T[],
+  ): T[] => resolvePromptMessageMacros(messages, promptMacroContext, historyMacroProfilesById);
+  for (const character of charInfo) {
+    const resolveCharacterPromptText = (value?: string): string | undefined => {
+      if (!value) return value;
+      return resolveHistoryMessageMacros([{ content: value, characterId: character.id }])[0]?.content ?? value;
+    };
+    character.description = resolveCharacterPromptText(character.description) ?? "";
+    character.personality = resolveCharacterPromptText(character.personality);
+    character.scenario = resolveCharacterPromptText(character.scenario);
+    character.creatorNotes = resolveCharacterPromptText(character.creatorNotes);
+    character.systemPrompt = resolveCharacterPromptText(character.systemPrompt);
+    character.backstory = resolveCharacterPromptText(character.backstory);
+    character.appearance = resolveCharacterPromptText(character.appearance);
+    character.mesExample = resolveCharacterPromptText(character.mesExample);
+    character.firstMes = resolveCharacterPromptText(character.firstMes);
+    character.postHistoryInstructions = resolveCharacterPromptText(character.postHistoryInstructions);
+  }
   const agentContextSize =
     enabledConfigs.length > 0
       ? Math.max(
@@ -467,6 +508,13 @@ async function buildRetryAgentContext(args: {
       : 5;
 
   const agentSlice = recentMessages.slice(-agentContextSize);
+  const resolvedAgentSlice = resolveHistoryMessageMacros(
+    agentSlice.map((message: any) => ({
+      ...message,
+      content: (message.content as string) ?? "",
+      characterId: typeof message.characterId === "string" && message.characterId ? message.characterId : null,
+    })),
+  );
   const retryAssistantMsgIds = agentSlice
     .filter((message: any) => message.role === "assistant")
     .map((message: any) => message.id as string);
@@ -477,16 +525,33 @@ async function buildRetryAgentContext(args: {
   const retryVisibleHistorySnapshot = retryVisibleAnchor
     ? await gameStateStore.getByChatAndMessage(chatId, retryVisibleAnchor.messageId, retryVisibleAnchor.swipeIndex)
     : null;
+  const resolvedLastAssistantContent = lastAssistant
+    ? (resolveHistoryMessageMacros([
+        {
+          content: (lastAssistant.content as string) ?? "",
+          characterId:
+            typeof lastAssistant.characterId === "string" && lastAssistant.characterId
+              ? lastAssistant.characterId
+              : null,
+        },
+      ])[0]?.content ??
+      ((lastAssistant.content as string) || ""))
+    : "";
+  const resolvePersonaPromptText = (value?: string): string | undefined => {
+    if (!value) return value;
+    return resolveHistoryMessageMacros([{ content: value, characterId: null }])[0]?.content ?? value;
+  };
 
   const agentContext: AgentContext = {
     chatId,
     chatMode: (chat as any).mode ?? "conversation",
     wrapFormat,
-    recentMessages: agentSlice.map((message: any) => {
+    recentMessages: agentSlice.map((message: any, index: number) => {
+      const resolved = resolvedAgentSlice[index];
       const nextMessage: AgentContext["recentMessages"][number] = {
         id: typeof message.id === "string" ? message.id : undefined,
         role: message.role,
-        content: message.content,
+        content: resolved?.content ?? message.content,
         characterId: message.characterId ?? undefined,
       };
       if (message.role === "assistant") {
@@ -508,18 +573,18 @@ async function buildRetryAgentContext(args: {
       }
       return nextMessage;
     }),
-    mainResponse: lastAssistant?.content ?? "",
+    mainResponse: resolvedLastAssistantContent,
     gameState: null,
     characters: charInfo,
     persona:
       personaContext.personaName !== "User"
         ? {
             name: personaContext.personaName,
-            description: personaContext.personaDescription,
-            personality: personaContext.personaFields.personality || undefined,
-            backstory: personaContext.personaFields.backstory || undefined,
-            appearance: personaContext.personaFields.appearance || undefined,
-            scenario: personaContext.personaFields.scenario || undefined,
+            description: resolvePersonaPromptText(personaContext.personaDescription) ?? "",
+            personality: resolvePersonaPromptText(personaContext.personaFields.personality) || undefined,
+            backstory: resolvePersonaPromptText(personaContext.personaFields.backstory) || undefined,
+            appearance: resolvePersonaPromptText(personaContext.personaFields.appearance) || undefined,
+            scenario: resolvePersonaPromptText(personaContext.personaFields.scenario) || undefined,
             ...(personaContext.personaStats ? { personaStats: personaContext.personaStats } : {}),
             ...(personaContext.rpgStats ? { rpgStats: personaContext.rpgStats } : {}),
           }
@@ -2705,6 +2770,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
       const agentContext = await buildRetryAgentContext({
         cyoaAgentWillRun,
         chatId,
+        db: app.db,
         chat,
         chatMeta,
         recentMessages,
@@ -2725,6 +2791,7 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
           ? await buildRetryAgentContext({
               cyoaAgentWillRun: false,
               chatId,
+              db: app.db,
               chat,
               chatMeta,
               recentMessages: preGenerationRecentMessages,

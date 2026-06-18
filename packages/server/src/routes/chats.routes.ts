@@ -2413,7 +2413,16 @@ export async function chatsRoutes(app: FastifyInstance) {
 
     // Copy metadata (preset, lorebooks, agents, persona settings, etc.) from source chat
     // but keep branch labels separate from the stable thread name.
-    const { summary, daySummaries, weekSummaries, ...settingsToKeep } = sourceMeta;
+    const settingsToKeep = { ...sourceMeta };
+    for (const key of [
+      "summary",
+      "summaryEntries",
+      "lastAutomaticSummaryMessageId",
+      "daySummaries",
+      "weekSummaries",
+    ]) {
+      delete settingsToKeep[key];
+    }
     await storage.updateMetadata(newChat.id, {
       ...settingsToKeep,
       branchName: "New Branch",
@@ -2452,7 +2461,10 @@ export async function chatsRoutes(app: FastifyInstance) {
         try {
           const extraObj = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
           if (extraObj && typeof extraObj === "object") {
-            await storage.updateMessageExtra(created.id, extraObj as Record<string, unknown>);
+            const branchSafeExtra = { ...(extraObj as Record<string, unknown>) };
+            delete branchSafeExtra.cachedPrompt;
+            delete branchSafeExtra.chatSummaryFingerprint;
+            await storage.updateMessageExtra(created.id, branchSafeExtra);
           }
         } catch {
           // Ignore malformed extra payloads rather than failing the branch.

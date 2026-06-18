@@ -7,6 +7,7 @@ import { motion, AnimatePresence, type TargetAndTransition } from "framer-motion
 import { Check } from "lucide-react";
 import type { SpritePlacement, SpriteSide } from "@marinara-engine/shared";
 import { useCharacterSprites, type SpriteInfo } from "../../hooks/use-characters";
+import { resolveSpriteExpression } from "../../lib/sprite-expression-match";
 import { useAgentStore } from "../../stores/agent.store";
 import {
   SPRITE_DISPLAY_OPACITY_MAX,
@@ -455,13 +456,12 @@ function CharacterSprite({
     });
     if (partial) return partial;
 
-    const neutral = findMatchingSprite((spriteExpression) => {
-      const baseExpression = fullBodyBaseExpression(spriteExpression);
-      return baseExpression === "neutral" || baseExpression === "default" || baseExpression === "idle";
-    });
-    if (neutral) return neutral;
+    for (const spriteList of spritePools) {
+      const semantic = resolveSpriteExpression(spriteList, expression);
+      if (semantic) return semantic.url;
+    }
 
-    return fullBodySprites[0]?.url ?? expressionSprites[0]?.url ?? null;
+    return null;
   }, [sprites, expression, fullBodyOnly, spriteDisplayModes]);
 
   const standardSizeClass =
