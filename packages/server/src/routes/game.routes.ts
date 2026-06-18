@@ -832,13 +832,17 @@ export function mergeRecruitIntoGameMetadata(input: MergeRecruitInput): MergeRec
 
   const freshExistingCardIndex = findExistingGameCharacterCardIndex(freshCards, recruitName);
   const mergedCards = [...freshCards];
-  if (freshExistingCardIndex >= 0) {
-    // Only overwrite an existing card when this request generated/built a new one (existingCardIndex < 0).
-    // On the reuse path (existingCardIndex >= 0, no LLM call) keep the freshly committed card so a
-    // concurrent card edit is not clobbered with our stale copy.
-    if (existingCardIndex < 0) mergedCards[freshExistingCardIndex] = nextCard;
-  } else {
-    mergedCards.push(nextCard);
+  // Only write a card when this request actually generated/built one (existingCardIndex < 0). On the
+  // reuse path (existingCardIndex >= 0, no LLM call) we never touch gameCharacterCards: if the fresh
+  // array still has the card we keep it as-is (don't clobber a concurrent edit), and if it no longer
+  // matches recruitName (a concurrent rename/remove) we do not resurrect the stale snapshot copy — that
+  // would duplicate or revive a card while the handler reports cardCreated: false.
+  if (existingCardIndex < 0) {
+    if (freshExistingCardIndex >= 0) {
+      mergedCards[freshExistingCardIndex] = nextCard;
+    } else {
+      mergedCards.push(nextCard);
+    }
   }
 
   return {
