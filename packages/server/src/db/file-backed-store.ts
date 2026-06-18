@@ -78,10 +78,19 @@ type TableSnapshotManifest = {
   tables: Record<string, number>;
 };
 
+export type QuarantinedStorageTable = {
+  table: string;
+  files: Array<{
+    from: string;
+    to: string;
+  }>;
+};
+
 export type FileNativeStoreController = {
   flush: () => Promise<void>;
   close: () => Promise<void>;
   rootDir: string;
+  getQuarantinedTables: () => QuarantinedStorageTable[];
 };
 
 export type FileNativeDB = {
@@ -188,6 +197,8 @@ type FileBackedTable = (typeof FILE_BACKED_TABLES)[number];
 
 const FILE_BACKED_TABLE_SET = new Set<string>(FILE_BACKED_TABLES);
 const TABLES_REVERSE = [...FILE_BACKED_TABLES].reverse();
+const isWindows = process.platform === "win32";
+const warnedFlushFailures = new Set<string>();
 
 const CASCADES: Array<{ parent: FileBackedTable; child: FileBackedTable; parentKey: string; childKey: string }> = [
   { parent: "chats", child: "messages", parentKey: "id", childKey: "chatId" },
@@ -279,13 +290,57 @@ function quoteIdentifier(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+function warnFlushFailure(kind: "file" | "directory", path: string, err: unknown) {
+  const key = `${kind}:${path}`;
+  if (warnedFlushFailures.has(key)) {
+    logger.debug(err, "[file-storage] Failed to fsync %s %s", kind, path);
+    return;
+  }
+  warnedFlushFailures.add(key);
+  logger.warn(
+    err,
+    "[file-storage] Failed to fsync %s %s; crash recovery may rely on the operating system write cache.",
+    kind,
+    path,
+  );
+}
+
 async function flushFile(path: string) {
+  let handle: import("node:fs/promises").FileHandle | null = null;
+  try {
+    // Windows FlushFileBuffers requires a writable file handle. Opening the
+    // just-written snapshot with r+ keeps fsync effective there without
+    // truncating or rewriting the file.
+    handle = await open(path, "r+");
+    await handle.sync();
+  } catch (err) {
+    // Best effort only. Some mobile filesystems reject fsync for app data.
+    warnFlushFailure("file", path, err);
+  } finally {
+    if (handle !== null) {
+      try {
+        await handle.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+async function flushDirectory(path: string) {
+  if (isWindows) {
+    // Node cannot open/flush directory handles on Windows. File handles are
+    // still flushed above; the directory metadata flush remains POSIX-only.
+    return;
+  }
+
   let handle: import("node:fs/promises").FileHandle | null = null;
   try {
     handle = await open(path, "r");
     await handle.sync();
-  } catch {
-    // Best effort only. Some mobile filesystems reject fsync for app data.
+  } catch (err) {
+    // Directory fsync is best effort across filesystems/platforms.
+    warnFlushFailure("directory", path, err);
   } finally {
     if (handle !== null) {
       try {
@@ -344,6 +399,7 @@ async function atomicWriteFile(path: string, content: string, options: { refresh
         await copyFile(path, bakTmpPath);
         await flushFile(bakTmpPath);
         await rename(bakTmpPath, bakPath);
+        await flushDirectory(dirname(bakPath));
       } catch (err) {
         try {
           if (existsSync(bakTmpPath)) await unlink(bakTmpPath);
@@ -360,7 +416,7 @@ async function atomicWriteFile(path: string, content: string, options: { refresh
     await writeFile(tmpPath, content);
     await flushFile(tmpPath);
     await rename(tmpPath, path);
-    await flushFile(dirname(path));
+    await flushDirectory(dirname(path));
   } catch (err) {
     try {
       if (existsSync(tmpPath)) await unlink(tmpPath);
@@ -371,7 +427,14 @@ async function atomicWriteFile(path: string, content: string, options: { refresh
   }
 }
 
-type ParseResult<T> = { value: T; recoveredFromBackup: boolean; recoveredFromFallback: boolean };
+type ParseResult<T> = {
+  value: T;
+  recoveredFromBackup: boolean;
+  recoveredFromFallback: boolean;
+  unreadablePaths: string[];
+};
+
+type QuarantinedFile = QuarantinedStorageTable["files"][number];
 
 function describeStaleness(mainPath: string, backupPath: string): string {
   try {
@@ -392,10 +455,83 @@ function describeStaleness(mainPath: string, backupPath: string): string {
   }
 }
 
+function corruptionTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function quarantinePath(path: string, timestamp: string) {
+  let candidate = `${path}.corrupt-${timestamp}`;
+  let suffix = 1;
+  while (existsSync(candidate)) {
+    suffix += 1;
+    candidate = `${path}.corrupt-${timestamp}-${suffix}`;
+  }
+  return candidate;
+}
+
+async function quarantineUnrecoverableFiles(paths: string[], context: string): Promise<QuarantinedFile[]> {
+  const timestamp = corruptionTimestamp();
+  const quarantined: QuarantinedFile[] = [];
+  const uniquePaths = [...new Set(paths)];
+  for (const from of uniquePaths) {
+    if (!existsSync(from)) continue;
+    const to = quarantinePath(from, timestamp);
+    try {
+      await rename(from, to);
+      quarantined.push({ from, to });
+    } catch (err) {
+      logger.error(
+        err,
+        "[file-storage] Failed to quarantine unrecoverable %s file %s; leaving it in place.",
+        context,
+        from,
+      );
+    }
+  }
+  return quarantined;
+}
+
 function parseJsonFile<T>(path: string, fallback: T): ParseResult<T> {
-  if (!existsSync(path)) return { value: fallback, recoveredFromBackup: false, recoveredFromFallback: false };
+  if (!existsSync(path)) {
+    const backupPath = `${path}.bak`;
+    if (existsSync(backupPath)) {
+      try {
+        const value = JSON.parse(readFileSync(backupPath, "utf8")) as T;
+        logger.warn(
+          "[file-storage] %s is missing; recovering from %s. A fresh primary snapshot will be written on next save.",
+          path,
+          backupPath,
+        );
+        return {
+          value,
+          recoveredFromBackup: true,
+          recoveredFromFallback: false,
+          unreadablePaths: [],
+        };
+      } catch (backupErr) {
+        logger.error(
+          backupErr,
+          "[file-storage] %s is missing and backup %s could not be used; continuing with fallback data.",
+          path,
+          backupPath,
+        );
+        return {
+          value: fallback,
+          recoveredFromBackup: false,
+          recoveredFromFallback: true,
+          unreadablePaths: [backupPath],
+        };
+      }
+    }
+    return { value: fallback, recoveredFromBackup: false, recoveredFromFallback: false, unreadablePaths: [] };
+  }
   try {
-    return { value: JSON.parse(readFileSync(path, "utf8")) as T, recoveredFromBackup: false, recoveredFromFallback: false };
+    return {
+      value: JSON.parse(readFileSync(path, "utf8")) as T,
+      recoveredFromBackup: false,
+      recoveredFromFallback: false,
+      unreadablePaths: [],
+    };
   } catch (err) {
     const backupPath = `${path}.bak`;
     if (existsSync(backupPath)) {
@@ -413,6 +549,7 @@ function parseJsonFile<T>(path: string, fallback: T): ParseResult<T> {
           value,
           recoveredFromBackup: true,
           recoveredFromFallback: false,
+          unreadablePaths: [],
         };
       } catch (backupErr) {
         logger.error(
@@ -428,7 +565,7 @@ function parseJsonFile<T>(path: string, fallback: T): ParseResult<T> {
           backupPath,
           path,
         );
-        return { value: fallback, recoveredFromBackup: false, recoveredFromFallback: true };
+        return { value: fallback, recoveredFromBackup: false, recoveredFromFallback: true, unreadablePaths: [path, backupPath] };
       }
     }
     logger.error(
@@ -436,7 +573,7 @@ function parseJsonFile<T>(path: string, fallback: T): ParseResult<T> {
       "[file-storage] %s is corrupt and no usable backup exists; continuing with fallback data. Data in this file is unrecoverable.",
       path,
     );
-    return { value: fallback, recoveredFromBackup: false, recoveredFromFallback: true };
+    return { value: fallback, recoveredFromBackup: false, recoveredFromFallback: true, unreadablePaths: [path] };
   }
 }
 
@@ -817,6 +954,7 @@ class FileTableStore {
   // context and is therefore never recorded — so it survives a rollback. See
   // transaction() / recordTxMutation().
   private readonly txContext = new AsyncLocalStorage<{ snapshots: Map<string, Row[]>; dirtyTables: Set<string> }>();
+  private quarantinedTables: QuarantinedStorageTable[] = [];
 
   constructor(
     private readonly rootDir: string,
@@ -831,17 +969,21 @@ class FileTableStore {
     mkdirSync(this.rootDir, { recursive: true });
 
     if (fileStoreManifestExists(this.rootDir)) {
-      this.loadFileSnapshots();
+      await this.loadFileSnapshots();
       await this.repairLegacyImportIfNeeded();
     } else if (this.legacyDbPaths.some((path) => existsSync(path))) {
       const imported = await this.importLegacySqlite(this.legacyDbPaths);
       if (imported) {
         await this.flush(true);
       } else if (tableSnapshotsExist(this.rootDir)) {
-        this.loadFileSnapshots();
+        await this.loadFileSnapshots();
       }
     } else if (tableSnapshotsExist(this.rootDir)) {
-      this.loadFileSnapshots();
+      await this.loadFileSnapshots();
+    }
+
+    if (this.dirty || this.dirtyTables.size > 0) {
+      await this.flush(true);
     }
 
     this.installAutosave();
@@ -1035,6 +1177,13 @@ class FileTableStore {
     await this.flush(true);
   }
 
+  getQuarantinedTables() {
+    return this.quarantinedTables.map((entry) => ({
+      table: entry.table,
+      files: entry.files.map((file) => ({ ...file })),
+    }));
+  }
+
   contextForRow(meta: TableMeta, row: Row, index: number): RowContext {
     return {
       rows: { [meta.name]: row },
@@ -1087,11 +1236,12 @@ class FileTableStore {
     }
   }
 
-  private loadFileSnapshots() {
+  private async loadFileSnapshots() {
     // The manifest is recoverable from on-disk table files, so a corrupted
     // manifest (e.g. both manifest.json and manifest.json.bak nulled by a
-    // hard crash mid-write) shouldn't block startup. Table files still
-    // throw on parse failure — silent fallback to [] would mean data loss.
+    // hard crash mid-write) shouldn't block startup. Table files recover from
+    // .bak when possible, then fall back to [] only when both files are
+    // unreadable so startup can still reach the UI.
     let loadedManifest: TableSnapshotManifest | null = null;
     let needsManifestRewrite = false;
     try {
@@ -1123,7 +1273,7 @@ class FileTableStore {
     for (const table of FILE_BACKED_TABLES) {
       const meta = getMeta(table);
       const path = tableFilePath(this.rootDir, table);
-      const { value: rows, recoveredFromBackup, recoveredFromFallback } = parseJsonFile<Row[]>(path, []);
+      const { value: rows, recoveredFromBackup, recoveredFromFallback, unreadablePaths } = parseJsonFile<Row[]>(path, []);
       const normalized = (Array.isArray(rows) ? rows : []).map((row) => normalizeRow(meta, row));
       this.tables.set(table, normalized);
       counts[table] = normalized.length;
@@ -1134,6 +1284,17 @@ class FileTableStore {
         // corrupt primary is never copied over the recovery source.
         this.dirtyTables.add(table);
         this.dirty = true;
+      }
+      if (recoveredFromFallback && unreadablePaths.length > 0) {
+        const files = await quarantineUnrecoverableFiles(unreadablePaths, `table ${table}`);
+        if (files.length > 0) {
+          this.quarantinedTables.push({ table, files });
+          logger.error(
+            { table, files },
+            "[file-storage] Table %s was unrecoverable from primary and backup; quarantined corrupt files and started the table empty. Preserved files require manual recovery.",
+            table,
+          );
+        }
       }
     }
     logger.info({ tables: counts }, `[file-storage] Loaded file-native data from ${this.rootDir}`);
@@ -1418,6 +1579,7 @@ export async function createFileNativeDB(legacyDbPaths: string[] = []): Promise<
     rootDir,
     flush: () => store.flush(true),
     close: () => store.close(),
+    getQuarantinedTables: () => store.getQuarantinedTables(),
   };
 
   let db: FileNativeDB;

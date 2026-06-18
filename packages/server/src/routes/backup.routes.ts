@@ -12,6 +12,8 @@ import { pipeline } from "stream/promises";
 import { createHash } from "crypto";
 import { inflateRawSync } from "zlib";
 import AdmZip from "adm-zip";
+import { is } from "drizzle-orm";
+import { SQLiteTable, getTableConfig } from "drizzle-orm/sqlite-core";
 import { FILE_BACKED_TABLES } from "../db/file-backed-store.js";
 import * as schema from "../db/schema/index.js";
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
@@ -336,20 +338,22 @@ function redactAgentSecrets(agent: any) {
   return { ...agent, settings: redactSettings(agent.settings) };
 }
 
-function symbolValue<T>(target: object, symbolName: string): T | undefined {
-  const symbol = Object.getOwnPropertySymbols(target).find((entry) => String(entry) === symbolName);
-  return symbol ? (target as Record<symbol, T>)[symbol] : undefined;
+function isSchemaTable(value: unknown): value is SQLiteTable {
+  return is(value, SQLiteTable);
 }
 
-function isSchemaTable(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && symbolValue(value as object, "Symbol(drizzle:IsDrizzleTable)"));
+function schemaTableName(table: SQLiteTable) {
+  return getTableConfig(table).name;
 }
 
-function schemaTableName(table: Record<string, unknown>) {
-  return symbolValue<string>(table, "Symbol(drizzle:Name)") ?? null;
+function schemaPrimaryKeyColumn(table: SQLiteTable) {
+  const config = getTableConfig(table);
+  const columnPrimary = config.columns.find((column) => column.primary === true);
+  if (columnPrimary) return columnPrimary;
+  return config.primaryKeys[0]?.columns[0] ?? null;
 }
 
-const profileTableObjects = new Map<string, Record<string, unknown>>();
+const profileTableObjects = new Map<string, SQLiteTable>();
 for (const candidate of Object.values(schema)) {
   if (!isSchemaTable(candidate)) continue;
   const tableName = schemaTableName(candidate);
@@ -665,16 +669,16 @@ async function importProfileStorageSnapshot(
     }
 
     emit("tables", `Importing ${tableName.replace(/_/g, " ")}`);
-    const primaryKey = (table as Record<string, unknown>).id;
     for (const row of rows) {
       const cleanRow = { ...row };
       if (tableName === "api_connections") cleanRow.apiKeyEncrypted = "";
       const insert = app.db.insert(table as any).values(cleanRow as any) as any;
-      if (primaryKey) {
+      const conflictTarget = schemaPrimaryKeyColumn(table);
+      if (conflictTarget) {
         // Preserve live secrets on rows that still exist: the export redacts secret
         // columns, so upserting the blanks would wipe them unrecoverably. The fresh
         // insert above still carries the blanks (no prior secret to keep).
-        await insert.onConflictDoUpdate({ target: primaryKey, set: buildProfileUpdateSet(tableName, cleanRow) });
+        await insert.onConflictDoUpdate({ target: conflictTarget, set: buildProfileUpdateSet(tableName, cleanRow) });
       } else {
         await insert;
       }
@@ -2161,6 +2165,9 @@ export async function backupRoutes(app: FastifyInstance) {
                           multiSelect: cb.multiSelect === "true" || cb.multiSelect === true,
                           separator: cb.separator ?? ", ",
                           randomPick: cb.randomPick === "true" || cb.randomPick === true,
+                          displayMode:
+                            cb.displayMode === "buttons" || cb.displayMode === "listbox" ? cb.displayMode : "auto",
+                          optionSort: cb.optionSort === "alphabetical" ? "alphabetical" : "manual",
                         });
                       } catch {
                         /* skip individual choice block */

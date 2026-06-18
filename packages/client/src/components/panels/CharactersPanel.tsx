@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Panel: Characters (overhauled — search, folders, avatars)
 // ──────────────────────────────────────────────
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useLayoutEffect, useRef, type UIEvent } from "react";
 import { toast } from "sonner";
 import {
   useCharacters,
@@ -44,7 +44,7 @@ import {
   Star,
 } from "lucide-react";
 import { getCharacterTitle } from "../../lib/character-display";
-import { useUIStore } from "../../stores/ui.store";
+import { useUIStore, type CharacterLibrarySort } from "../../stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
@@ -60,8 +60,6 @@ type CharacterRow = {
 type GroupRow = { id: string; name: string; description: string; characterIds: string; avatarPath: string | null };
 type ParsedCharacterRow = CharacterRow & { parsed: Record<string, any> };
 type ParsedGroupRow = GroupRow & { memberIds: string[] };
-
-type SortOption = "name-asc" | "name-desc" | "newest" | "oldest" | "favorites";
 
 function getNextUnnamedFolderName(folders: Array<{ name: string }>) {
   const names = new Set(folders.map((folder) => folder.name.toLowerCase()));
@@ -138,6 +136,9 @@ export function CharactersPanel() {
   const openModal = useUIStore((s) => s.openModal);
   const openCharacterDetail = useUIStore((s) => s.openCharacterDetail);
   const openCharacterLibrary = useUIStore((s) => s.openCharacterLibrary);
+  const sort = useUIStore((s) => s.characterLibrarySort);
+  const setCharacterLibrarySort = useUIStore((s) => s.setCharacterLibrarySort);
+  const setCharacterPanelScrollTop = useUIStore((s) => s.setCharacterPanelScrollTop);
   const activeChat = useChatStore((s) => s.activeChat);
   const updateChat = useUpdateChat();
   const createMessage = useCreateMessage(activeChat?.id ?? null);
@@ -153,11 +154,13 @@ export function CharactersPanel() {
   } | null>(null);
 
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortOption>("name-asc");
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [draggedCharacterId, setDraggedCharacterId] = useState<string | null>(null);
+  const panelScrollRef = useRef<HTMLDivElement | null>(null);
+  const pendingPanelScrollTopRef = useRef(0);
+  const panelScrollFrameRef = useRef<number | null>(null);
   const characterTouchDragRef = useRef<{ id: string; timer: number | null; active: boolean } | null>(null);
   const suppressCharacterClickRef = useRef(false);
   const [firstMesConfirm, setFirstMesConfirm] = useState<{
@@ -433,6 +436,55 @@ export function CharactersPanel() {
     [sortedCharacters, folderedCharacterIds],
   );
 
+  const rememberPanelScroll = useCallback(() => {
+    const node = panelScrollRef.current;
+    if (!node) return;
+    pendingPanelScrollTopRef.current = node.scrollTop;
+    setCharacterPanelScrollTop(node.scrollTop);
+  }, [setCharacterPanelScrollTop]);
+
+  const handlePanelScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      if (event.currentTarget !== event.target) return;
+      pendingPanelScrollTopRef.current = event.currentTarget.scrollTop;
+      if (panelScrollFrameRef.current !== null) return;
+      panelScrollFrameRef.current = window.requestAnimationFrame(() => {
+        panelScrollFrameRef.current = null;
+        setCharacterPanelScrollTop(pendingPanelScrollTopRef.current);
+      });
+    },
+    [setCharacterPanelScrollTop],
+  );
+
+  const openCharacterDetailFromPanel = useCallback(
+    (id: string) => {
+      rememberPanelScroll();
+      openCharacterDetail(id);
+    },
+    [openCharacterDetail, rememberPanelScroll],
+  );
+
+  useLayoutEffect(() => {
+    const node = panelScrollRef.current;
+    if (!node || isLoading) return;
+    const restoreScroll = () => {
+      const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+      node.scrollTop = Math.min(useUIStore.getState().characterPanelScrollTop, maxScrollTop);
+    };
+    restoreScroll();
+    const frame = window.requestAnimationFrame(restoreScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [isLoading, parsedGroups.length, sortedCharacters.length, visibleRootCharacters.length]);
+
+  useLayoutEffect(
+    () => () => {
+      if (panelScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(panelScrollFrameRef.current);
+      }
+    },
+    [],
+  );
+
   const toggleCharacter = (charId: string) => {
     if (!activeChat) return;
     const isActive = chatCharacterIds.includes(charId);
@@ -680,7 +732,11 @@ export function CharactersPanel() {
   );
 
   return (
-    <div className="flex min-h-full flex-col gap-2 p-3">
+    <div
+      ref={panelScrollRef}
+      onScroll={handlePanelScroll}
+      className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-3"
+    >
       <button
         onClick={openCharacterLibrary}
         className="mari-chrome-control mari-chrome-control--primary w-full text-xs"
@@ -742,7 +798,7 @@ export function CharactersPanel() {
         <div className="relative">
           <select
             value={sort}
-            onChange={(e) => setSort(e.target.value as SortOption)}
+            onChange={(e) => setCharacterLibrarySort(e.target.value as CharacterLibrarySort)}
             className="mari-chrome-field h-full appearance-none py-2 pl-2.5 pr-7 text-[0.6875rem]"
             title="Sort order"
           >
@@ -988,7 +1044,7 @@ export function CharactersPanel() {
                             toggleSelection(memberId);
                             return;
                           }
-                          openCharacterDetail(memberId);
+                          openCharacterDetailFromPanel(memberId);
                         }}
                         onKeyDown={(e) => {
                           if (e.key !== "Enter" && e.key !== " ") return;
@@ -997,7 +1053,7 @@ export function CharactersPanel() {
                             toggleSelection(memberId);
                             return;
                           }
-                          openCharacterDetail(memberId);
+                          openCharacterDetailFromPanel(memberId);
                         }}
                         draggable
                         onDragStart={(event) => {
@@ -1248,7 +1304,7 @@ export function CharactersPanel() {
                 if (selectionMode) {
                   toggleSelection(char.id);
                 } else {
-                  openCharacterDetail(char.id);
+                  openCharacterDetailFromPanel(char.id);
                 }
               }}
               draggable
