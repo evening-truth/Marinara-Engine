@@ -987,6 +987,20 @@
   color: var(--marinara-chat-chrome-button-text-active);
 }
 
+.mari-chat-settings-drawer select {
+  color: CanvasText;
+  color-scheme: light dark;
+}
+
+.mari-chat-settings-drawer select option {
+  background-color: Canvas;
+  color: CanvasText;
+}
+
+.mari-chat-settings-drawer select optgroup {
+  color: CanvasText;
+}
+
 .mari-chrome-sort-icon {
   color: var(--marinara-chat-chrome-button-text-active);
   opacity: 1;
