@@ -2049,10 +2049,15 @@ function AppearanceSettings() {
             gradient
             compact
             label="Accent Color"
-            helpText="Colors the shared app accent layer: buttons, active icons, focus rings, highlights, panel outlines, and chat chrome."
+            helpText={
+              appAccentRgbMode
+                ? "Turn off RGB Mode to edit the saved accent color. While RGB Mode is on, the app accent is controlled by the animated rainbow preset."
+                : "Colors the shared app accent layer: buttons, active icons, focus rings, highlights, panel outlines, and chat chrome."
+            }
             emptyText={`Default ${defaultAppAccentColor}`}
             emptyPreviewValue={defaultAppAccentColor}
             clearLabel="Reset to default"
+            disabled={appAccentRgbMode}
           />
 
           <ToggleSetting
