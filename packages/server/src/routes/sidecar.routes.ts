@@ -54,6 +54,16 @@ function runtimeInstallDisabledPayload() {
   };
 }
 
+function createResponseAbortSignal(reply: FastifyReply, label: string): AbortSignal {
+  const controller = new AbortController();
+  reply.raw.once("close", () => {
+    if (!controller.signal.aborted) {
+      controller.abort(new Error(`${label} cancelled because the client disconnected`));
+    }
+  });
+  return controller.signal;
+}
+
 export const sidecarRoutes: FastifyPluginAsync = async (app) => {
   app.get("/status", async () => {
     void sidecarProcessService
@@ -367,7 +377,7 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
         debugLog("[debug/game/scene-analysis:sidecar] user prompt:\n%s", userPrompt);
       }
 
-      const raw = await analyzeScene(systemPrompt, userPrompt);
+      const raw = await analyzeScene(systemPrompt, userPrompt, createResponseAbortSignal(reply, "Sidecar scene analysis"));
       if (debugLogsEnabled) {
         debugLog("[debug/game/scene-analysis:sidecar] parsed model response:\n%s", JSON.stringify(raw, null, 2));
       }
@@ -450,7 +460,11 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      const result = await runTrackerPrompt(body.systemPrompt, body.userPrompt);
+      const result = await runTrackerPrompt(
+        body.systemPrompt,
+        body.userPrompt,
+        createResponseAbortSignal(reply, "Sidecar tracker inference"),
+      );
       return { result };
     } catch (error) {
       return reply.status(500).send({
