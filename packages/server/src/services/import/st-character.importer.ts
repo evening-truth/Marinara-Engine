@@ -99,15 +99,16 @@ export interface STCharacterImportOptions {
 }
 
 // SillyTavern regex placement ids → our placement strings (1 = user input, 2 = AI output).
-function convertStPlacements(placement: unknown): RegexPlacement[] {
+// Unknown-only placement arrays are skipped by the importer instead of being
+// silently remapped to AI output.
+function convertStPlacements(placement: unknown): RegexPlacement[] | null {
+  if (!Array.isArray(placement)) return ["ai_output"];
   const out: RegexPlacement[] = [];
-  if (Array.isArray(placement)) {
-    for (const n of placement) {
-      if (n === 1 && !out.includes("user_input")) out.push("user_input");
-      else if (n === 2 && !out.includes("ai_output")) out.push("ai_output");
-    }
+  for (const n of placement) {
+    if (n === 1 && !out.includes("user_input")) out.push("user_input");
+    else if (n === 2 && !out.includes("ai_output")) out.push("ai_output");
   }
-  return out;
+  return out.length > 0 ? out : null;
 }
 
 /**
@@ -132,26 +133,23 @@ function convertStRegexScripts(
     const delimited = /^\/(.*)\/([a-z]*)$/is.exec(rawFind);
     const source = delimited ? delimited[1]! : rawFind;
     if (!source || !isPatternSafe(source)) continue;
-    let flags = Array.from(new Set((delimited?.[2] || "gi").replace(/[^gimsuy]/g, ""))).join("");
-    if (!flags.includes("g")) flags += "g";
+    const flags = Array.from(new Set((delimited?.[2] ?? "").replace(/[^gimsuy]/g, ""))).join("");
     try {
       new RegExp(source, flags);
     } catch {
       continue;
     }
     const placement = convertStPlacements(s.placement);
-    const resolvedPlacement: RegexPlacement[] = placement.length > 0 ? placement : ["ai_output"];
+    if (!placement) continue;
     out.push({
       name: typeof s.scriptName === "string" && s.scriptName.trim() ? s.scriptName.trim() : "Imported regex",
       enabled: s.disabled !== true,
       findRegex: source,
       replaceString: typeof s.replaceString === "string" ? s.replaceString : "",
       trimStrings: Array.isArray(s.trimStrings) ? s.trimStrings.filter((t): t is string => typeof t === "string") : [],
-      placement: resolvedPlacement,
+      placement,
       flags,
-      // Imported scripts transform displayed messages, gated by the chat's Scoped
-      // Regex mode — they stay opt-in per chat rather than always rewriting prompts.
-      promptOnly: false,
+      promptOnly: s.promptOnly === true || s.prompt_only === true || s.onlyFormatPrompt === true,
       targetCharacterIds: scope === "global" ? [] : [characterId],
       // Preserve the card's authoring order so multi-script imports keep a stable
       // execution/list order (all-zero ties leave it undefined). Gaps from skipped
