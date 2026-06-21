@@ -50,6 +50,7 @@ export interface AgentExecConfig {
   connectionId: string | null;
   settings: Record<string, unknown>;
   customParameters?: Record<string, unknown>;
+  maxOutputTokens?: number | null;
 }
 
 /** Optional tool context for agents that need function calling. */
@@ -216,6 +217,14 @@ function applyProviderMaxTokensOverride(provider: BaseLLMProvider, maxTokens: nu
   return provider.maxTokensOverrideValue !== null ? Math.min(maxTokens, provider.maxTokensOverrideValue) : maxTokens;
 }
 
+function applyAgentMaxTokensCaps(provider: BaseLLMProvider, maxTokens: number, modelMaxOutput: unknown): number {
+  const cappedByConnection = applyProviderMaxTokensOverride(provider, maxTokens);
+  if (typeof modelMaxOutput !== "number" || !Number.isFinite(modelMaxOutput) || modelMaxOutput <= 0) {
+    return cappedByConnection;
+  }
+  return Math.min(cappedByConnection, Math.floor(modelMaxOutput));
+}
+
 function debugMessages(messages: ChatMessage[]): AgentCallDebugEvent["messages"] {
   return messages.map((message) => {
     const next: NonNullable<AgentCallDebugEvent["messages"]>[number] = {
@@ -311,7 +320,11 @@ export async function executeAgent(
 
     // Agents use lower temperature for reliability
     const temperature = normalizeAgentTemperature(config.settings.temperature);
-    const maxTokens = applyProviderMaxTokensOverride(provider, normalizeAgentMaxTokens(config.settings.maxTokens));
+    const maxTokens = applyAgentMaxTokensCaps(
+      provider,
+      normalizeAgentMaxTokens(config.settings.maxTokens),
+      config.maxOutputTokens,
+    );
     const streamResponses = context.streaming !== false;
     const customParameters = agentCustomParameters(config);
 
@@ -674,7 +687,8 @@ export async function executeAgentBatch(
   const temperature = Math.min(...configs.map((c) => normalizeAgentTemperature(c.settings.temperature)));
   const customParameters = agentCustomParameters(configs[0]!);
   const rawBatchMaxTokens = perAgentTokens.reduce((sum, tokens) => sum + tokens, 0);
-  const batchMaxTokens = applyProviderMaxTokensOverride(provider, rawBatchMaxTokens);
+  const modelMaxOutput = configs[0]!.maxOutputTokens;
+  const batchMaxTokens = applyAgentMaxTokensCaps(provider, rawBatchMaxTokens, modelMaxOutput);
 
   try {
     // Build merged system prompt (includes lore + agent extras)
@@ -691,10 +705,19 @@ export async function executeAgentBatch(
 
     // Each agent reserves its own configured output budget. The context fitter
     // may still reduce this further if the prompt needs more room.
-    const streamResponses = context.streaming !== false;
-    logger.info(
-      `[agent-batch] maxTokens: ${batchMaxTokens} (sum=${rawBatchMaxTokens} from [${perAgentTokens.join(", ")}]${provider.maxTokensOverrideValue !== null ? `, capped at ${provider.maxTokensOverrideValue}` : ""})`,
-    );
+  const streamResponses = context.streaming !== false;
+  const capDetails = [
+    provider.maxTokensOverrideValue !== null ? `connection cap=${provider.maxTokensOverrideValue}` : null,
+    modelMaxOutput ? `model cap=${modelMaxOutput}` : null,
+  ].filter(Boolean);
+  const capSuffix = capDetails.length ? `, ${capDetails.join(", ")}` : "";
+  logger.info(
+    "[agent-batch] maxTokens: %d (sum=%d from [%s]%s)",
+    batchMaxTokens,
+    rawBatchMaxTokens,
+    perAgentTokens.join(", "),
+    capSuffix,
+  );
 
     logger.debug(`\n[agent-batch] ═══ BATCH PROMPT — [${configs.map((c) => c.type).join(", ")}] — ${model} ═══`);
     for (const msg of messages) {

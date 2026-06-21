@@ -9,6 +9,8 @@ import {
   LOCAL_SIDECAR_CONNECTION_ID,
   mergeBuiltInAgentSettings,
   resolveAgentPromptTemplate,
+  findKnownModel,
+  type APIProvider,
 } from "@marinara-engine/shared";
 import type { BaseLLMProvider } from "../llm/base-provider.js";
 import { createLLMProvider } from "../llm/provider-registry.js";
@@ -46,6 +48,7 @@ type ResolveAgentPipelineAgentsArgs = {
   chatProvider: BaseLLMProvider;
   chatModel: string;
   chatCustomParameters: Record<string, unknown>;
+  chatMaxOutputTokens: number | null;
   chatMaxParallelJobs: number;
   activeMusicPlayerSource?: "spotify" | "youtube" | null;
   chatMetadata?: Record<string, unknown>;
@@ -56,6 +59,7 @@ type AgentProviderCacheEntry = {
   provider: BaseLLMProvider;
   model: string;
   customParameters: Record<string, unknown>;
+  maxOutputTokens: number | null;
   maxParallelJobs: number;
 };
 
@@ -121,6 +125,11 @@ function resolveConnectionCustomParameters(connection: { defaultParameters?: unk
   return parseStoredGenerationParameters(connection.defaultParameters)?.customParameters ?? {};
 }
 
+function resolveConnectionMaxOutputTokens(connection: { provider: string; model: string }): number | null {
+  const knownModel = findKnownModel(connection.provider as APIProvider, connection.model.trim());
+  return knownModel?.maxOutput && knownModel.maxOutput > 0 ? Math.floor(knownModel.maxOutput) : null;
+}
+
 async function resolveAgentConnectionProvider(args: {
   connections: ConnectionsStore;
   agentProviderCache: Map<string, AgentProviderCacheEntry>;
@@ -128,6 +137,7 @@ async function resolveAgentConnectionProvider(args: {
   fallbackProvider: BaseLLMProvider;
   fallbackModel: string;
   fallbackCustomParameters: Record<string, unknown>;
+  fallbackMaxOutputTokens: number | null;
   fallbackMaxParallelJobs: number;
   resolveBaseUrl(connection: { baseUrl: string | null; provider: string }): string;
 }): Promise<AgentConnectionResolution> {
@@ -137,6 +147,7 @@ async function resolveAgentConnectionProvider(args: {
         provider: args.fallbackProvider,
         model: args.fallbackModel,
         customParameters: args.fallbackCustomParameters,
+        maxOutputTokens: args.fallbackMaxOutputTokens,
         maxParallelJobs: args.fallbackMaxParallelJobs,
       },
     };
@@ -179,6 +190,7 @@ async function resolveAgentConnectionProvider(args: {
     ),
     model,
     customParameters: resolveConnectionCustomParameters(agentConn),
+    maxOutputTokens: resolveConnectionMaxOutputTokens({ provider: agentConn.provider, model }),
     maxParallelJobs: Number(agentConn.maxParallelJobs) || 1,
   };
   args.agentProviderCache.set(args.connectionId, resolved);
@@ -196,6 +208,7 @@ export async function resolveAgentPipelineAgents({
   chatProvider,
   chatModel,
   chatCustomParameters,
+  chatMaxOutputTokens,
   chatMaxParallelJobs,
   activeMusicPlayerSource,
   chatMetadata,
@@ -223,6 +236,7 @@ export async function resolveAgentPipelineAgents({
       provider: getLocalSidecarProvider(),
       model: LOCAL_SIDECAR_MODEL,
       customParameters: {},
+      maxOutputTokens: null,
       maxParallelJobs: 1,
     });
   }
@@ -299,6 +313,7 @@ export async function resolveAgentPipelineAgents({
       fallbackProvider: chatProvider,
       fallbackModel: chatModel,
       fallbackCustomParameters: chatCustomParameters,
+      fallbackMaxOutputTokens: chatMaxOutputTokens,
       fallbackMaxParallelJobs: chatMaxParallelJobs,
       resolveBaseUrl,
     });
@@ -328,6 +343,7 @@ export async function resolveAgentPipelineAgents({
       provider: resolvedProvider.entry.provider,
       model: resolvedProvider.entry.model,
       customParameters: resolvedProvider.entry.customParameters,
+      maxOutputTokens: resolvedProvider.entry.maxOutputTokens,
       maxParallelJobs: resolvedProvider.entry.maxParallelJobs,
     });
   }
@@ -355,6 +371,7 @@ export async function resolveAgentPipelineAgents({
       fallbackProvider: chatProvider,
       fallbackModel: chatModel,
       fallbackCustomParameters: chatCustomParameters,
+      fallbackMaxOutputTokens: chatMaxOutputTokens,
       fallbackMaxParallelJobs: chatMaxParallelJobs,
       resolveBaseUrl,
     });
@@ -401,6 +418,7 @@ export async function resolveAgentPipelineAgents({
       provider: builtInConnection.entry.provider,
       model: builtInConnection.entry.model,
       customParameters: builtInConnection.entry.customParameters,
+      maxOutputTokens: builtInConnection.entry.maxOutputTokens,
       maxParallelJobs: builtInConnection.entry.maxParallelJobs,
     });
   }

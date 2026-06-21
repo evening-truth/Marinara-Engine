@@ -14,9 +14,11 @@ import {
   normalizeAgentPromptTemplateSelectionMap,
   resolveAgentPromptTemplate,
   stripMacroComments,
+  findKnownModel,
   type AgentCallDebugEvent,
   type AgentContext,
   type AgentResult,
+  type APIProvider,
   type ChatMode,
   type GameMap,
   type WrapFormat,
@@ -884,6 +886,11 @@ async function resolveRetryAgents(args: {
   const chatConnectionMaxParallelJobs = Number(conn.maxParallelJobs) || 1;
   const chatConnectionCustomParameters =
     parseStoredGenerationParameters(conn.defaultParameters)?.customParameters ?? {};
+  const chatConnectionKnownModel = findKnownModel(conn.provider as APIProvider, conn.model.trim());
+  const chatConnectionMaxOutputTokens =
+    chatConnectionKnownModel?.maxOutput && chatConnectionKnownModel.maxOutput > 0
+      ? Math.floor(chatConnectionKnownModel.maxOutput)
+      : null;
   const resolvedAgents: ResolvedRetryAgent[] = [];
   const skippedLocalSidecarAgents: string[] = [];
   const defaultAgentConnectionAgents: string[] = [];
@@ -919,6 +926,7 @@ async function resolveRetryAgents(args: {
       provider: any;
       model: string;
       customParameters: Record<string, unknown>;
+      maxOutputTokens: number | null;
       maxParallelJobs: number;
     } | null;
     unavailableReason?: string;
@@ -931,6 +939,7 @@ async function resolveRetryAgents(args: {
           provider,
           model: conn.model,
           customParameters: chatConnectionCustomParameters,
+          maxOutputTokens: chatConnectionMaxOutputTokens,
           maxParallelJobs: chatConnectionMaxParallelJobs,
         },
       };
@@ -943,6 +952,7 @@ async function resolveRetryAgents(args: {
           provider: getLocalSidecarProvider(),
           model: LOCAL_SIDECAR_MODEL,
           customParameters: {},
+          maxOutputTokens: null,
           maxParallelJobs: 1,
         },
       };
@@ -980,6 +990,10 @@ async function resolveRetryAgents(args: {
         ),
         model,
         customParameters: parseStoredGenerationParameters(agentConn.defaultParameters)?.customParameters ?? {},
+        maxOutputTokens: (() => {
+          const knownModel = findKnownModel(agentConn.provider as APIProvider, model);
+          return knownModel?.maxOutput && knownModel.maxOutput > 0 ? Math.floor(knownModel.maxOutput) : null;
+        })(),
         maxParallelJobs: Number(agentConn.maxParallelJobs) || 1,
       },
     };
@@ -1044,6 +1058,7 @@ async function resolveRetryAgents(args: {
         connectionId: effectiveConnectionId,
         settings,
         customParameters: agentConnection.entry.customParameters,
+        maxOutputTokens: agentConnection.entry.maxOutputTokens,
         provider: agentConnection.entry.provider,
         model: agentConnection.entry.model,
         maxParallelJobs: agentConnection.entry.maxParallelJobs,
@@ -1094,6 +1109,7 @@ async function resolveRetryAgents(args: {
         connectionId: builtInConnection.entry.connectionId,
         settings,
         customParameters: builtInConnection.entry.customParameters,
+        maxOutputTokens: builtInConnection.entry.maxOutputTokens,
         provider: builtInConnection.entry.provider,
         model: builtInConnection.entry.model,
         maxParallelJobs: builtInConnection.entry.maxParallelJobs,

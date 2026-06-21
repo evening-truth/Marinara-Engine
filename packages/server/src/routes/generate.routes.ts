@@ -30,6 +30,8 @@ import {
   unwrapConversationInstructions,
   wrapConversationInstructions,
   NARRATIVE_DIRECTOR_SECRET_PLOT_PROMPT,
+  findKnownModel,
+  type APIProvider,
 } from "@marinara-engine/shared";
 import type {
   AgentContext,
@@ -3575,6 +3577,11 @@ export async function generateRoutes(app: FastifyInstance) {
         );
 
         const chatConnectionMaxParallelJobs = Number(conn.maxParallelJobs) || 1;
+        const chatConnectionKnownModel = findKnownModel(conn.provider as APIProvider, conn.model.trim());
+        const chatConnectionMaxOutputTokens =
+          chatConnectionKnownModel?.maxOutput && chatConnectionKnownModel.maxOutput > 0
+            ? Math.floor(chatConnectionKnownModel.maxOutput)
+            : null;
         const { enabledConfigs, resolvedAgents, agentConnectionWarnings } = await resolveAgentPipelineAgents({
           connections,
           configuredAgents: configuredPromptAgents,
@@ -3586,6 +3593,7 @@ export async function generateRoutes(app: FastifyInstance) {
           chatProvider: provider,
           chatModel: conn.model,
           chatCustomParameters: connectionParams?.customParameters ?? {},
+          chatMaxOutputTokens: chatConnectionMaxOutputTokens,
           chatMaxParallelJobs: chatConnectionMaxParallelJobs,
           activeMusicPlayerSource,
           chatMetadata: chatMeta,
