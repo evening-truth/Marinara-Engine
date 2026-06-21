@@ -286,6 +286,7 @@ type SettingsSwitchProps = SettingsSwitchAccessibleLabel & {
   labelPosition?: "start" | "end";
   className?: string;
   labelClassName?: string;
+  /** Appended last so callers can intentionally override checked-track visuals. */
   switchClassName?: string;
 };
 

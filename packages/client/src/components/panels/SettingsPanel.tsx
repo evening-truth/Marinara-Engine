@@ -1790,13 +1790,28 @@ function AppearanceSettings() {
   const handleAppAccentColorChange = useCallback(
     (color: string) => {
       const normalized = color.trim();
-      setAppAccentColor(normalized.toLowerCase() === defaultAppAccentColor.toLowerCase() ? "" : normalized);
-      if (appAccentRgbMode && !isCssGradient(normalized || defaultAppAccentColor)) {
+      const normalizedAccent = normalized.toLowerCase() === defaultAppAccentColor.toLowerCase() ? "" : normalized;
+      const nextAccent = normalizedAccent || defaultAppAccentColor;
+
+      setAppAccentColor(normalizedAccent);
+
+      if (isCssGradient(nextAccent)) {
+        setAppAccentPulseMode(false);
+      }
+
+      if (appAccentRgbMode && !isCssGradient(nextAccent)) {
         setAppAccentRgbMode(false);
         setAppAccentColorBeforeRgbMode(null);
       }
     },
-    [appAccentRgbMode, defaultAppAccentColor, setAppAccentColor, setAppAccentColorBeforeRgbMode, setAppAccentRgbMode],
+    [
+      appAccentRgbMode,
+      defaultAppAccentColor,
+      setAppAccentColor,
+      setAppAccentColorBeforeRgbMode,
+      setAppAccentPulseMode,
+      setAppAccentRgbMode,
+    ],
   );
   const handleAppAccentRgbModeChange = useCallback(
     (enabled: boolean) => {

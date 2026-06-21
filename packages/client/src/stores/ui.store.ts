@@ -2127,10 +2127,10 @@ export const useUIStore = create<UIState>()(
         if (version <= 59 && persisted.appAccentRgbMode === undefined) {
           persisted.appAccentRgbMode = false;
         }
-        if (persisted.appAccentColorBeforeRgbMode === undefined) {
+        if (version <= 60 && persisted.appAccentColorBeforeRgbMode === undefined) {
           persisted.appAccentColorBeforeRgbMode = null;
         }
-        if (persisted.appAccentPulseMode === undefined) {
+        if (version <= 60 && persisted.appAccentPulseMode === undefined) {
           persisted.appAccentPulseMode = false;
         }
         persisted.characterLibrarySort = normalizeCharacterLibrarySort(persisted.characterLibrarySort);
