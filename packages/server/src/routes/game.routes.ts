@@ -3212,9 +3212,23 @@ export async function gameRoutes(app: FastifyInstance) {
         }
       }
 
+      const usedNpcNames = new Set<string>();
+      const uniqueNpcName = (rawName: string, fallbackName: string) => {
+        const base = rawName.trim() || fallbackName;
+        let candidate = base;
+        let suffix = 2;
+        while (usedNpcNames.has(candidate.toLowerCase())) {
+          candidate = `${base} ${suffix}`;
+          suffix += 1;
+        }
+        usedNpcNames.add(candidate.toLowerCase());
+        return candidate;
+      };
+
       const npcs = Array.from(setupData.startingNpcs as unknown[]).map((value, i) => {
         const n = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-        const name = typeof n.name === "string" && n.name.trim() ? n.name.trim() : `NPC ${i + 1}`;
+        const rawName = typeof n.name === "string" ? n.name : "";
+        const name = uniqueNpcName(rawName, `NPC ${i + 1}`);
         const description = typeof n.description === "string" ? n.description : "";
         return {
           id: randomUUID(),

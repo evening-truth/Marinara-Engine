@@ -71,6 +71,8 @@ export interface InitiativeEntry {
   roll: number;
   speed: number;
   total: number;
+  skipsTurn?: boolean;
+  skipReason?: string;
 }
 
 export interface AttackResult {
@@ -102,6 +104,27 @@ export interface CombatRoundResult {
   statusTicks: Array<{ id: string; effect: string; expired: boolean }>;
   /** Elemental reactions that occurred this round */
   reactions: Array<{ attackerId: string; defenderId: string; reaction: string; description: string }>;
+}
+
+const TURN_SKIP_STATUS_NAMES = new Set(["frozen", "stunned", "imprisoned"]);
+
+function activeStatusEffects(combatant: CombatantStats): StatusEffect[] {
+  return combatant.statusEffects?.filter((effect) => effect.turnsLeft > 0) ?? [];
+}
+
+function getEffectiveSpeed(combatant: CombatantStats): number {
+  const speedModifier = activeStatusEffects(combatant)
+    .filter((effect) => effect.stat === "speed")
+    .reduce((sum, effect) => sum + effect.modifier, 0);
+  return Math.max(0, combatant.speed + speedModifier);
+}
+
+function getTurnSkipReason(combatant: CombatantStats, effectiveSpeed: number): string | null {
+  const skipEffect = activeStatusEffects(combatant).find((effect) =>
+    TURN_SKIP_STATUS_NAMES.has(effect.name.trim().toLowerCase()),
+  );
+  if (skipEffect) return skipEffect.name;
+  return effectiveSpeed <= 0 ? "immobilized" : null;
 }
 
 function resolveSkillAction(
@@ -302,14 +325,17 @@ function chooseAutoSkill(
 /** Roll initiative for all combatants. Returns sorted order (highest first). */
 export function rollInitiative(combatants: CombatantStats[]): InitiativeEntry[] {
   const entries: InitiativeEntry[] = combatants.map((c) => {
-    const speedMod = Math.floor(c.speed / 5);
+    const effectiveSpeed = getEffectiveSpeed(c);
+    const speedMod = Math.floor(effectiveSpeed / 5);
     const roll = rollDice("1d20").total;
+    const skipReason = getTurnSkipReason(c, effectiveSpeed);
     return {
       id: c.id,
       name: c.name,
       roll,
-      speed: c.speed,
-      total: roll + speedMod,
+      speed: effectiveSpeed,
+      total: skipReason ? -9999 : roll + speedMod,
+      ...(skipReason ? { skipsTurn: true, skipReason } : {}),
     };
   });
 
@@ -325,7 +351,8 @@ export function resolveAttack(
 ): AttackResult {
   // Attack roll: 1d20 + attack stat modifier
   const attackMod = Math.floor(attacker.attack / 3);
-  const attackRoll = rollDice("1d20").total + attackMod;
+  const rawAttackD20 = rollDice("1d20").total;
+  const attackRoll = rawAttackD20 + attackMod;
 
   // Defense check: 1d20 + defense stat modifier
   const defenseMod = Math.floor(defender.defense / 3);
@@ -335,7 +362,7 @@ export function resolveAttack(
   const isMiss = attackRoll < defenseRoll;
 
   // Critical hit check (natural 20 or attack roll exceeds defense by 10+)
-  const isCritical = !isMiss && (attackRoll - defenseMod >= 20 || attackRoll - defenseRoll >= 10);
+  const isCritical = !isMiss && (rawAttackD20 === 20 || attackRoll - defenseRoll >= 10);
 
   // Damage calculation
   let rawDamage = 0;
@@ -581,6 +608,7 @@ export function resolveCombatRound(
   for (const entry of initiative) {
     const attacker = combatants.find((c) => c.id === entry.id);
     if (!attacker || attacker.hp <= 0) continue;
+    if (entry.skipsTurn) continue;
 
     const isPlayerSide = (attacker as { side?: string }).side === "player";
 
