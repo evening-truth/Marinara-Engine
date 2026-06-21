@@ -3503,12 +3503,15 @@ export async function generateRoutes(app: FastifyInstance) {
           verbosity = "high";
         }
 
-        // Game mode: force optimal generation defaults (ignore preset/chat overrides)
-        // unless the user is running a local Gemma model where these don't apply.
         const isLocalGemma = (conn.model ?? "").toLowerCase().includes("gemma");
+        applyParameterOverrides(connectionParams);
+        applyParameterOverrides(chatParams);
+
+        // Game mode: force optimal generation defaults after Advanced Parameters
+        // so leftover chat/connection overrides cannot sabotage structured GM output.
         if (chatMode === "game" && !isLocalGemma) {
           temperature = 1;
-          maxTokens = 16384;
+          maxTokens = 16_384;
           topP = 1;
           topK = 0;
           minP = 0;
@@ -3517,14 +3520,11 @@ export async function generateRoutes(app: FastifyInstance) {
           reasoningEffort = "maximum";
           verbosity = null;
         } else if (chatMode === "game") {
-          // Local Gemma: just ensure generous output
+          // Local Gemma: just ensure generous output unless the chat set its own budget.
           if (typeof chatParams?.maxTokens !== "number") {
-            maxTokens = Math.max(maxTokens, 16384);
+            maxTokens = Math.max(maxTokens, 16_384);
           }
         }
-
-        applyParameterOverrides(connectionParams);
-        applyParameterOverrides(chatParams);
 
         if (chatMode === "game") {
           maxTokens = clampGenerationMaxOutputTokens({
