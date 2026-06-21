@@ -276,7 +276,9 @@ class SidecarModelService {
   }
 
   private hasConfiguredModel(config: SidecarConfig = this.config): boolean {
-    return this.resolveBackend(config) === "mlx" ? !!config.modelRepo : this.getModelFilePathForConfig(config) !== null;
+    return this.resolveBackend(config) === "mlx"
+      ? mlxRuntimeService.hasModelCache(config.modelRepo)
+      : this.getModelFilePathForConfig(config) !== null;
   }
 
   private getConfiguredModelSize(config: SidecarConfig = this.config): number | null {
@@ -296,6 +298,26 @@ class SidecarModelService {
       return statSync(modelPath).size;
     } catch {
       return null;
+    }
+  }
+
+  private isUsableModelFile(path: string, expectedSize: number | null | undefined): boolean {
+    try {
+      const actualSize = statSync(path).size;
+      if (actualSize <= 0) {
+        return false;
+      }
+      return typeof expectedSize === "number" && expectedSize > 0 ? actualSize === expectedSize : true;
+    } catch {
+      return false;
+    }
+  }
+
+  private removeInvalidModelFile(path: string): void {
+    try {
+      unlinkSync(path);
+    } catch {
+      // Best-effort cleanup; the follow-up download will surface persistent filesystem errors.
     }
   }
 
@@ -319,7 +341,7 @@ class SidecarModelService {
 
     if (previousBackend === "mlx") {
       if (previousConfig.modelRepo && previousConfig.modelRepo !== nextConfig.modelRepo) {
-        mlxRuntimeService.clearModelCache();
+        mlxRuntimeService.clearModelCache(previousConfig.modelRepo);
       }
       return;
     }
@@ -477,7 +499,11 @@ class SidecarModelService {
   }
 
   getConfiguredModelRef(): string | null {
-    return this.resolveBackend() === "mlx" ? this.config.modelRepo : this.getModelFilePath();
+    return this.resolveBackend() === "mlx"
+      ? mlxRuntimeService.hasModelCache(this.config.modelRepo)
+        ? this.config.modelRepo
+        : null
+      : this.getModelFilePath();
   }
 
   getModelFilePath(): string | null {
@@ -535,21 +561,20 @@ class SidecarModelService {
         quantization,
         customModelRepo: null,
       };
+      this.status = "downloading_model";
+      try {
+        await mlxRuntimeService.downloadModel(repoId, modelInfo.label, modelInfo.sizeBytes, (progress) =>
+          this.emitProgress(progress, onProgress),
+        );
+      } catch (error) {
+        this.status = this.detectStatus();
+        this.emitProgress(this.buildModelErrorProgress(error), onProgress);
+        throw error;
+      }
       this.cleanupPreviousModel(previousConfig, nextConfig);
       this.config = nextConfig;
       this.saveConfig();
       this.status = "downloaded";
-      this.emitProgress(
-        {
-          phase: "model",
-          status: "complete",
-          downloaded: modelInfo.sizeBytes,
-          total: modelInfo.sizeBytes,
-          speed: 0,
-          label: modelInfo.label,
-        },
-        onProgress,
-      );
       return;
     }
 
@@ -563,7 +588,7 @@ class SidecarModelService {
       quantization,
       customModelRepo: null,
     };
-    if (existsSync(destination)) {
+    if (existsSync(destination) && this.isUsableModelFile(destination, modelInfo.sizeBytes)) {
       this.cleanupPreviousModel(previousConfig, nextConfig);
       this.config = nextConfig;
       this.saveConfig();
@@ -581,6 +606,9 @@ class SidecarModelService {
       );
       return;
     }
+    if (existsSync(destination)) {
+      this.removeInvalidModelFile(destination);
+    }
 
     if (!modelInfo.downloadUrl) {
       throw new Error(`The ${modelInfo.label} preset is missing a download URL.`);
@@ -591,6 +619,7 @@ class SidecarModelService {
         url: modelInfo.downloadUrl,
         relativePath,
         label: modelInfo.label,
+        expectedBytes: modelInfo.sizeBytes,
       },
       onProgress,
     );
@@ -655,21 +684,20 @@ class SidecarModelService {
         quantization: null,
         customModelRepo: repo,
       };
+      this.status = "downloading_model";
+      try {
+        await mlxRuntimeService.downloadModel(repo, selected.filename, selected.sizeBytes, (progress) =>
+          this.emitProgress(progress, onProgress),
+        );
+      } catch (error) {
+        this.status = this.detectStatus();
+        this.emitProgress(this.buildModelErrorProgress(error), onProgress);
+        throw error;
+      }
       this.cleanupPreviousModel(previousConfig, nextConfig);
       this.config = nextConfig;
       this.saveConfig();
       this.status = "downloaded";
-      this.emitProgress(
-        {
-          phase: "model",
-          status: "complete",
-          downloaded: selected.sizeBytes ?? 0,
-          total: selected.sizeBytes ?? 0,
-          speed: 0,
-          label: selected.filename,
-        },
-        onProgress,
-      );
       return selected;
     }
 
@@ -690,12 +718,17 @@ class SidecarModelService {
       quantization: null,
       customModelRepo: repo,
     };
+    if (existsSync(destination) && !this.isUsableModelFile(destination, selected.sizeBytes)) {
+      this.removeInvalidModelFile(destination);
+    }
+
     if (!existsSync(destination)) {
       await this.downloadModelFile(
         {
           url: selected.downloadUrl,
           relativePath,
           label: selected.filename,
+          expectedBytes: selected.sizeBytes,
         },
         onProgress,
       );
@@ -739,7 +772,7 @@ class SidecarModelService {
   }
 
   private async downloadModelFile(
-    input: { url: string; relativePath: string; label: string },
+    input: { url: string; relativePath: string; label: string; expectedBytes?: number | null },
     onProgress?: ProgressCallback,
   ): Promise<void> {
     if (this.downloadAbort) {
@@ -755,6 +788,7 @@ class SidecarModelService {
         url: input.url,
         destPath: destination,
         signal: this.downloadAbort.signal,
+        expectedBytes: input.expectedBytes,
         progress: {
           phase: "model",
           label: input.label,

@@ -11,6 +11,7 @@ import { buildLlamaProcessEnv } from "./sidecar-runtime-env.js";
 import { mlxRuntimeService, type MlxRuntimeInstall } from "./mlx-runtime.service.js";
 import { sidecarRuntimeService, type SidecarRuntimeInstall } from "./sidecar-runtime.service.js";
 import { assertSupportedLlamaCppModelPath } from "./sidecar-model-files.js";
+import { resolveSidecarRequestModel } from "./sidecar-request-model.js";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -428,6 +429,30 @@ class SidecarProcessService {
     return ["-m", "mlx_lm.server", "--model", modelRepo, "--host", "127.0.0.1", "--port", String(port)];
   }
 
+  private async waitForMlxCompletionProbe(baseUrl: string): Promise<void> {
+    const model = resolveSidecarRequestModel("mlx", sidecarModelService.getConfiguredModelRef());
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        messages: [{ role: "user", content: "Reply with OK." }],
+        max_tokens: 1,
+        temperature: 0,
+        top_p: 1,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
+    }
+  }
+
   private usesGpuRuntime(runtime: SidecarRuntimeInstall): boolean {
     return runtime.gpuCapable ?? sidecarRuntimeService.isGpuVariant(runtime.variant);
   }
@@ -745,6 +770,9 @@ class SidecarProcessService {
           signal: AbortSignal.timeout(3_000),
         });
         if (response.ok) {
+          if (backend === "mlx") {
+            await this.waitForMlxCompletionProbe(baseUrl);
+          }
           return;
         }
         lastError = new Error(`HTTP ${response.status}`);

@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync, mkdirSync, renameSync, unlinkSync } from "fs";
+import { createWriteStream, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "fs";
 import { dirname } from "path";
 import { Readable } from "stream";
 import { pipeline as streamPipeline } from "stream/promises";
@@ -21,6 +21,7 @@ export interface DownloadFileOptions {
   destPath: string;
   signal?: AbortSignal;
   headers?: Record<string, string>;
+  expectedBytes?: number | null;
   progress: Omit<SidecarDownloadProgress, "downloaded" | "total" | "speed" | "status">;
   onProgress?: (progress: SidecarDownloadProgress) => void;
 }
@@ -105,6 +106,10 @@ export async function downloadFileWithProgress(options: DownloadFileOptions): Pr
   }
 
   const total = Number.parseInt(response.headers.get("content-length") || "0", 10) || 0;
+  const contentEncoding = response.headers.get("content-encoding")?.trim().toLowerCase() ?? "";
+  const expectedBytes =
+    typeof options.expectedBytes === "number" && options.expectedBytes > 0 ? options.expectedBytes : total;
+  const canValidateSize = expectedBytes > 0 && (!contentEncoding || contentEncoding === "identity");
   let downloaded = 0;
   let lastReportTime = Date.now();
   let lastReportBytes = 0;
@@ -130,7 +135,7 @@ export async function downloadFileWithProgress(options: DownloadFileOptions): Pr
             ...options.progress,
             status: "downloading",
             downloaded,
-            total,
+            total: total || expectedBytes,
             speed,
           });
           lastReportTime = now;
@@ -146,12 +151,16 @@ export async function downloadFileWithProgress(options: DownloadFileOptions): Pr
 
   try {
     await streamPipeline(readable, writable);
+    const writtenBytes = statSync(tempPath).size;
+    if (canValidateSize && writtenBytes !== expectedBytes) {
+      throw new Error(`Downloaded file size mismatch: expected ${expectedBytes} bytes, received ${writtenBytes} bytes.`);
+    }
     renameSync(tempPath, options.destPath);
     options.onProgress?.({
       ...options.progress,
       status: "complete",
-      downloaded: total || downloaded,
-      total: total || downloaded,
+      downloaded: expectedBytes || writtenBytes || downloaded,
+      total: expectedBytes || writtenBytes || downloaded,
       speed: 0,
     });
   } catch (error) {

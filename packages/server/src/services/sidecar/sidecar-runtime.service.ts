@@ -345,9 +345,12 @@ class SidecarRuntimeService {
       return this.installPromise;
     }
 
-    this.installPromise = this.installLatest(onProgress, excludedVariants, preference).finally(() => {
-      this.installPromise = null;
-    });
+    const preserveCurrentInstall = excludedVariants.size > 0 && current !== null;
+    this.installPromise = this.installLatest(onProgress, excludedVariants, preference, { preserveCurrentInstall }).finally(
+      () => {
+        this.installPromise = null;
+      },
+    );
     return this.installPromise;
   }
 
@@ -401,7 +404,10 @@ class SidecarRuntimeService {
     writeFileSync(CURRENT_RUNTIME_PATH, JSON.stringify(record, null, 2), "utf-8");
   }
 
-  private cleanupBundledArtifacts(keepDirectoryName?: string | null): void {
+  private cleanupBundledArtifacts(
+    keepDirectoryName?: string | null,
+    options: { preserveRuntimeDirectories?: boolean } = {},
+  ): void {
     for (const entry of readdirSync(RUNTIME_DIR, { withFileTypes: true })) {
       if (entry.name === "mlx" || entry.name === "server.log") {
         continue;
@@ -419,9 +425,8 @@ class SidecarRuntimeService {
         continue;
       }
 
-      const isBundledArtifact =
-        /^llama-/i.test(entry.name) || /\.(extract|zip)$/i.test(entry.name) || entry.name.endsWith(".tar.gz");
-      if (isBundledArtifact || entry.isDirectory()) {
+      const isTemporaryArtifact = /\.(extract|zip)$/i.test(entry.name) || entry.name.endsWith(".tar.gz");
+      if (isTemporaryArtifact || (entry.isDirectory() && !options.preserveRuntimeDirectories)) {
         rmSync(fullPath, { recursive: true, force: true });
       }
     }
@@ -440,6 +445,7 @@ class SidecarRuntimeService {
     onProgress?: (progress: SidecarDownloadProgress) => void,
     excludedVariants: Set<string> = new Set(),
     preference: SidecarRuntimePreference = "auto",
+    options: { preserveCurrentInstall?: boolean } = {},
   ): Promise<SidecarRuntimeInstall> {
     const abortController = new AbortController();
     this.installAbort = abortController;
@@ -558,8 +564,10 @@ class SidecarRuntimeService {
         systemPath: null,
         gpuCapable: this.isGpuVariant(match.variant),
       };
-      this.writeCurrentInstall(install);
-      this.cleanupBundledArtifacts(directoryName);
+      if (!options.preserveCurrentInstall) {
+        this.writeCurrentInstall(install);
+      }
+      this.cleanupBundledArtifacts(directoryName, { preserveRuntimeDirectories: options.preserveCurrentInstall });
       return install;
     } catch (error) {
       if (extractDirectory) {
@@ -725,7 +733,10 @@ class SidecarRuntimeService {
     }
 
     if (platform === "win32") {
-      return false;
+      const windowsDir = process.env.SystemRoot || process.env.WINDIR || "C:\\Windows";
+      return [join(windowsDir, "System32", "vulkan-1.dll"), join(windowsDir, "SysWOW64", "vulkan-1.dll")].some(
+        (path) => existsSync(path),
+      );
     }
 
     if (platform === "linux") {

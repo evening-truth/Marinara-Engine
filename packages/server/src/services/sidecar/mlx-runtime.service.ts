@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcess } from "child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { SidecarDownloadProgress, SidecarRuntimeInfo } from "@marinara-engine/shared";
 import { getDataDir } from "../../utils/data-dir.js";
@@ -92,6 +92,18 @@ function writeInstalledPackageSpec(): void {
   writeFileSync(MLX_LM_PACKAGE_STAMP_PATH, `${MLX_LM_PACKAGE_SPEC}\n`, "utf-8");
 }
 
+function getMlxRepoCachePath(repo: string): string {
+  return join(MLX_HF_HOME, "hub", `models--${repo.replace(/\//g, "--")}`);
+}
+
+function hasMlxRepoSnapshot(repo: string): boolean {
+  try {
+    return readdirSync(join(getMlxRepoCachePath(repo), "snapshots")).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function buildInstallRecord(version: string): MlxRuntimeInstall {
   return {
     backend: "mlx",
@@ -128,6 +140,10 @@ class MlxRuntimeService {
     return MLX_HF_HOME;
   }
 
+  hasModelCache(repo: string | null | undefined): boolean {
+    return !!repo && hasMlxRepoSnapshot(repo);
+  }
+
   cancelInstall(): void {
     this.cancelRequested = true;
     this.activeFetchAbort?.abort();
@@ -149,7 +165,12 @@ class MlxRuntimeService {
     rmSync(MLX_RUNTIME_DIR, { recursive: true, force: true });
   }
 
-  clearModelCache(): void {
+  clearModelCache(repo?: string | null): void {
+    if (repo) {
+      rmSync(getMlxRepoCachePath(repo), { recursive: true, force: true });
+      return;
+    }
+
     rmSync(MLX_HF_HOME, { recursive: true, force: true });
   }
 
@@ -172,6 +193,45 @@ class MlxRuntimeService {
     return this.installPromise;
   }
 
+  async downloadModel(
+    repo: string,
+    label: string,
+    totalBytes: number | null | undefined,
+    onProgress?: (progress: SidecarDownloadProgress) => void,
+  ): Promise<void> {
+    const runtime = await this.ensureInstalled(onProgress);
+    mkdirSync(runtime.hfHomePath, { recursive: true });
+
+    this.emitModelProgress(onProgress, "downloading", label, totalBytes ?? 0);
+    this.cancelRequested = false;
+    try {
+      await this.runCommand(
+        runtime.pythonPath,
+        [
+          "-c",
+          [
+            "from huggingface_hub import snapshot_download",
+            `snapshot_download(repo_id=${JSON.stringify(repo)}, local_files_only=False)`,
+          ].join("\n"),
+        ],
+        {
+          cwd: runtime.directoryPath,
+          env: {
+            HF_HOME: runtime.hfHomePath,
+            HF_HUB_CACHE: join(runtime.hfHomePath, "hub"),
+          },
+        },
+      );
+    } finally {
+      this.activeChild = null;
+      this.cancelRequested = false;
+    }
+    if (!hasMlxRepoSnapshot(repo)) {
+      throw new Error(`MLX model download completed but no cache entry was found for ${repo}.`);
+    }
+    this.emitModelProgress(onProgress, "complete", label, totalBytes ?? 0);
+  }
+
   private emitProgress(
     onProgress: ((progress: SidecarDownloadProgress) => void) | undefined,
     status: SidecarDownloadProgress["status"],
@@ -186,6 +246,22 @@ class MlxRuntimeService {
       speed: 0,
       label,
       error,
+    });
+  }
+
+  private emitModelProgress(
+    onProgress: ((progress: SidecarDownloadProgress) => void) | undefined,
+    status: SidecarDownloadProgress["status"],
+    label: string,
+    total: number,
+  ): void {
+    onProgress?.({
+      phase: "model",
+      status,
+      downloaded: status === "complete" ? total : 0,
+      total,
+      speed: 0,
+      label,
     });
   }
 
