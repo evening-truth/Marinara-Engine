@@ -123,6 +123,9 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/restart", async (req, reply) => {
     if (!requirePrivilegedAccess(req, reply, { feature: "Sidecar restart" })) return;
+    if (isInferenceBusy()) {
+      return reply.status(409).send({ error: "Cannot restart the sidecar while inference is in progress" });
+    }
     await sidecarProcessService.restart();
     return { ok: true };
   });
@@ -211,7 +214,20 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
       Connection: "keep-alive",
     });
 
+    let completed = false;
+    const cancelActiveWork = () => {
+      if (completed) return;
+      sidecarModelService.cancelDownload();
+      mlxRuntimeService.cancelInstall();
+      sidecarRuntimeService.cancelInstall();
+      void sidecarProcessService.stop().catch((error) => {
+        logger.warn(error, "[sidecar] Failed to stop sidecar after download stream closed");
+      });
+    };
+    reply.raw.once("close", cancelActiveWork);
+
     const sendEvent = (data: unknown) => {
+      if (reply.raw.destroyed) return;
       reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
@@ -228,8 +244,12 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
 
     try {
       await task();
+      completed = true;
       sendEvent({ done: true });
     } catch (error) {
+      if (reply.raw.destroyed) {
+        return;
+      }
       sendEvent({
         status: "error",
         phase: lastProgressPhase,
@@ -238,7 +258,10 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
       });
     } finally {
       sidecarModelService.removeProgressListener(listener);
-      reply.raw.end();
+      completed = true;
+      if (!reply.raw.destroyed) {
+        reply.raw.end();
+      }
     }
   }
 
@@ -246,6 +269,9 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
     Body: { quantization: SidecarQuantization };
   }>("/download", async (req, reply) => {
     if (!requirePrivilegedAccess(req, reply, { feature: "Sidecar model download" })) return;
+    if (isInferenceBusy()) {
+      return reply.status(409).send({ error: "Cannot download or switch sidecar models while inference is in progress" });
+    }
     const { quantization } = z.object({ quantization: quantizationSchema }).parse(req.body);
     await handleDownloadSse(reply, async () => {
       await sidecarProcessService.stop();
@@ -258,6 +284,9 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
     Body: { repo: string; modelPath?: string };
   }>("/download/custom", async (req, reply) => {
     if (!requirePrivilegedAccess(req, reply, { feature: "Sidecar custom model download" })) return;
+    if (isInferenceBusy()) {
+      return reply.status(409).send({ error: "Cannot download or switch sidecar models while inference is in progress" });
+    }
     const body = z
       .object({
         repo: hfRepoSchema,
@@ -277,6 +306,7 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
     sidecarModelService.cancelDownload();
     mlxRuntimeService.cancelInstall();
     sidecarRuntimeService.cancelInstall();
+    await sidecarProcessService.stop();
     return { ok: true };
   });
 
@@ -287,11 +317,15 @@ export const sidecarRoutes: FastifyPluginAsync = async (app) => {
     }
 
     await sidecarProcessService.stop();
-    sidecarModelService.deleteModel();
+    await sidecarModelService.deleteModel();
     return { ok: true };
   });
 
-  app.post("/unload", async () => {
+  app.post("/unload", async (req, reply) => {
+    if (!requirePrivilegedAccess(req, reply, { feature: "Sidecar unload" })) return;
+    if (isInferenceBusy()) {
+      return reply.status(409).send({ error: "Cannot unload the sidecar while inference is in progress" });
+    }
     await unloadModel();
     return { ok: true };
   });

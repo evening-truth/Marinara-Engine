@@ -101,6 +101,8 @@ interface SidecarState {
 const PROMPTED_KEY = "marinara_sidecar_prompted";
 const TRANSITIONAL_STATUSES = new Set<SidecarStatus>(["downloading_runtime", "downloading_model", "starting_server"]);
 let statusPollTimer: number | null = null;
+let activeDownloadController: AbortController | null = null;
+let downloadCancelRequested = false;
 
 function clearStatusPollTimer() {
   if (statusPollTimer !== null) {
@@ -132,93 +134,118 @@ async function consumeDownloadStream(
   set: (partial: Partial<SidecarState>) => void,
   get: () => SidecarState,
 ): Promise<void> {
+  activeDownloadController?.abort();
+  const controller = new AbortController();
+  activeDownloadController = controller;
+  downloadCancelRequested = false;
+
   const apiPath = path.startsWith("/api/") ? path.slice(4) : path;
-  const response = await api.raw(apiPath, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  try {
+    const response = await api.raw(apiPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    let detail = text.slice(0, 300) || response.statusText || "unknown error";
-    try {
-      const parsed = JSON.parse(text) as { error?: string; message?: string };
-      detail = parsed.error ?? parsed.message ?? detail;
-    } catch {
-      // Keep the plain-text detail.
-    }
-    throw new Error(`Download request failed (${response.status}): ${detail}`);
-  }
-
-  if (!response.body) {
-    throw new Error(`Download request failed (${response.status}): missing response body`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      let detail = text.slice(0, 300) || response.statusText || "unknown error";
       try {
-        const data = JSON.parse(line.slice(6)) as Partial<SidecarDownloadProgress> & {
-          done?: boolean;
-          status?: string;
-          error?: string;
-        };
-
-        if (data.done) {
-          set({ downloadProgress: null });
-          await get().fetchStatus();
-          return;
-        }
-
-        if (data.status === "error") {
-          set({
-            downloadProgress: {
-              phase: (data.phase as SidecarDownloadProgress["phase"]) ?? "model",
-              status: "error",
-              downloaded: 0,
-              total: 0,
-              speed: 0,
-              error: data.error ?? "Download failed",
-              label: data.label,
-            },
-          });
-          await get().fetchStatus();
-          return;
-        }
-
-        if (data.status === "downloading") {
-          set({
-            downloadProgress: {
-              phase: (data.phase as SidecarDownloadProgress["phase"]) ?? "model",
-              status: "downloading",
-              downloaded: Number(data.downloaded ?? 0),
-              total: Number(data.total ?? 0),
-              speed: Number(data.speed ?? 0),
-              label: data.label,
-            },
-            status: (data.phase === "runtime" ? "downloading_runtime" : "downloading_model") as SidecarStatus,
-          });
-        }
+        const parsed = JSON.parse(text) as { error?: string; message?: string };
+        detail = parsed.error ?? parsed.message ?? detail;
       } catch {
-        // Ignore malformed SSE chunks.
+        // Keep the plain-text detail.
+      }
+      throw new Error(`Download request failed (${response.status}): ${detail}`);
+    }
+
+    if (!response.body) {
+      throw new Error(`Download request failed (${response.status}): missing response body`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6)) as Partial<SidecarDownloadProgress> & {
+            done?: boolean;
+            status?: string;
+            error?: string;
+          };
+
+          if (data.done) {
+            set({ downloadProgress: null });
+            await get().fetchStatus();
+            return;
+          }
+
+          if (data.status === "error") {
+            if (downloadCancelRequested || controller.signal.aborted) {
+              set({ downloadProgress: null });
+              await get().fetchStatus();
+              return;
+            }
+            set({
+              downloadProgress: {
+                phase: (data.phase as SidecarDownloadProgress["phase"]) ?? "model",
+                status: "error",
+                downloaded: 0,
+                total: 0,
+                speed: 0,
+                error: data.error ?? "Download failed",
+                label: data.label,
+              },
+            });
+            await get().fetchStatus();
+            return;
+          }
+
+          if (data.status === "downloading") {
+            set({
+              downloadProgress: {
+                phase: (data.phase as SidecarDownloadProgress["phase"]) ?? "model",
+                status: "downloading",
+                downloaded: Number(data.downloaded ?? 0),
+                total: Number(data.total ?? 0),
+                speed: Number(data.speed ?? 0),
+                label: data.label,
+              },
+              status: (data.phase === "runtime" ? "downloading_runtime" : "downloading_model") as SidecarStatus,
+            });
+          }
+        } catch {
+          // Ignore malformed SSE chunks.
+        }
       }
     }
-  }
 
-  set({ downloadProgress: null });
-  await get().fetchStatus();
+    set({ downloadProgress: null });
+    await get().fetchStatus();
+  } catch (error) {
+    if (controller.signal.aborted || downloadCancelRequested) {
+      set({ downloadProgress: null });
+      await get().fetchStatus();
+      return;
+    }
+    throw error;
+  } finally {
+    if (activeDownloadController === controller) {
+      activeDownloadController = null;
+      downloadCancelRequested = false;
+    }
+  }
 }
 
 export const useSidecarStore = create<SidecarState>((set, get) => ({
@@ -295,6 +322,7 @@ export const useSidecarStore = create<SidecarState>((set, get) => ({
     try {
       await consumeDownloadStream("/api/sidecar/download", { quantization }, set, get);
     } catch (error) {
+      await get().fetchStatus();
       set({
         downloadProgress: {
           phase: "model",
@@ -326,6 +354,7 @@ export const useSidecarStore = create<SidecarState>((set, get) => ({
     try {
       await consumeDownloadStream("/api/sidecar/download/custom", modelPath ? { repo, modelPath } : { repo }, set, get);
     } catch (error) {
+      await get().fetchStatus();
       set({
         downloadProgress: {
           phase: "model",
@@ -359,6 +388,8 @@ export const useSidecarStore = create<SidecarState>((set, get) => ({
   },
 
   cancelDownload: async () => {
+    downloadCancelRequested = true;
+    activeDownloadController?.abort();
     try {
       await api.post("/sidecar/download/cancel");
     } catch {
@@ -436,6 +467,7 @@ export const useSidecarStore = create<SidecarState>((set, get) => ({
     try {
       await consumeDownloadStream("/api/sidecar/runtime/install", reinstall ? { reinstall: true } : {}, set, get);
     } catch (error) {
+      await get().fetchStatus();
       set({
         downloadProgress: {
           phase: "runtime",
@@ -496,7 +528,26 @@ export const useSidecarStore = create<SidecarState>((set, get) => ({
     }
   },
 
-  setShowDownloadModal: (open) => set({ showDownloadModal: open }),
+  setShowDownloadModal: (open) => {
+    if (!open) {
+      const { downloadProgress, status } = get();
+      const shouldCancelSetup =
+        activeDownloadController !== null || downloadProgress !== null || TRANSITIONAL_STATUSES.has(status);
+      downloadCancelRequested = true;
+      activeDownloadController?.abort();
+      if (shouldCancelSetup) {
+        void api
+          .post("/sidecar/download/cancel")
+          .catch(() => {
+            // Best-effort cancel.
+          })
+          .finally(() => {
+            void get().fetchStatus();
+          });
+      }
+    }
+    set({ showDownloadModal: open });
+  },
 
   markPrompted: () => {
     localStorage.setItem(PROMPTED_KEY, "true");

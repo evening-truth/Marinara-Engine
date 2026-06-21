@@ -28,6 +28,7 @@ import { downloadFileWithProgress, fetchJson, isAbortError } from "./sidecar-dow
 import { mlxRuntimeService } from "./mlx-runtime.service.js";
 import { sidecarRuntimeService } from "./sidecar-runtime.service.js";
 import { assertSupportedLlamaCppModelPath, isSupportedLlamaCppModelFilename } from "./sidecar-model-files.js";
+import { logger } from "../../lib/logger.js";
 
 export const MODELS_DIR = join(getDataDir(), "models");
 export const CUSTOM_MODELS_DIR = join(MODELS_DIR, "custom");
@@ -102,6 +103,10 @@ function repoLeaf(repo: string): string {
 
 function isRuntimePreference(value: unknown): value is SidecarConfig["runtimePreference"] {
   return typeof value === "string" && (SIDECAR_RUNTIME_PREFERENCES as readonly string[]).includes(value);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeIntegerSetting(value: unknown, fallback: number, min: number, max?: number): number {
@@ -814,13 +819,30 @@ class SidecarModelService {
     this.downloadAbort = null;
   }
 
-  deleteModel(): void {
+  private async removeModelFileWithRetry(modelPath: string): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        unlinkSync(modelPath);
+        return;
+      } catch (error) {
+        const code = error instanceof Error && "code" in error ? String((error as NodeJS.ErrnoException).code) : "";
+        const canRetry = (code === "EBUSY" || code === "EPERM") && attempt < 4;
+        if (!canRetry) {
+          logger.warn(error, "[sidecar] Failed to remove local model file %s", modelPath);
+          return;
+        }
+        await delay(250);
+      }
+    }
+  }
+
+  async deleteModel(): Promise<void> {
     if (this.resolveBackend() === "mlx") {
       mlxRuntimeService.clearModelCache();
     } else {
       const modelPath = this.getModelFilePath();
       if (modelPath && existsSync(modelPath)) {
-        unlinkSync(modelPath);
+        await this.removeModelFileWithRetry(modelPath);
       }
     }
 

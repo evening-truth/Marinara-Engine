@@ -181,7 +181,7 @@ export function ModelDownloadModal({ open, onClose }: Props) {
   const [topPInput, setTopPInput] = useState(String(config.topP));
   const [topKInput, setTopKInput] = useState(String(config.topK));
   const modalScrollRef = useRef<HTMLDivElement>(null);
-  const previousScrollLayoutRef = useRef({ isBlockingSetup: false, showRuntimeSettings: false });
+  const previousScrollLayoutRef = useRef({ showSetupProgress: false, showRuntimeSettings: false });
 
   const activeBackend = runtime.backend ?? config.backend;
   const isSystemRuntime = runtime.source === "system";
@@ -195,7 +195,7 @@ export function ModelDownloadModal({ open, onClose }: Props) {
   const hasModel = modelDownloaded;
   const activeModelName = hasModel ? modelDisplayName : null;
   const shouldAutoStart = config.useForTrackers || config.useForGameScene;
-  const isBlockingSetup = isDownloading || status === "downloading_runtime";
+  const isBlockingSetup = isDownloading || status === "downloading_runtime" || status === "downloading_model";
   const isPreparingServer =
     runtime.installed && hasModel && shouldAutoStart && !inferenceReady && status === "starting_server";
   const showSetupProgress = isBlockingSetup || isPreparingServer;
@@ -298,16 +298,16 @@ export function ModelDownloadModal({ open, onClose }: Props) {
 
   useEffect(() => {
     const previous = previousScrollLayoutRef.current;
-    previousScrollLayoutRef.current = { isBlockingSetup, showRuntimeSettings };
+    previousScrollLayoutRef.current = { showSetupProgress, showRuntimeSettings };
 
     if (!open) return;
 
     const runtimeSettingsOpened = showRuntimeSettings && !previous.showRuntimeSettings;
-    const setupVisibilityChanged = isBlockingSetup !== previous.isBlockingSetup;
+    const setupVisibilityChanged = showSetupProgress !== previous.showSetupProgress;
     if (!runtimeSettingsOpened && !setupVisibilityChanged) return;
 
     modalScrollRef.current?.scrollTo({ top: 0 });
-  }, [isBlockingSetup, open, showRuntimeSettings]);
+  }, [open, showRuntimeSettings, showSetupProgress]);
 
   const handleSkip = () => {
     markPrompted();
@@ -990,7 +990,7 @@ export function ModelDownloadModal({ open, onClose }: Props) {
           </div>
         )}
 
-        {!isBlockingSetup && (
+        {!showSetupProgress && (
           <>
             <div className="flex flex-col gap-2">
               <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]/60">
@@ -1157,7 +1157,7 @@ export function ModelDownloadModal({ open, onClose }: Props) {
         )}
 
         <div className="flex items-center gap-2">
-          {isBlockingSetup ? (
+          {showSetupProgress ? (
             <button
               onClick={handleCancelSetup}
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)]"
@@ -1184,7 +1184,7 @@ export function ModelDownloadModal({ open, onClose }: Props) {
           )}
         </div>
 
-        {!hasModel && !isBlockingSetup && (
+        {!hasModel && !showSetupProgress && (
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card)]/50 p-3">
             <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]/60">
               What the local model handles
