@@ -188,6 +188,8 @@ export interface ChatMetadata {
   summaryPromptTemplates?: ChatSummaryPromptTemplate[];
   /** Selected manual summary prompt template ID. Null/omitted uses the built-in default. */
   activeSummaryPromptTemplateId?: string | null;
+  /** Optional text connection used for manual and automatic Roleplay chat summaries. Null uses the agent default. */
+  summaryConnectionId?: string | null;
   /** Custom tags for organisation */
   tags: string[];
   /** Whether agents are enabled for this chat */

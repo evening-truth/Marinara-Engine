@@ -27,6 +27,7 @@ export function NewChatConnectionGate({ mode, onClose }: NewChatConnectionGatePr
   const { data: chatPresetsData } = useChatPresets();
   const applyChatPreset = useApplyChatPreset();
   const openRightPanel = useUIStore((s) => s.openRightPanel);
+  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen);
   const [connectionId, setConnectionId] = useState<string>("");
 
   const connectionRows = useMemo(
@@ -64,6 +65,7 @@ export function NewChatConnectionGate({ mode, onClose }: NewChatConnectionGatePr
         onSuccess: async (chat) => {
           const store = useChatStore.getState();
           store.setPendingNewChatMode(null);
+          if (typeof window !== "undefined" && window.innerWidth < 768) setSidebarOpen(false);
           store.setActiveChatId(chat.id);
           if (starred) {
             try {

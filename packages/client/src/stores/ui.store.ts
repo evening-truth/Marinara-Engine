@@ -1142,7 +1142,15 @@ export const useUIStore = create<UIState>()(
       impersonateConnectionId: null,
       impersonateBlockAgents: false,
 
-      toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+      toggleSidebar: () =>
+        set((s) => {
+          const sidebarOpen = !s.sidebarOpen;
+          const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+          return {
+            sidebarOpen,
+            ...(mobile && sidebarOpen ? { rightPanelOpen: false } : {}),
+          };
+        }),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
       setSidebarWidth: (width) =>
         set({ sidebarWidth: Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, width)) }),
@@ -1196,14 +1204,22 @@ export const useUIStore = create<UIState>()(
           return { trackerPanelCollapsedSections: next };
         }),
 
-      openRightPanel: (panel) => set({ rightPanelOpen: true, rightPanel: panel }),
+      openRightPanel: (panel) =>
+        set({
+          rightPanelOpen: true,
+          rightPanel: panel,
+          ...(typeof window !== "undefined" && window.innerWidth < 768 ? { sidebarOpen: false } : {}),
+        }),
       closeRightPanel: () => set({ rightPanelOpen: false }),
       toggleRightPanel: (panel) =>
-        set((s) =>
-          s.rightPanelOpen && s.rightPanel === panel
-            ? { rightPanelOpen: false }
-            : { rightPanelOpen: true, rightPanel: panel },
-        ),
+        set((s) => {
+          if (s.rightPanelOpen && s.rightPanel === panel) return { rightPanelOpen: false };
+          return {
+            rightPanelOpen: true,
+            rightPanel: panel,
+            ...(typeof window !== "undefined" && window.innerWidth < 768 ? { sidebarOpen: false } : {}),
+          };
+        }),
 
       setSettingsTab: (tab) => set({ settingsTab: tab }),
       openModal: (type, props) => set({ modal: { type, props } }),

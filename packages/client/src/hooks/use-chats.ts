@@ -1,7 +1,15 @@
 // ──────────────────────────────────────────────
 // React Query: Chat hooks
 // ──────────────────────────────────────────────
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "../lib/api-client";
 import { useChatStore } from "../stores/chat.store";
 import { useAgentStore } from "../stores/agent.store";
@@ -38,6 +46,8 @@ export const chatKeys = {
 };
 
 const RECENT_MESSAGE_CONTENT_EDIT_TTL_MS = 5 * 60 * 1000;
+const chatMetadataMutationVersions = new Map<string, number>();
+const chatMetadataFieldVersions = new Map<string, Map<string, number>>();
 
 interface RecentMessageContentEdit {
   chatId: string;
@@ -329,11 +339,87 @@ function getDeleteChatGroupId(input: DeleteChatInput) {
   return typeof input === "string" ? null : (input.groupId ?? null);
 }
 
+function chatMutationErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.message) return error.message;
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
 function upsertCachedChat(rows: Chat[] | undefined, chat: Chat): Chat[] | undefined {
   if (!rows) return rows;
   const existingIndex = rows.findIndex((row) => row.id === chat.id);
   if (existingIndex === -1) return [chat, ...rows];
   return rows.map((row) => (row.id === chat.id ? chat : row));
+}
+
+function normalizeChatMetadataValue(raw: unknown): Chat["metadata"] {
+  if (!raw) return {} as Chat["metadata"];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Chat["metadata"])
+        : ({} as Chat["metadata"]);
+    } catch {
+      return {} as Chat["metadata"];
+    }
+  }
+  return typeof raw === "object" && !Array.isArray(raw) ? (raw as Chat["metadata"]) : ({} as Chat["metadata"]);
+}
+
+function normalizeChatForCache(chat: Chat): Chat {
+  return { ...chat, metadata: normalizeChatMetadataValue((chat as { metadata?: unknown }).metadata) };
+}
+
+function nextChatMetadataMutationVersion(chatId: string, keys: string[]) {
+  const version = (chatMetadataMutationVersions.get(chatId) ?? 0) + 1;
+  chatMetadataMutationVersions.set(chatId, version);
+  let fieldVersions = chatMetadataFieldVersions.get(chatId);
+  if (!fieldVersions) {
+    fieldVersions = new Map();
+    chatMetadataFieldVersions.set(chatId, fieldVersions);
+  }
+  for (const key of keys) fieldVersions.set(key, version);
+  return version;
+}
+
+function shouldAcceptMetadataField(chatId: string, key: string, version: number) {
+  return (chatMetadataFieldVersions.get(chatId)?.get(key) ?? 0) <= version;
+}
+
+function mergeMetadataForVersion(
+  chatId: string,
+  base: unknown,
+  incoming: unknown,
+  version: number,
+  keys?: string[],
+): Chat["metadata"] {
+  const baseRecord = normalizeChatMetadataValue(base) as Record<string, unknown>;
+  const incomingRecord = normalizeChatMetadataValue(incoming) as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...baseRecord };
+  const incomingKeys = keys ?? Object.keys(incomingRecord);
+  for (const key of incomingKeys) {
+    if (!shouldAcceptMetadataField(chatId, key, version)) continue;
+    if (Object.prototype.hasOwnProperty.call(incomingRecord, key)) {
+      next[key] = incomingRecord[key];
+    } else {
+      delete next[key];
+    }
+  }
+  return next as Chat["metadata"];
+}
+
+export function syncCachedChat(qc: QueryClient, chat: Chat) {
+  const normalized = normalizeChatForCache(chat);
+  qc.setQueryData<Chat>(chatKeys.detail(normalized.id), normalized);
+  qc.setQueryData<Chat[]>(chatKeys.list(), (existing) => upsertCachedChat(existing, normalized));
+  if (normalized.groupId) {
+    qc.setQueryData<Chat[]>(chatKeys.group(normalized.groupId), (existing) => upsertCachedChat(existing, normalized));
+  }
+  const chatStore = useChatStore.getState();
+  if (chatStore.activeChatId === normalized.id || chatStore.activeChat?.id === normalized.id) {
+    chatStore.setActiveChat(normalized);
+  }
 }
 
 function syncCachedBranch(rows: Chat[] | undefined, sourceChatId: string, newChat: Chat): Chat[] | undefined {
@@ -367,6 +453,9 @@ export function useCreateChat() {
       void trackAchievementEvent("chat_created")
         .finally(() => qc.invalidateQueries({ queryKey: achievementKeys.all }))
         .catch(() => undefined);
+    },
+    onError: (error) => {
+      toast.error(chatMutationErrorMessage(error, "Couldn't create the conversation. Please try again."));
     },
   });
 }
@@ -408,6 +497,7 @@ export function useDeleteChat() {
           qc.invalidateQueries({ queryKey: chatKeys.group(context.groupId) });
         }
       }
+      toast.error("Couldn't delete the conversation. It has been restored.");
     },
     onSettled: (_data, _err, input, context) => {
       const groupId = context?.groupId ?? getDeleteChatGroupId(input);
@@ -463,6 +553,9 @@ export function useUpdateChat() {
       characterIds?: string[];
     }) => api.patch<Chat>(`/chats/${id}`, data),
     onSuccess: (updatedChat, vars) => {
+      if (updatedChat) {
+        syncCachedChat(qc, updatedChat);
+      }
       qc.invalidateQueries({ queryKey: chatKeys.detail(vars.id) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
 
@@ -505,43 +598,60 @@ export function useUpdateChatMetadata() {
       api.patch<Chat>(`/chats/${id}/metadata`, metadata),
     onMutate: async ({ id, ...metadata }) => {
       await qc.cancelQueries({ queryKey: chatKeys.detail(id) });
+      await qc.cancelQueries({ queryKey: chatKeys.list() });
       const previous = qc.getQueryData<Chat>(chatKeys.detail(id));
+      const fallback = useChatStore.getState().activeChat?.id === id ? useChatStore.getState().activeChat : null;
+      const base = previous ?? fallback;
       const updatedAt = new Date().toISOString();
-      qc.setQueryData<Chat>(chatKeys.detail(id), (existing) =>
-        existing
-          ? {
-              ...existing,
-              metadata: { ...existing.metadata, ...metadata },
-              updatedAt,
-            }
-          : existing,
-      );
-      return { previous };
+      const changedKeys = Object.keys(metadata);
+      const version = nextChatMetadataMutationVersion(id, changedKeys);
+      if (base) {
+        syncCachedChat(qc, {
+          ...base,
+          metadata: {
+            ...(normalizeChatMetadataValue(base.metadata) as Record<string, unknown>),
+            ...metadata,
+          } as Chat["metadata"],
+          updatedAt,
+        });
+      }
+      return { previous, version, changedKeys };
     },
     onError: (_error, variables, context) => {
       if (context?.previous) {
-        qc.setQueryData<Chat>(chatKeys.detail(variables.id), context.previous);
+        const current = qc.getQueryData<Chat>(chatKeys.detail(variables.id)) ?? context.previous;
+        syncCachedChat(qc, {
+          ...current,
+          metadata: mergeMetadataForVersion(
+            variables.id,
+            current.metadata,
+            context.previous.metadata,
+            context.version,
+            context.changedKeys,
+          ),
+          updatedAt: context.previous.updatedAt,
+        });
       }
     },
-    onSuccess: (data, vars) => {
-      // Metadata PATCH returns a full chat row, but concurrent updates to
-      // non-metadata fields (for example promptPresetId) may still be in
-      // flight. Merge only metadata, and keep newer optimistic metadata on top
-      // so an older PATCH response cannot clobber a later in-flight edit.
+    onSuccess: (data, vars, context) => {
       if (data) {
-        qc.setQueryData<Chat>(chatKeys.detail(vars.id), (existing) =>
-          existing
-            ? {
-                ...existing,
-                metadata: { ...data.metadata, ...existing.metadata },
-                updatedAt: data.updatedAt,
-              }
-            : data,
-        );
+        const existing = qc.getQueryData<Chat>(chatKeys.detail(vars.id));
+        const base = existing ?? data;
+        syncCachedChat(qc, {
+          ...base,
+          metadata: mergeMetadataForVersion(
+            vars.id,
+            base.metadata,
+            data.metadata,
+            context?.version ?? (chatMetadataMutationVersions.get(vars.id) ?? 0),
+          ),
+          updatedAt: data.updatedAt,
+        });
       } else {
         qc.invalidateQueries({ queryKey: chatKeys.detail(vars.id) });
       }
       qc.invalidateQueries({ queryKey: chatKeys.list() });
+      qc.invalidateQueries({ queryKey: [...chatKeys.all, "group"] });
       qc.invalidateQueries({ queryKey: lorebookKeys.active(vars.id) });
     },
   });
@@ -604,7 +714,7 @@ function useSummaryEntryMutation() {
       api.patch<Chat>(`/chats/${chatId}/summary-entries`, body),
     onSuccess: (data, vars) => {
       if (data) {
-        qc.setQueryData(chatKeys.detail(vars.chatId), data);
+        syncCachedChat(qc, data);
       } else {
         qc.invalidateQueries({ queryKey: chatKeys.detail(vars.chatId) });
       }
@@ -996,7 +1106,18 @@ export function useGenerateSummary() {
         rangeEndIndex,
         promptTemplateId,
       }),
-    onSuccess: (_data, vars) => {
+    onSuccess: (data, vars) => {
+      const existing = qc.getQueryData<Chat>(chatKeys.detail(vars.chatId));
+      if (existing) {
+        syncCachedChat(qc, {
+          ...existing,
+          metadata: {
+            ...(normalizeChatMetadataValue(existing.metadata) as Record<string, unknown>),
+            summary: data.summary,
+            summaryEntries: data.entries,
+          } as Chat["metadata"],
+        });
+      }
       qc.invalidateQueries({ queryKey: chatKeys.detail(vars.chatId) });
     },
   });

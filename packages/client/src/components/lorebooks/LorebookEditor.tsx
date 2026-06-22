@@ -79,6 +79,7 @@ import { api } from "../../lib/api-client";
 import {
   LOCAL_SIDECAR_CONNECTION_ID,
   LIMITS,
+  includesTextForMatch,
   testPrimaryKeys,
   testSecondaryKeys,
   buildFolderForest,
@@ -100,6 +101,7 @@ import { EditorTabRail } from "../ui/EditorTabRail";
 // state is independent across books.
 // ──────────────────────────────────────────────
 const FOLDER_COLLAPSE_KEY_PREFIX = "lorebook-folder-collapsed:";
+const LOREBOOK_VECTORIZE_CONNECTION_STORAGE_KEY = "marinara:lorebook-vectorize-connection-id";
 
 function closestElementFromPoint(x: number, y: number, selector: string) {
   const element = document.elementFromPoint(x, y);
@@ -194,7 +196,7 @@ function LinkedResourcePicker({
   const availableItems = items.filter(
     (item) =>
       !selectedIds.includes(item.id) &&
-      [item.name, item.description ?? ""].some((value) => value.toLowerCase().includes(search.toLowerCase())),
+      [item.name, item.description ?? ""].some((value) => includesTextForMatch(value, search)),
   );
 
   return (
@@ -559,12 +561,11 @@ export function LorebookEditor() {
   const filteredEntries = useMemo(() => {
     let result = entries;
     if (entrySearch) {
-      const q = entrySearch.toLowerCase();
       result = result.filter(
         (e) =>
-          e.name.toLowerCase().includes(q) ||
-          e.keys.some((k) => k.toLowerCase().includes(q)) ||
-          e.content.toLowerCase().includes(q),
+          includesTextForMatch(e.name, entrySearch) ||
+          e.keys.some((key) => includesTextForMatch(key, entrySearch)) ||
+          includesTextForMatch(e.content, entrySearch),
       );
     }
     switch (entrySort) {
@@ -2547,6 +2548,43 @@ function VectorizeSection({
     }
   }, [fetchSidecarStatus]);
 
+  useEffect(() => {
+    if (
+      selectedConnectionId &&
+      !embeddingConnections.some((connection) => connection.id === selectedConnectionId)
+    ) {
+      setSelectedConnectionId("");
+      try {
+        window.localStorage.removeItem(LOREBOOK_VECTORIZE_CONNECTION_STORAGE_KEY);
+      } catch {
+        // localStorage is optional; the picker still works for this session.
+      }
+      return;
+    }
+    if (selectedConnectionId || embeddingConnections.length === 0) return;
+    try {
+      const storedConnectionId = window.localStorage.getItem(LOREBOOK_VECTORIZE_CONNECTION_STORAGE_KEY);
+      if (storedConnectionId && embeddingConnections.some((connection) => connection.id === storedConnectionId)) {
+        setSelectedConnectionId(storedConnectionId);
+      }
+    } catch {
+      // localStorage is optional; the picker still works for this session.
+    }
+  }, [embeddingConnections, selectedConnectionId]);
+
+  const handleConnectionChange = (nextConnectionId: string) => {
+    setSelectedConnectionId(nextConnectionId);
+    try {
+      if (nextConnectionId) {
+        window.localStorage.setItem(LOREBOOK_VECTORIZE_CONNECTION_STORAGE_KEY, nextConnectionId);
+      } else {
+        window.localStorage.removeItem(LOREBOOK_VECTORIZE_CONNECTION_STORAGE_KEY);
+      }
+    } catch {
+      // localStorage is optional; keep the in-memory selection.
+    }
+  };
+
   const handleVectorize = async () => {
     if (!selectedConnectionId) return;
     setVectorizing(true);
@@ -2609,7 +2647,7 @@ function VectorizeSection({
           <div className="flex items-center gap-2">
             <select
               value={selectedConnectionId}
-              onChange={(e) => setSelectedConnectionId(e.target.value)}
+              onChange={(e) => handleConnectionChange(e.target.value)}
               className="mari-editor-field flex-1 px-2.5 py-1.5 text-xs"
             >
               <option value="">No semantic search</option>

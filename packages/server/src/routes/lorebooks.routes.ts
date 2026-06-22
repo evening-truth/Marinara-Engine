@@ -143,6 +143,44 @@ function selectMessagesForLastGenerationScan<T extends { role: string }>(message
   return messages.slice(0, lastGeneratedIndex);
 }
 
+function stableHash(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function createSeededRandom(seedText: string): () => number {
+  let state = stableHash(seedText) || 0x9e3779b9;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function stringifyForSeed(value: unknown): string {
+  try {
+    const replacer = (_key: string, item: unknown): unknown => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+      const record = item as Record<string, unknown>;
+      return Object.keys(record)
+        .sort()
+        .reduce<Record<string, unknown>>((sorted, key) => {
+          sorted[key] = record[key];
+          return sorted;
+        }, {});
+    };
+    return JSON.stringify(value ?? null, replacer) ?? "null";
+  } catch {
+    return "null";
+  }
+}
+
 function buildCompatibleLorebookExport(lb: Record<string, unknown>, entries: Array<Record<string, unknown>>) {
   const exportedEntries: Record<string, Record<string, unknown>> = {};
   entries.forEach((entry, index) => {
@@ -763,6 +801,36 @@ export async function lorebooksRoutes(app: FastifyInstance) {
       }
     })();
 
+    const entryStateOverrides =
+      (chatMeta.entryStateOverrides ?? chatMeta.lorebookEntryStateOverrides) &&
+      typeof (chatMeta.entryStateOverrides ?? chatMeta.lorebookEntryStateOverrides) === "object"
+        ? ((chatMeta.entryStateOverrides ?? chatMeta.lorebookEntryStateOverrides) as Record<
+            string,
+            { ephemeral?: number | null; enabled?: boolean }
+          >)
+        : undefined;
+    const entryTimingStates =
+      (chatMeta.entryTimingStates ?? chatMeta.lorebookEntryTimingStates) &&
+      typeof (chatMeta.entryTimingStates ?? chatMeta.lorebookEntryTimingStates) === "object"
+        ? ((chatMeta.entryTimingStates ?? chatMeta.lorebookEntryTimingStates) as Record<
+            string,
+            LorebookEntryTimingState
+          >)
+        : undefined;
+    const scanGenerationTriggers = resolveScanGenerationTriggers(chat?.mode);
+    const previewRandom = createSeededRandom(
+      [
+        chatId,
+        personaId ?? "",
+        characterIds.join(","),
+        activeLorebookIds.join(","),
+        scanGenerationTriggers.join(","),
+        stringifyForSeed(entryStateOverrides),
+        stringifyForSeed(entryTimingStates),
+        scanMessages.map((message) => `${message.role}\u001e${message.content}`).join("\u001f"),
+      ].join("\u001d"),
+    );
+
     const result = await processLorebooks(app.db, scanMessages, gameStateForScan, {
       chatId,
       characterIds,
@@ -771,25 +839,12 @@ export async function lorebooksRoutes(app: FastifyInstance) {
       excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
       excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
       tokenBudget: typeof chatMeta.lorebookTokenBudget === "number" ? chatMeta.lorebookTokenBudget : undefined,
-      entryStateOverrides:
-        (chatMeta.entryStateOverrides ?? chatMeta.lorebookEntryStateOverrides) &&
-        typeof (chatMeta.entryStateOverrides ?? chatMeta.lorebookEntryStateOverrides) === "object"
-          ? ((chatMeta.entryStateOverrides ?? chatMeta.lorebookEntryStateOverrides) as Record<
-              string,
-              { ephemeral?: number | null; enabled?: boolean }
-            >)
-          : undefined,
-      entryTimingStates:
-        (chatMeta.entryTimingStates ?? chatMeta.lorebookEntryTimingStates) &&
-        typeof (chatMeta.entryTimingStates ?? chatMeta.lorebookEntryTimingStates) === "object"
-          ? ((chatMeta.entryTimingStates ?? chatMeta.lorebookEntryTimingStates) as Record<
-              string,
-              LorebookEntryTimingState
-            >)
-          : undefined,
+      entryStateOverrides,
+      entryTimingStates,
       previewOnly: true,
-      generationTriggers: resolveScanGenerationTriggers(chat?.mode),
+      generationTriggers: scanGenerationTriggers,
       resolveContent: lorebookMacroResolvers?.resolveContent,
+      random: previewRandom,
     });
 
     const resolvedContentById = new Map(result.activatedEntries.map((entry) => [entry.id, entry.content]));

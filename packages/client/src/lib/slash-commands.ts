@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
   SUPPORTED_MACROS,
   buildNarratorInstructionMessage,
+  normalizeTextForMatch,
   type SceneCreateResponse,
   type ScenePlanResponse,
 } from "@marinara-engine/shared";
@@ -206,7 +207,7 @@ function parseCommandTokens(input: string): Array<{ value: string; quoted: boole
 }
 
 function normalizeLookup(value: string): string {
-  return value.trim().toLowerCase();
+  return normalizeTextForMatch(value);
 }
 
 function isAllEmoteTarget(value: string): boolean {
@@ -404,7 +405,7 @@ const COMMANDS: SlashCommand[] = [
     async execute(args, ctx) {
       const name = args.trim();
       if (!name) return { handled: true, feedback: "Usage: /as <character name>" };
-      const match = ctx.characterNames.find((n) => n.toLowerCase() === name.toLowerCase());
+      const match = ctx.characterNames.find((n) => normalizeLookup(n) === normalizeLookup(name));
       if (!match) {
         return {
           handled: true,

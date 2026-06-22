@@ -66,6 +66,7 @@ import { TTSConfigCard } from "./settings/TTSConfigCard";
 import { SettingsSwitch } from "./settings/SettingControls";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
+import { TouchDragHandle } from "../ui/TouchDragHandle";
 
 /** Provider color pair for connection icons. Kept as one blue family by design. */
 const CONNECTION_ICON_COLORS = {
@@ -556,7 +557,7 @@ function ConnectionRow({
   isDragging: boolean;
   onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
-  onTouchStart?: (event: TouchEvent<HTMLDivElement>) => void;
+  onTouchStart?: (event: TouchEvent<HTMLButtonElement>) => void;
   suppressClickRef?: { current: boolean };
   onImagePick: () => void;
 }) {
@@ -579,6 +580,7 @@ function ConnectionRow({
 
   return (
     <div
+      data-touch-drag-card="connection"
       onClick={() => {
         if (suppressClickRef?.current) return;
         onClickRow();
@@ -586,14 +588,21 @@ function ConnectionRow({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onTouchStart={onTouchStart}
       className={cn(
-        "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+        "group relative flex touch-pan-y cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
         isSelected && `ring-1 ${colors.ring} bg-[var(--sidebar-accent)]/50`,
         selectionMode && isBulkSelected && "ring-1 ring-[var(--border)] bg-[var(--sidebar-accent)]/70",
         isDragging && "opacity-50",
       )}
     >
+      {onTouchStart && (
+        <TouchDragHandle
+          label="Drag connection"
+          onTouchStart={(event) => {
+            onTouchStart(event);
+          }}
+        />
+      )}
       <button
         type="button"
         onClick={(event) => {
@@ -601,10 +610,10 @@ function ConnectionRow({
           if (suppressClickRef?.current) return;
           onImagePick();
         }}
-	        className={cn(
-	          iconClasses,
-	          "transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[var(--marinara-chat-chrome-focus-ring)]",
-	        )}
+        className={cn(
+          iconClasses,
+          "transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[var(--marinara-chat-chrome-focus-ring)]",
+        )}
         title={conn.imagePath ? "Replace connection picture" : "Upload connection picture"}
         aria-label={conn.imagePath ? "Replace connection picture" : "Upload connection picture"}
       >
@@ -1153,7 +1162,12 @@ export function ConnectionsPanel() {
           event.dataTransfer.setData("text/plain", conn.id);
         }}
         onDragEnd={() => setDraggedConnectionId(null)}
-        onTouchStart={(event) => startConnectionTouchDrag(event, conn.id)}
+        onTouchStart={(event) => {
+          startConnectionTouchDrag(event, conn.id, {
+            allowInteractiveTarget: true,
+            sourceElement: event.currentTarget.closest<HTMLElement>('[data-touch-drag-card="connection"]'),
+          });
+        }}
         suppressClickRef={suppressConnectionClickRef}
         onImagePick={() => handlePickConnectionImage(conn.id)}
       />

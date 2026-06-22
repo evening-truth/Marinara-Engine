@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat: Conversation Input — Discord-style
 // ──────────────────────────────────────────────
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, type FormEvent } from "react";
 import {
   Send,
   Smile,
@@ -55,7 +55,14 @@ import { SpeechToTextButton } from "../ui/SpeechToTextButton";
 import { SlashCommandFeedback } from "./SlashCommandFeedback";
 import { QuickReplyMenu, type QuickReplyAction } from "./QuickReplyMenu";
 import { getChatInputShellClass } from "./chat-input-styles";
-import { buildGuidedGenerationInstructionMessage, formatTextQuotes, type Message } from "@marinara-engine/shared";
+import {
+  buildGuidedGenerationInstructionMessage,
+  formatTextQuotes,
+  includesTextForMatch,
+  normalizeTextForMatch,
+  startsWithTextForMatch,
+  type Message,
+} from "@marinara-engine/shared";
 
 interface Attachment {
   type: string;
@@ -78,6 +85,7 @@ const TEXT_ATTACHMENT_EXTENSIONS = new Set([
 const PDF_ATTACHMENT_MIME_TYPE = "application/pdf";
 
 const CONVERSATION_HIDDEN_SLASH_COMMANDS = new Set(["impersonate", "impersonate_prompt"]);
+const QUOTE_INPUT_TRIGGER_RE = /["'\u2018\u2019\u201a\u201b\u201c\u201d\u201e\u201f]/;
 
 type ConversationSlashCompletion = {
   key: string;
@@ -98,6 +106,13 @@ const CONVERSATION_STATUS_COMPLETIONS = [
 
 function isConversationHiddenSlashCommand(command: SlashCommand): boolean {
   return CONVERSATION_HIDDEN_SLASH_COMMANDS.has(command.name);
+}
+
+function shouldFormatQuoteInput(event: FormEvent<HTMLTextAreaElement> | undefined, value: string): boolean {
+  const inputEvent = event?.nativeEvent as InputEvent | undefined;
+  const inputType = typeof inputEvent?.inputType === "string" ? inputEvent.inputType : "";
+  if (inputType.startsWith("delete")) return false;
+  return QUOTE_INPUT_TRIGGER_RE.test(value);
 }
 
 function quoteSlashArgument(value: string): string {
@@ -135,7 +150,7 @@ function buildConversationSlashCompletions(
 ): ConversationSlashCompletion[] {
   if (!input.startsWith("/")) return [];
 
-  const lowerInput = input.toLowerCase();
+  const lowerInput = normalizeTextForMatch(input);
   if (lowerInput.startsWith("/status")) {
     const rest = input.slice("/status".length);
     if (rest.length === 0 || /^\s+$/.test(rest)) {
@@ -153,7 +168,7 @@ function buildConversationSlashCompletions(
 
     const trimmedRest = rest.trimStart();
     const firstSpace = trimmedRest.indexOf(" ");
-    const action = (firstSpace === -1 ? trimmedRest : trimmedRest.slice(0, firstSpace)).toLowerCase();
+    const action = normalizeTextForMatch(firstSpace === -1 ? trimmedRest : trimmedRest.slice(0, firstSpace));
 
     if (firstSpace === -1) {
       return CONVERSATION_STATUS_COMPLETIONS.filter((status) => status.value.startsWith(action)).map((status) => ({
@@ -169,12 +184,11 @@ function buildConversationSlashCompletions(
     if (!CONVERSATION_STATUS_COMPLETIONS.some((status) => status.value === action)) return [];
 
     const rawNameQuery = trimmedRest.slice(firstSpace + 1);
-    const nameQuery = stripLeadingQuote(rawNameQuery).trim().toLowerCase();
+    const nameQuery = normalizeTextForMatch(stripLeadingQuote(rawNameQuery));
     return (characters ?? [])
       .filter((character) => {
         if (!nameQuery) return true;
-        const normalizedName = character.name.toLowerCase();
-        return normalizedName.startsWith(nameQuery) || normalizedName.includes(nameQuery);
+        return startsWithTextForMatch(character.name, nameQuery) || includesTextForMatch(character.name, nameQuery);
       })
       .map((character) => {
         const insertValue = `/status ${action} ${quoteSlashArgument(character.name)}`;
@@ -306,6 +320,8 @@ export function ConversationInput({
   const inputBarRef = useRef<HTMLDivElement>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
   const pendingAttachmentDraftsRef = useRef<Map<string, Attachment[]>>(new Map());
+  const currentInputFrameRef = useRef<number | null>(null);
+  const pendingCurrentInputRef = useRef("");
   const activeChatId = useChatStore((s) => s.activeChatId);
   const { data: activeChat } = useChat(activeChatId);
   const chatName = activeChat?.name;
@@ -379,8 +395,29 @@ export function ConversationInput({
 
   const syncInputState = useCallback(
     (value: string) => {
-      setHasInput(value.trim().length > 0);
-      setCurrentInput(value);
+      const nextHasInput = value.trim().length > 0;
+      setHasInput((current) => (current === nextHasInput ? current : nextHasInput));
+      pendingCurrentInputRef.current = value;
+      if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+        setCurrentInput(value);
+        return;
+      }
+      if (currentInputFrameRef.current !== null) return;
+      currentInputFrameRef.current = window.requestAnimationFrame(() => {
+        currentInputFrameRef.current = null;
+        setCurrentInput(pendingCurrentInputRef.current);
+      });
+    },
+    [setCurrentInput],
+  );
+
+  useEffect(
+    () => () => {
+      if (currentInputFrameRef.current !== null) {
+        window.cancelAnimationFrame(currentInputFrameRef.current);
+        currentInputFrameRef.current = null;
+        setCurrentInput(pendingCurrentInputRef.current);
+      }
     },
     [setCurrentInput],
   );
@@ -631,8 +668,8 @@ export function ConversationInput({
       for (const name of sorted) {
         // Match @Name (case-insensitive) — name may contain spaces
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const re = new RegExp(`@${escaped}\\b`, "gi");
-        if (re.test(text) && !mentioned.some((m) => m.toLowerCase() === name.toLowerCase())) {
+        const re = new RegExp(`@${escaped}(?=$|[\\s\\p{P}\\p{S}])`, "giu");
+        if (re.test(text) && !mentioned.some((m) => normalizeTextForMatch(m) === normalizeTextForMatch(name))) {
           mentioned.push(name);
         }
       }
@@ -1315,10 +1352,10 @@ export function ConversationInput({
     ],
   );
 
-  const handleInput = useCallback(() => {
+  const handleInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => {
     const el = textareaRef.current;
     if (!el) return;
-    const formatted = applyTextareaQuoteFormat(el, quoteFormat);
+    const formatted = shouldFormatQuoteInput(event, el.value) ? applyTextareaQuoteFormat(el, quoteFormat) : el.value;
     // Debounced resize to reduce layout reflows during fast typing
     if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
     resizeTimerRef.current = setTimeout(() => {
@@ -1347,30 +1384,31 @@ export function ConversationInput({
       setCompletions(results);
       setSelectedCompletion(0);
     } else {
-      setCompletions([]);
+      setCompletions((current) => (current.length > 0 ? [] : current));
     }
 
     // @mention detection — look backwards from cursor for an @ trigger
     const cursor = el.selectionStart;
     const textBefore = formatted.slice(0, cursor);
     // Find the last @ that isn't preceded by a word character
-    const atMatch = textBefore.match(/(?:^|[^a-zA-Z0-9])@([a-zA-Z0-9 ]*)$/);
+    const atMatch = textBefore.match(/(^|[^\p{L}\p{N}_])@([^\n@]*)$/u);
     if (atMatch && activeCharacterNames.length > 0) {
-      const query = atMatch[1]!.toLowerCase();
-      const startPos = cursor - atMatch[1]!.length - 1; // position of the @
-      const matches = activeCharacterNames.filter((n) => n.toLowerCase().startsWith(query));
+      const queryText = atMatch[2] ?? "";
+      const query = normalizeTextForMatch(queryText);
+      const startPos = (atMatch.index ?? textBefore.length - atMatch[0].length) + (atMatch[1]?.length ?? 0);
+      const matches = activeCharacterNames.filter((name) => startsWithTextForMatch(name, query));
       if (matches.length > 0) {
         setMentionQuery(query);
         setMentionCompletions(matches);
         setSelectedMention(0);
         setMentionStartPos(startPos);
       } else {
-        setMentionQuery(null);
-        setMentionCompletions([]);
+        setMentionQuery((current) => (current === null ? current : null));
+        setMentionCompletions((current) => (current.length > 0 ? [] : current));
       }
     } else {
-      setMentionQuery(null);
-      setMentionCompletions([]);
+      setMentionQuery((current) => (current === null ? current : null));
+      setMentionCompletions((current) => (current.length > 0 ? [] : current));
     }
 
     // :emoji: detection — a `:partial` at a word boundary, just before the cursor
@@ -1386,10 +1424,10 @@ export function ConversationInput({
         setSelectedEmojiCompletion(0);
         setEmojiStartPos(cursor - eq.length - 1);
       } else {
-        setEmojiCompletions([]);
+        setEmojiCompletions((current) => (current.length > 0 ? [] : current));
       }
     } else {
-      setEmojiCompletions([]);
+      setEmojiCompletions((current) => (current.length > 0 ? [] : current));
     }
   }, [
     activeChatId,
@@ -1770,12 +1808,7 @@ export function ConversationInput({
               <GifPicker embedded open onClose={() => setMobilePickerOpen(false)} onSelect={handleGifSelect} />
             )}
             {mobilePickerTab === "stickers" && (
-              <StickerPicker
-                embedded
-                open
-                onClose={() => setMobilePickerOpen(false)}
-                onSelect={handleStickerSelect}
-              />
+              <StickerPicker embedded open onClose={() => setMobilePickerOpen(false)} onSelect={handleStickerSelect} />
             )}
           </div>
         </div>

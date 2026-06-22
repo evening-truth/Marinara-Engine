@@ -56,6 +56,7 @@ interface RouterResponse {
 }
 
 export interface KnowledgeRouterCandidateOptions extends LorebookEmbeddingOptions {
+  semanticEnabled?: boolean;
   semanticTopK?: unknown;
   scanMessages?: ScanMessage[];
   scanOptions?: Pick<
@@ -220,6 +221,7 @@ export async function prepareKnowledgeRouterCandidates(
     [],
     [...activatedEntries, ...keywordScanEntries, ...entries],
   );
+  if (options.semanticEnabled === false) return fallbackCandidates;
   const query = buildKnowledgeRouterQuery(context);
   let semanticMatches: SemanticLorebookMatch[] | null;
   try {

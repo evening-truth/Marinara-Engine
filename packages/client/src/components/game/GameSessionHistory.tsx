@@ -374,7 +374,7 @@ export function GameSessionHistory({
     <div
       className={
         embedded
-          ? "flex min-h-0 flex-1 flex-col"
+          ? "flex min-h-0 flex-col"
           : "absolute inset-0 z-40 flex flex-col bg-[var(--card)]/95 backdrop-blur-sm"
       }
     >
@@ -396,7 +396,7 @@ export function GameSessionHistory({
         </div>
       )}
 
-      <div className={embedded ? "min-h-0 flex-1 overflow-y-auto px-1 py-2" : "flex-1 overflow-y-auto px-4 py-3"}>
+      <div className={embedded ? "px-1 py-2" : "flex-1 overflow-y-auto px-4 py-3"}>
         <div className="flex flex-col gap-2">
           <div className="rounded-lg border border-[var(--border)] bg-[var(--secondary)]/45">
             <div className="flex flex-wrap items-center gap-3 px-4 py-3">

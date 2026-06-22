@@ -3,7 +3,8 @@
 // Multi-provider: ChubAI, JannyAI, CharacterTavern, Pygmalion, Wyvern
 // With login modals for Pygmalion & CharacterTavern NSFW, PNG download for all providers
 // ──────────────────────────────────────────────
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   Search,
   Star,
@@ -48,6 +49,9 @@ const TAG_IMPORT_OPTIONS: Array<{ value: TagImportMode; label: string; descripti
   { value: "none", label: "No tags", description: "Skip source tags." },
   { value: "existing", label: "Existing only", description: "Keep tags already in Marinara." },
 ];
+
+const SOURCE_MENU_MIN_WIDTH = 180;
+const SOURCE_MENU_MARGIN = 8;
 
 interface BrowseCard {
   id: string;
@@ -1330,7 +1334,49 @@ export function BotBrowserView() {
 
   const [sourceId, setSourceId] = useState("chub");
   const [sourceOpen, setSourceOpen] = useState(false);
+  const sourceButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [sourceMenuPosition, setSourceMenuPosition] = useState<{
+    left: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
   const provider = useMemo(() => getProvider(sourceId), [sourceId]);
+
+  const updateSourceMenuPosition = useCallback(() => {
+    const button = sourceButtonRef.current;
+    if (!button) {
+      setSourceMenuPosition(null);
+      return;
+    }
+
+    const rect = button.getBoundingClientRect();
+    const width = Math.max(SOURCE_MENU_MIN_WIDTH, rect.width);
+    const left = Math.min(
+      Math.max(SOURCE_MENU_MARGIN, rect.left),
+      Math.max(SOURCE_MENU_MARGIN, window.innerWidth - width - SOURCE_MENU_MARGIN),
+    );
+    const top = rect.bottom + 4;
+    setSourceMenuPosition({
+      left,
+      top,
+      maxHeight: Math.max(96, window.innerHeight - top - SOURCE_MENU_MARGIN),
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!sourceOpen) {
+      setSourceMenuPosition(null);
+      return;
+    }
+
+    updateSourceMenuPosition();
+    window.addEventListener("resize", updateSourceMenuPosition);
+    window.addEventListener("scroll", updateSourceMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateSourceMenuPosition);
+      window.removeEventListener("scroll", updateSourceMenuPosition, true);
+    };
+  }, [sourceOpen, updateSourceMenuPosition]);
 
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState(provider.defaultSort);
@@ -1828,6 +1874,7 @@ export function BotBrowserView() {
         <h2 className="mari-chrome-text-strong text-sm font-semibold">Browser</h2>
         <div className="relative ml-2">
           <button
+            ref={sourceButtonRef}
             onClick={() => setSourceOpen((v) => !v)}
             className="mari-chrome-control mari-chrome-control--small px-3 py-1.5 text-xs"
           >
@@ -1835,8 +1882,18 @@ export function BotBrowserView() {
             <span>{provider.name}</span>
             <ChevronDown size="0.625rem" className={cn("transition-transform", sourceOpen && "rotate-180")} />
           </button>
-          {sourceOpen && (
-            <div className="mari-chrome-selection-bar absolute left-0 top-full z-50 mt-1 min-w-[180px] overflow-hidden shadow-xl">
+        </div>
+        {sourceOpen &&
+          sourceMenuPosition &&
+          createPortal(
+            <div
+              className="mari-chrome-token-scope mari-chrome-selection-bar fixed z-[9999] min-w-[180px] overflow-y-auto shadow-xl"
+              style={{
+                left: sourceMenuPosition.left,
+                top: sourceMenuPosition.top,
+                maxHeight: sourceMenuPosition.maxHeight,
+              }}
+            >
               {ALL_PROVIDERS.map((p) => (
                 <button
                   key={p.id}
@@ -1853,9 +1910,9 @@ export function BotBrowserView() {
                   {p.id === sourceId && <span className="ml-auto text-[0.6rem]">✓</span>}
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body,
           )}
-        </div>
         {/* Auth indicator for login providers */}
         {sourceId === "pygmalion" && pygLoggedIn && (
           <span className="ml-auto flex items-center gap-1 text-[0.65rem] text-emerald-400">

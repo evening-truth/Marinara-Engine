@@ -315,8 +315,9 @@ export async function charactersRoutes(app: FastifyInstance) {
 
   // ── Characters ──
 
-  app.get("/", async () => {
+  app.get<{ Querystring: { includeBuiltIn?: string } }>("/", async (req) => {
     const characters = await storage.list();
+    if (req.query.includeBuiltIn === "true") return characters;
     return characters.filter((character) => character.id !== PROFESSOR_MARI_ID);
   });
 

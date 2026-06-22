@@ -1,26 +1,15 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from "react";
-import {
-  ArrowLeft,
-  ArrowUpDown,
-  Download,
-  Hash,
-  Pencil,
-  Plus,
-  Search,
-  Star,
-  User,
-} from "lucide-react";
+import { ArrowLeft, ArrowUpDown, Download, Hash, Pencil, Plus, Search, Star, User } from "lucide-react";
 import { useCharacters } from "../../hooks/use-characters";
 import { getCharacterTitle } from "../../lib/character-display";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { useUIStore, type CharacterLibrarySort } from "../../stores/ui.store";
-import type { CharacterData } from "@marinara-engine/shared";
+import { includesTextForMatch, normalizeTextForMatch, type CharacterData } from "@marinara-engine/shared";
 
 const libraryToolbarButtonClass =
   "mari-chrome-control mari-chrome-control--primary h-10 min-h-10 min-w-0 px-3 text-[0.75rem]";
-const libraryToolbarFieldClass =
-  "mari-chrome-field h-10 w-full text-[0.75rem] md:h-9";
+const libraryToolbarFieldClass = "mari-chrome-field h-10 w-full text-[0.75rem] md:h-9";
 const libraryNewCharacterButtonClass =
   "mari-panel-gradient-button mari-panel-gradient--characters h-10 min-h-10 min-w-0 px-3 text-[0.75rem]";
 
@@ -63,14 +52,14 @@ function parseCharacterSearchQuery(value: string) {
   const text = value
     .replace(/(?:^|\s)(?:-|!)(?:tag:|#)?(?:"([^"]+)"|(\S+))/gi, (_match, quoted: string, bare: string) => {
       const tag = (quoted ?? bare ?? "").trim();
-      if (tag) excludedTags.push(tag.toLowerCase());
+      if (tag) excludedTags.push(normalizeTextForMatch(tag));
       return " ";
     })
-    .replace(/\s+/g, " ")
+    .replace(/\s+/gu, " ")
     .trim();
 
   return {
-    text: text.toLowerCase(),
+    text: normalizeTextForMatch(text),
     excludedTags,
   };
 }
@@ -242,7 +231,7 @@ export function CharacterLibraryView() {
 
     return parsedCharacters.filter((char) => {
       const tags = getCharacterTags(char);
-      const tagSet = new Set(tags.map((tag) => tag.toLowerCase()));
+      const tagSet = new Set(tags.map((tag) => normalizeTextForMatch(tag)));
       if (query.excludedTags.some((tag) => tagSet.has(tag))) return false;
       if (!query.text) return true;
 
@@ -256,7 +245,7 @@ export function CharacterLibraryView() {
         ...tags,
       ];
 
-      return fields.some((value) => value.toLowerCase().includes(query.text));
+      return fields.some((value) => includesTextForMatch(value, query.text));
     });
   }, [parsedCharacters, search]);
 

@@ -69,6 +69,7 @@ import {
 } from "../../lib/tts-dialogue";
 import {
   formatTextQuotes,
+  normalizeTextForMatch,
   type PartyDialogueLine,
   type Message,
   type TTSConfig,
@@ -724,8 +725,8 @@ async function generateGameVoiceJobBlob(job: GameVoiceAudioJob, controller: Abor
 function findNpcVoiceHint(speaker: string | null | undefined, gameNpcs: GameNpc[]) {
   const speakerName = speaker?.trim();
   if (!speakerName) return null;
-  const normalizedSpeaker = speakerName.toLowerCase();
-  const npc = gameNpcs.find((candidate) => candidate.name.trim().toLowerCase() === normalizedSpeaker);
+  const normalizedSpeaker = normalizeTextForMatch(speakerName);
+  const npc = gameNpcs.find((candidate) => normalizeTextForMatch(candidate.name) === normalizedSpeaker);
   if (!npc) return { name: speakerName };
   return { name: npc.name, description: npc.description, gender: npc.gender, pronouns: npc.pronouns, notes: npc.notes };
 }
@@ -735,7 +736,7 @@ type GameSegmentVoiceOptions = {
 };
 
 function normalizeGameVoiceSpeakerName(value: string | null | undefined): string {
-  return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  return normalizeTextForMatch(value);
 }
 
 function getGameVoicePlayerSpeakerNames(personaName: string | undefined): Set<string> {
@@ -1082,16 +1083,16 @@ export function GameNarration({
     const byName = new Map<string, string>();
     for (const [, c] of activeCharacterEntries) {
       const color = c.dialogueColor || c.nameColor;
-      if (color) byName.set(c.name.toLowerCase(), color);
+      if (color) byName.set(normalizeTextForMatch(c.name), color);
     }
     if (speakerAvatarMap) {
       for (const [name, info] of speakerAvatarMap) {
         const color = info.dialogueColor || info.nameColor;
-        if (color) byName.set(name.toLowerCase(), color);
+        if (color) byName.set(normalizeTextForMatch(name), color);
       }
     }
     if (personaInfo?.name && (personaInfo.dialogueColor || personaInfo.nameColor)) {
-      byName.set(personaInfo.name.toLowerCase(), personaInfo.dialogueColor || personaInfo.nameColor || "");
+      byName.set(normalizeTextForMatch(personaInfo.name), personaInfo.dialogueColor || personaInfo.nameColor || "");
     }
     return byName;
   }, [activeCharacterEntries, personaInfo, speakerAvatarMap]);
@@ -1101,16 +1102,16 @@ export function GameNarration({
     const byName = new Map<string, string>();
     for (const [, c] of activeCharacterEntries) {
       const color = c.nameColor || c.dialogueColor;
-      if (color) byName.set(c.name.toLowerCase(), color);
+      if (color) byName.set(normalizeTextForMatch(c.name), color);
     }
     if (speakerAvatarMap) {
       for (const [name, info] of speakerAvatarMap) {
         const color = info.nameColor || info.dialogueColor;
-        if (color) byName.set(name.toLowerCase(), color);
+        if (color) byName.set(normalizeTextForMatch(name), color);
       }
     }
     if (personaInfo?.name && (personaInfo.nameColor || personaInfo.dialogueColor)) {
-      byName.set(personaInfo.name.toLowerCase(), personaInfo.nameColor || personaInfo.dialogueColor || "");
+      byName.set(normalizeTextForMatch(personaInfo.name), personaInfo.nameColor || personaInfo.dialogueColor || "");
     }
     return byName;
   }, [activeCharacterEntries, personaInfo, speakerAvatarMap]);
@@ -1135,7 +1136,7 @@ export function GameNarration({
   const speakerAvatarInfos = useMemo(() => {
     const byName = new Map<string, SpeakerAvatarInfo>();
     const setAvatarInfo = (name: string, avatarInfo: SpeakerAvatarInfo) => {
-      const key = name.toLowerCase();
+      const key = normalizeTextForMatch(name);
       const existing = byName.get(key) ?? findNamedMapValue(byName, name);
       byName.set(key, {
         url: avatarInfo.url || existing?.url || "",
@@ -1163,16 +1164,16 @@ export function GameNarration({
   }, [activeCharacterEntries, personaInfo, speakerAvatarMap, gameNpcs]);
 
   const uploadableNpcNames = useMemo(
-    () => new Set(gameNpcs.map((npc) => npc.name.trim().toLowerCase()).filter(Boolean)),
+    () => new Set(gameNpcs.map((npc) => normalizeTextForMatch(npc.name)).filter(Boolean)),
     [gameNpcs],
   );
 
   const nonNpcSpeakerNames = useMemo(() => {
     const names = new Set(["you", "player", "narrator", "gm", "game master", "system", "assistant", "story"]);
     for (const [, character] of activeCharacterEntries) {
-      if (character.name.trim()) names.add(character.name.trim().toLowerCase());
+      if (character.name.trim()) names.add(normalizeTextForMatch(character.name));
     }
-    if (personaInfo?.name?.trim()) names.add(personaInfo.name.trim().toLowerCase());
+    if (personaInfo?.name?.trim()) names.add(normalizeTextForMatch(personaInfo.name));
     return names;
   }, [activeCharacterEntries, personaInfo]);
 
@@ -1181,7 +1182,7 @@ export function GameNarration({
   const canUploadNpcPortrait = useCallback(
     (speaker?: string | null) => {
       const speakerName = speaker?.trim();
-      const normalizedSpeaker = speakerName?.toLowerCase();
+      const normalizedSpeaker = normalizeTextForMatch(speakerName);
       if (!speakerName || !normalizedSpeaker || !onNpcPortraitClick) return false;
       if (uploadableNpcNames.has(normalizedSpeaker)) return true;
       if (nonNpcSpeakerNames.has(normalizedSpeaker)) return false;
@@ -1200,7 +1201,7 @@ export function GameNarration({
     (speaker?: string | null) => {
       if (!speaker || !onNpcPortraitClick) return;
       const speakerName = speaker.trim();
-      const normalizedSpeaker = speakerName.toLowerCase();
+      const normalizedSpeaker = normalizeTextForMatch(speakerName);
       if (!uploadableNpcNames.has(normalizedSpeaker) && !/^\p{Lu}/u.test(speakerName)) return;
       onNpcPortraitClick(speaker);
     },
@@ -1228,7 +1229,7 @@ export function GameNarration({
       if (!speaker) return;
 
       if (isMobileGameViewport() && canGenerateNpcPortrait(speaker)) {
-        const normalizedSpeaker = speaker.trim().toLowerCase();
+        const normalizedSpeaker = normalizeTextForMatch(speaker);
         setMobilePortraitActionsSpeaker((current) => (current === normalizedSpeaker ? null : normalizedSpeaker));
         return;
       }
@@ -1240,7 +1241,7 @@ export function GameNarration({
 
   const isMobilePortraitActionsVisible = useCallback(
     (speaker?: string | null) => {
-      const normalizedSpeaker = speaker?.trim().toLowerCase();
+      const normalizedSpeaker = normalizeTextForMatch(speaker);
       return !!normalizedSpeaker && mobilePortraitActionsSpeaker === normalizedSpeaker;
     },
     [mobilePortraitActionsSpeaker],
@@ -1248,7 +1249,7 @@ export function GameNarration({
 
   const isNpcPortraitGenerating = useCallback(
     (speaker?: string | null) => {
-      const normalized = speaker?.trim().toLowerCase();
+      const normalized = normalizeTextForMatch(speaker);
       return !!normalized && !!generatingNpcPortraitNames?.has(normalized);
     },
     [generatingNpcPortraitNames],
@@ -1790,7 +1791,9 @@ export function GameNarration({
       cache.delete(key);
       cache.set(key, entry);
 
-      const protectedKeys = new Set([gameVoicePlayingKey, gameVoicePausedKey].filter((value): value is string => !!value));
+      const protectedKeys = new Set(
+        [gameVoicePlayingKey, gameVoicePausedKey].filter((value): value is string => !!value),
+      );
       let guard = 0;
       while (cache.size > GAME_VOICE_CACHE_MAX_ENTRIES && guard < cache.size) {
         const oldestKey = cache.keys().next().value;

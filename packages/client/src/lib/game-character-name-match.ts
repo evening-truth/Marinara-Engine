@@ -20,16 +20,18 @@ const NAME_STOP_WORDS = new Set([
 ]);
 
 function normalizeCharacterName(name: string): string {
-  return name
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    // Keep letters/numbers from any script (plus combining marks so e.g. the
-    // katakana voiced-sound mark survives) instead of ASCII-only [a-z0-9].
-    // ASCII-only normalization collapsed non-Latin names (Japanese, Cyrillic,
-    // etc.) to an empty string, so speaker lookups for those names always failed.
-    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
-    .trim();
+  return (
+    name
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase()
+      // Keep letters/numbers from any script (plus combining marks so e.g. the
+      // katakana voiced-sound mark survives) instead of ASCII-only [a-z0-9].
+      // ASCII-only normalization collapsed non-Latin names (Japanese, Cyrillic,
+      // etc.) to an empty string, so speaker lookups for those names always failed.
+      .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
+      .trim()
+  );
 }
 
 function getCharacterNameTokens(name: string): string[] {

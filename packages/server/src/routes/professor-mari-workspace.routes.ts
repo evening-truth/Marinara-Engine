@@ -15,6 +15,10 @@ const promptSchema = z.object({
   connectionId: z.string().optional().nullable(),
 });
 
+const resetSchema = z.object({
+  clearHistory: z.boolean().optional(),
+});
+
 const cliSchema = z.object({
   argv: z.array(z.string()).default([]),
   command: z.string().optional(),
@@ -58,7 +62,8 @@ export async function professorMariWorkspaceRoutes(app: FastifyInstance) {
 
   app.post("/reset", async (req, reply) => {
     if (!privileged(req, reply)) return;
-    await getProfessorMariWorkspaceService(app).reset();
+    const input = resetSchema.parse(req.body ?? {});
+    await getProfessorMariWorkspaceService(app).reset({ clearHistory: input.clearHistory === true });
     return { ok: true };
   });
 

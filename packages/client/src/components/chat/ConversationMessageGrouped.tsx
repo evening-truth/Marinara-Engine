@@ -2,6 +2,7 @@
 // Grouped multi-speaker message layout (merged group chat / Name: text format)
 // ──────────────────────────────────────────────
 import { type RefObject } from "react";
+import { normalizeTextForMatch } from "@marinara-engine/shared";
 import { cn, getAvatarCropStyle } from "../../lib/utils";
 import {
   HiddenFromAIConversationSummary,
@@ -75,6 +76,7 @@ export function ConversationMessageGrouped({
     onShowThinking,
     onPickReaction,
     onToggleSelect,
+    isBubbleStyle,
   } = ctx;
 
   return (
@@ -82,6 +84,7 @@ export function ConversationMessageGrouped({
       ref={msgRef}
       className={cn(
         "relative px-4 py-0.5 transition-colors hover:bg-[var(--secondary)]/30",
+        isBubbleStyle && "hover:bg-transparent",
         !noHoverGroup && "group",
         isGrouped ? "mt-0" : "mt-3",
         isStreaming && "bg-[var(--secondary)]/20",
@@ -99,7 +102,10 @@ export function ConversationMessageGrouped({
             role="checkbox"
             aria-checked={isSelected}
             aria-label={isSelected ? "Deselect message" : "Select message"}
-            onClick={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect?.();
+            }}
             className={cn(
               "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer",
               isSelected
@@ -125,7 +131,7 @@ export function ConversationMessageGrouped({
         </div>
       ) : (
         (groupedSegments ?? []).slice(0, visibleSegments).map((grp, i) => {
-          const segChar = grp.speaker && charByName ? charByName.get(grp.speaker.toLowerCase()) : null;
+          const segChar = grp.speaker && charByName ? charByName.get(normalizeTextForMatch(grp.speaker)) : null;
           const segAvatar = segChar?.avatarUrl ?? null;
           const segAvatarCropStyle = getAvatarCropStyle(segChar?.avatarCrop);
           const segName = segChar?.name ?? grp.speaker ?? "";
@@ -140,7 +146,64 @@ export function ConversationMessageGrouped({
                 className="pl-14 py-0.5 text-[0.875rem] leading-relaxed break-words whitespace-pre-wrap text-[var(--muted-foreground)] italic animate-[fadeSlideIn_0.4s_ease-out]"
                 style={messageTextStyle}
               >
-                <MessageContent content={combinedText} mentionNames={mentionNames} emojiMap={emojiMap} stickerMap={stickerMap} onImageOpen={(url) => onImageOpen(url)} />
+                <MessageContent
+                  content={combinedText}
+                  mentionNames={mentionNames}
+                  emojiMap={emojiMap}
+                  stickerMap={stickerMap}
+                  onImageOpen={(url) => onImageOpen(url)}
+                />
+              </div>
+            );
+          }
+
+          if (isBubbleStyle) {
+            return (
+              <div
+                key={i}
+                className={["animate-[fadeSlideIn_0.4s_ease-out]", i > 0 && "mt-2"].filter(Boolean).join(" ")}
+              >
+                <div className="flex items-end gap-2">
+                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-[var(--accent)]">
+                    {segAvatar ? (
+                      <img
+                        src={segAvatar}
+                        alt={segName}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                        style={segAvatarCropStyle}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted-foreground)]">
+                        {segName[0]?.toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 max-w-[min(32rem,calc(100%-2.5rem))]">
+                    <div className="mb-0.5 flex items-baseline gap-2">
+                      <span className="truncate text-[0.75rem] font-semibold" style={nameColorStyle(segColor)}>
+                        {segName}
+                      </span>
+                      {isFirst && !hideTimestamp && (
+                        <span className="shrink-0 text-[0.625rem] text-[var(--muted-foreground)]/60">
+                          {formatTimestamp(message.createdAt)}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      className="mari-message-bubble texting-bubble texting-bubble-other rounded-2xl px-3.5 py-2 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap shadow-sm"
+                      style={messageTextStyle}
+                    >
+                      <MessageContent
+                        content={combinedText}
+                        mentionNames={mentionNames}
+                        emojiMap={emojiMap}
+                        stickerMap={stickerMap}
+                        onImageOpen={(url) => onImageOpen(url)}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             );
           }
@@ -159,7 +222,13 @@ export function ConversationMessageGrouped({
                       <div className="w-10 flex-shrink-0">
                         <div className="relative h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)]">
                           {segAvatar ? (
-                            <img src={segAvatar} alt={segName} loading="lazy" className="h-full w-full object-cover" style={segAvatarCropStyle} />
+                            <img
+                              src={segAvatar}
+                              alt={segName}
+                              loading="lazy"
+                              className="h-full w-full object-cover"
+                              style={segAvatarCropStyle}
+                            />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">
                               {segName[0]?.toUpperCase()}
@@ -174,7 +243,10 @@ export function ConversationMessageGrouped({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2 mb-0.5">
-                          <span className="text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default" style={nameColorStyle(segColor)}>
+                          <span
+                            className="text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
+                            style={nameColorStyle(segColor)}
+                          >
                             {segName}
                           </span>
                           {isFirst && !hideTimestamp && (
@@ -183,14 +255,33 @@ export function ConversationMessageGrouped({
                             </span>
                           )}
                         </div>
-                        <div className="text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap" style={messageTextStyle}>
-                          <MessageContent content={paragraphs[0]!} mentionNames={mentionNames} emojiMap={emojiMap} stickerMap={stickerMap} onImageOpen={(url) => onImageOpen(url)} />
+                        <div
+                          className="text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
+                          style={messageTextStyle}
+                        >
+                          <MessageContent
+                            content={paragraphs[0]!}
+                            mentionNames={mentionNames}
+                            emojiMap={emojiMap}
+                            stickerMap={stickerMap}
+                            onImageOpen={(url) => onImageOpen(url)}
+                          />
                         </div>
                       </div>
                     </div>
                     {paragraphs.slice(1).map((para, pi) => (
-                      <div key={pi} className="pl-14 mt-0.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap" style={messageTextStyle}>
-                        <MessageContent content={para} mentionNames={mentionNames} emojiMap={emojiMap} stickerMap={stickerMap} onImageOpen={(url) => onImageOpen(url)} />
+                      <div
+                        key={pi}
+                        className="pl-14 mt-0.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
+                        style={messageTextStyle}
+                      >
+                        <MessageContent
+                          content={para}
+                          mentionNames={mentionNames}
+                          emojiMap={emojiMap}
+                          stickerMap={stickerMap}
+                          onImageOpen={(url) => onImageOpen(url)}
+                        />
                       </div>
                     ))}
                   </>
@@ -240,7 +331,7 @@ export function ConversationMessageGrouped({
       {/* Action bar */}
       {!hideActions && (
         <ConversationMessageActions
-          isBubbleStyle={false}
+          isBubbleStyle={isBubbleStyle}
           isUser={false}
           showActions={showActions}
           forceShowActions={forceShowActions}
@@ -258,7 +349,9 @@ export function ConversationMessageGrouped({
           onTranslate={onTranslate}
           onEdit={onStartEdit}
           onRegenerate={onRegenerate ? () => onRegenerate(message.id) : undefined}
-          onToggleHiddenFromAI={onToggleHiddenFromAI ? () => onToggleHiddenFromAI(message.id, isHiddenFromAI) : undefined}
+          onToggleHiddenFromAI={
+            onToggleHiddenFromAI ? () => onToggleHiddenFromAI(message.id, isHiddenFromAI) : undefined
+          }
           onPeekPrompt={onPeekPrompt}
           onDelete={onDelete ? () => onDelete(message.id) : undefined}
           onShowGenerationReplay={onShowGenerationReplay}

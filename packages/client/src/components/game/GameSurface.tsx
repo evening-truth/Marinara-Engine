@@ -103,7 +103,7 @@ import type {
   SceneSpotifyTrackSelection,
 } from "@marinara-engine/shared";
 import type { SceneSegmentEffect } from "@marinara-engine/shared";
-import { formatTextQuotes, scoreMusic, scoreAmbient } from "@marinara-engine/shared";
+import { formatTextQuotes, normalizeTextForMatch, scoreMusic, scoreAmbient } from "@marinara-engine/shared";
 import { GameNarration, formatNarration } from "./GameNarration";
 import { GameInput } from "./GameInput";
 import { GameMapPanel, MobileMapButton } from "./GameMap";
@@ -169,6 +169,7 @@ type GameAssetGenerationPayload = {
   illustration?: import("@marinara-engine/shared").SceneIllustrationRequest;
   useAvatarReferences?: boolean;
   includeCharacterAppearance?: boolean;
+  forceIllustration?: boolean;
   debugMode?: boolean;
   imageSizes?: {
     background?: { width: number; height: number };
@@ -189,10 +190,7 @@ const GAME_TOP_ICON_BUTTON = getChatToolbarButtonClass();
 const GAME_MOBILE_ROOT_BUTTON = getChatToolbarButtonClass({ sizeClassName: "h-8 w-10" });
 const GAME_MOBILE_ICON_BUTTON = getChatToolbarButtonClass({ compact: true });
 const GAME_ACTION_MENU = cn(ROLEPLAY_POPOVER_SHELL, "flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-1 p-1.5");
-const GAME_MOBILE_ACTIONS_MENU = cn(
-  CHAT_TOOLBAR_OVERFLOW_MENU_CLASS,
-  "absolute right-0 top-9",
-);
+const GAME_MOBILE_ACTIONS_MENU = cn(CHAT_TOOLBAR_OVERFLOW_MENU_CLASS, "absolute right-0 top-9");
 const GAME_MOBILE_ACTION_MENU = cn(ROLEPLAY_POPOVER_SHELL, "flex w-72 max-w-[calc(100vw-4rem)] flex-col gap-1 p-1.5");
 const GAME_ACTION_MENU_ITEM =
   "marinara-chat-popover__item flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--marinara-chat-chrome-panel-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-highlight-text)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent";
@@ -212,6 +210,13 @@ type GameAssetGenerationOptions = {
   /** Keep narration / queued interactions waiting for this asset job. */
   blocksScene?: boolean;
   showSuccessToast?: boolean;
+};
+
+type ApplyGeneratedAssetsOptions = {
+  /** Manual gallery requests should never replace the active scene background. */
+  applyBackgroundToScene?: boolean;
+  /** Manual gallery illustrations should be saved to the gallery without replacing the active scene background. */
+  applyIllustrationToScene?: boolean;
 };
 
 type GameSpotifyCandidatesResponse = {
@@ -2240,7 +2245,7 @@ export function GameSurface({
       for (const partyChange of changes) {
         const characterName = partyChange.characterName.trim();
         if (!characterName) continue;
-        const commandKey = `${messageId}:${partyChange.change}:${characterName.toLowerCase()}`;
+        const commandKey = `${messageId}:${partyChange.change}:${normalizeTextForMatch(characterName)}`;
         if (processedPartyChangeCommandsRef.current.has(commandKey)) continue;
         processedPartyChangeCommandsRef.current.add(commandKey);
         const mutation = partyChange.change === "add" ? recruitPartyMember : removePartyMember;
@@ -2811,21 +2816,21 @@ export function GameSurface({
       const data = spriteQueries[i]?.data;
       const charInfo = characterMap.get(id);
       if (data?.length && charInfo) {
-        map.set(charInfo.name.toLowerCase(), data);
+        map.set(normalizeTextForMatch(charInfo.name), data);
       }
     });
     speakingLibraryCharacters.forEach((entry, i) => {
       const data = librarySpriteQueries[i]?.data;
       if (data?.length) {
-        map.set(entry.character.name.toLowerCase(), data);
+        map.set(normalizeTextForMatch(entry.character.name), data);
         for (const alias of entry.aliases) {
-          map.set(alias.toLowerCase(), data);
+          map.set(normalizeTextForMatch(alias), data);
         }
       }
     });
     // Add persona sprites if available
     if (personaInfo?.name && personaSpriteQuery.data?.length) {
-      map.set(personaInfo.name.toLowerCase(), personaSpriteQuery.data);
+      map.set(normalizeTextForMatch(personaInfo.name), personaSpriteQuery.data);
     }
     return map;
   }, [
@@ -2856,9 +2861,9 @@ export function GameSurface({
         nameColor: entry.character.nameColor ?? fromMap?.nameColor,
         dialogueColor: entry.character.dialogueColor ?? fromMap?.dialogueColor,
       };
-      map.set(entry.character.name.toLowerCase(), avatarInfo);
+      map.set(normalizeTextForMatch(entry.character.name), avatarInfo);
       for (const alias of entry.aliases) {
-        map.set(alias.toLowerCase(), avatarInfo);
+        map.set(normalizeTextForMatch(alias), avatarInfo);
       }
     }
     return map;
@@ -4161,9 +4166,12 @@ export function GameSurface({
   }
 
   const installGeneratedIllustration = useCallback(
-    async (illustration: { tag: string; segment?: number }) => {
+    async (illustration: { tag: string; segment?: number }, options?: ApplyGeneratedAssetsOptions) => {
       void queryClient.invalidateQueries({ queryKey: ["gallery", activeChatId] });
       await fetchManifest();
+      if (options?.applyIllustrationToScene === false) {
+        return;
+      }
       if (illustration.segment !== undefined && illustration.segment > 0) {
         setPendingSegmentEffects((previous) => {
           const existingIndex = previous.findIndex((effect) => effect.segment === illustration.segment);
@@ -4286,14 +4294,14 @@ export function GameSurface({
   );
 
   const applyGeneratedAssets = useCallback(
-    async (res: GameAssetGenerationResult) => {
+    async (res: GameAssetGenerationResult, options?: ApplyGeneratedAssetsOptions) => {
       const nextBackground = res.generatedBackground ?? res.fallbackBackground;
-      if (nextBackground) {
+      if (nextBackground && options?.applyBackgroundToScene !== false) {
         await fetchManifest();
         useGameAssetStore.getState().setCurrentBackground(nextBackground);
       }
       if (res.generatedIllustration) {
-        await installGeneratedIllustration(res.generatedIllustration);
+        await installGeneratedIllustration(res.generatedIllustration, options);
       }
       if (res.generatedNpcAvatars?.length) {
         useGameModeStore.getState().patchNpcAvatars(res.generatedNpcAvatars);
@@ -4559,6 +4567,95 @@ export function GameSurface({
     },
     [pendingAssetGeneration, missingSceneAssetGeneration, requestAssetGeneration],
   );
+
+  const handleManualSceneIllustration = useCallback(async () => {
+    if (!activeChatId) return;
+    if (!gameImageGenerationEnabled) {
+      toast.error("Enable Game Illustrator and choose an image connection first.");
+      return;
+    }
+
+    const msg = latestAssistantMsgRef.current;
+    const narration = msg?.content ? parseGmTags(msg.content).cleanContent.trim() : "";
+    if (!narration) {
+      toast.error("The GM needs to write a scene before Illustrator can draw it.");
+      return;
+    }
+
+    const setupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | null;
+    const location = gameSnapshot?.location ? `Location: ${gameSnapshot.location}` : null;
+    const weather = gameSnapshot?.weather ? `Weather: ${gameSnapshot.weather}` : null;
+    const time = gameSnapshot?.time ? `Time: ${gameSnapshot.time}` : null;
+    const visibleCharacters = sceneWrapCharacterNames.slice(0, 6);
+    const trackedNpcNames = npcs
+      .map((npc) => (typeof npc.name === "string" ? npc.name.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 6);
+    const characters = visibleCharacters.length > 0 ? visibleCharacters : trackedNpcNames;
+    const prompt = [
+      "Create a cinematic game scene illustration for the current moment.",
+      `Narration: ${narration}`,
+      location,
+      weather,
+      time,
+      gameState ? `Mode: ${gameState}` : null,
+      setupConfig?.genre ? `Genre: ${String(setupConfig.genre)}` : null,
+      setupConfig?.setting ? `Setting: ${String(setupConfig.setting)}` : null,
+      chatMeta.gameWorldOverview ? `World: ${String(chatMeta.gameWorldOverview).slice(0, 300)}` : null,
+      characters.length > 0 ? `Visible characters: ${characters.join(", ")}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 1200);
+    const slugBase = backgroundOptionKey(
+      [gameSnapshot?.location, msg?.id, Date.now().toString(36)].filter(Boolean).join("-"),
+    ).slice(0, 72);
+    const assetPayload: GameAssetGenerationPayload = {
+      chatId: activeChatId,
+      illustration: {
+        title: "Manual scene illustration",
+        prompt,
+        characters,
+        reason: "Manual Gallery Illustrate request",
+        slug: slugBase || undefined,
+      },
+      forceIllustration: true,
+      debugMode: useUIStore.getState().debugMode,
+    };
+
+    setPendingAssetGeneration(assetPayload);
+    setAssetGenerationBlocksScene(false);
+    setAssetGenerationFailed(false);
+    try {
+      const result = await runGameAssetGeneration(assetPayload, { allowPromptReview: true });
+      setPendingAssetGeneration(null);
+      if (!result) return;
+      await applyGeneratedAssets(result, { applyBackgroundToScene: false, applyIllustrationToScene: false });
+      if (result.generatedIllustration) {
+        toast.success("Scene illustrated.", { duration: 1800 });
+      } else {
+        toast.error("Illustrator did not return an image for this scene.");
+      }
+    } catch (error) {
+      setAssetGenerationFailed(true);
+      toast.error(error instanceof Error ? error.message : "Scene illustration failed.");
+    } finally {
+      setAssetGenerationBlocksScene(false);
+    }
+  }, [
+    activeChatId,
+    applyGeneratedAssets,
+    chatMeta.gameSetupConfig,
+    chatMeta.gameWorldOverview,
+    gameImageGenerationEnabled,
+    gameSnapshot?.location,
+    gameSnapshot?.time,
+    gameSnapshot?.weather,
+    gameState,
+    npcs,
+    runGameAssetGeneration,
+    sceneWrapCharacterNames,
+  ]);
 
   useEffect(() => {
     if (!assetManifest) return;
@@ -5074,12 +5171,12 @@ export function GameSurface({
       if (!activeChatId) return;
 
       const displayName = cleanGameNpcDisplayName(npcName).trim();
-      const normalizedName = displayName.toLowerCase();
+      const normalizedName = normalizeTextForMatch(displayName);
       if (!normalizedName) return;
 
       const targetNpc = useGameModeStore
         .getState()
-        .npcs.find((npc) => npc.name.trim().toLowerCase() === normalizedName);
+        .npcs.find((npc) => normalizeTextForMatch(npc.name) === normalizedName);
 
       setPendingNpcPortraitUploadName(targetNpc?.name ?? displayName);
       npcPortraitUploadInputRef.current?.click();
@@ -5092,11 +5189,11 @@ export function GameSurface({
       if (!activeChatId) return;
 
       const displayName = cleanGameNpcDisplayName(npcName).trim();
-      const normalizedName = displayName.toLowerCase();
+      const normalizedName = normalizeTextForMatch(displayName);
       if (!normalizedName) return;
 
       const currentNpcs = useGameModeStore.getState().npcs;
-      const existingNpcIndex = currentNpcs.findIndex((npc) => npc.name.trim().toLowerCase() === normalizedName);
+      const existingNpcIndex = currentNpcs.findIndex((npc) => normalizeTextForMatch(npc.name) === normalizedName);
       const targetNpc =
         existingNpcIndex >= 0
           ? currentNpcs[existingNpcIndex]!
@@ -5146,7 +5243,7 @@ export function GameSurface({
       if (!activeChatId) return;
 
       const displayName = cleanGameNpcDisplayName(npcName).trim();
-      const normalizedName = displayName.toLowerCase();
+      const normalizedName = normalizeTextForMatch(displayName);
       if (!normalizedName) return;
 
       if (!chatMeta.enableSpriteGeneration || !chatMeta.gameImageConnectionId) {
@@ -5156,7 +5253,7 @@ export function GameSurface({
 
       const currentNpcs = useGameModeStore.getState().npcs;
       const targetNpc =
-        currentNpcs.find((npc) => npc.name.trim().toLowerCase() === normalizedName) ??
+        currentNpcs.find((npc) => normalizeTextForMatch(npc.name) === normalizedName) ??
         ({
           id: buildPartyNpcId(displayName),
           name: displayName,
@@ -5191,7 +5288,7 @@ export function GameSurface({
         if (!result) return;
         await applyGeneratedAssets(result);
         const generated = result.generatedNpcAvatars.find(
-          (avatar) => avatar.name.trim().toLowerCase() === targetNpc.name.trim().toLowerCase(),
+          (avatar) => normalizeTextForMatch(avatar.name) === normalizeTextForMatch(targetNpc.name),
         );
         if (generated) {
           clearFailedNpcAvatars([targetNpc.name]);
@@ -6479,7 +6576,7 @@ export function GameSurface({
       : [];
     for (const card of gameCharacterCards as StoredGameCard[]) {
       if (typeof card?.name === "string" && card.name.trim()) {
-        gameCardByName.set(card.name.trim().toLowerCase(), card);
+        gameCardByName.set(normalizeTextForMatch(card.name), card);
       }
     }
 
@@ -6578,10 +6675,10 @@ export function GameSurface({
         const snap = isPlayerMember
           ? null
           : gameSnapshot?.presentCharacters?.find(
-              (pc) => pc.characterId === m.id || pc.name?.toLowerCase() === m.name.toLowerCase(),
+              (pc) => pc.characterId === m.id || normalizeTextForMatch(pc.name) === normalizeTextForMatch(m.name),
             );
         const stats = (isPlayerMember ? playerBarStats : (snap?.stats ?? [])) as CombatStatLike[];
-        const gameCard = gameCardByName.get(m.name.toLowerCase());
+        const gameCard = gameCardByName.get(normalizeTextForMatch(m.name));
         const cardRpgStats = gameCard?.rpgStats ?? null;
         const cardAttributes = new Map(
           Array.isArray(cardRpgStats?.attributes)
@@ -8223,12 +8320,17 @@ export function GameSurface({
     handleStartNewSession();
   };
 
+  const gameMobilePanelClass =
+    "fixed inset-x-2 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] top-[calc(3.5rem+env(safe-area-inset-top))] z-[70] min-h-0 w-auto";
+
   const renderSessionPanel = (mobile = false) => (
     <div
       className={cn(
         ROLEPLAY_POPOVER_SHELL,
-        "absolute z-50 flex max-h-[min(42rem,calc(100vh-6rem))] w-[min(42rem,calc(100vw-1.5rem))] flex-col overflow-hidden",
-        mobile ? "right-9 top-0 max-h-[min(40rem,calc(100vh-5rem))] w-[calc(100vw-4rem)]" : "right-0 top-9",
+        "flex min-h-0 flex-col overflow-hidden",
+        mobile
+          ? gameMobilePanelClass
+          : "absolute right-0 top-9 z-50 max-h-[min(42rem,calc(100vh-6rem))] w-[min(42rem,calc(100vw-1.5rem))]",
       )}
     >
       <div className={ROLEPLAY_POPOVER_HEADER}>
@@ -8245,20 +8347,11 @@ export function GameSurface({
           <button
             type="button"
             onClick={() => setTutorialOpen(true)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--marinara-chat-chrome-button-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-highlight-text)]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--marinara-chat-chrome-button-border)] bg-[var(--marinara-chat-chrome-button-bg)] text-[var(--marinara-chat-chrome-button-text)] transition-colors hover:border-[var(--marinara-chat-chrome-button-border-hover)] hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-highlight-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--marinara-chat-chrome-focus-ring)]"
             title="Game tutorial"
             aria-label="Game tutorial"
           >
             <CircleHelp size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSessionPanelOpen(false)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--marinara-chat-chrome-button-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-highlight-text)]"
-            title="Close session"
-            aria-label="Close session"
-          >
-            <X size={14} />
           </button>
         </div>
       </div>
@@ -8282,8 +8375,13 @@ export function GameSurface({
         ))}
       </div>
 
-      <div className={cn(ROLEPLAY_POPOVER_SCROLL_AREA, "min-h-0 flex-1 overflow-y-auto p-2")}>
-        {sessionPanelTab === "history" ? (
+      {sessionPanelTab === "history" ? (
+        <div
+          className={cn(
+            ROLEPLAY_POPOVER_SCROLL_AREA,
+            "min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain p-2 [-webkit-overflow-scrolling:touch]",
+          )}
+        >
           <GameSessionHistory
             summaries={sessionSummaries}
             currentSessionNumber={displaySessionNumber}
@@ -8330,7 +8428,9 @@ export function GameSurface({
             onClose={() => setSessionPanelOpen(false)}
             embedded
           />
-        ) : (
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-hidden">
           <GameJournal
             chatId={activeChatId}
             npcs={npcs}
@@ -8344,8 +8444,8 @@ export function GameSurface({
             onNpcRemove={handleRemoveNpcFromJournal}
             embedded
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 
@@ -8353,8 +8453,10 @@ export function GameSurface({
     <div
       className={cn(
         ROLEPLAY_POPOVER_SHELL,
-        "absolute z-50 flex h-[min(42rem,calc(100vh-6rem))] w-[min(54rem,calc(100vw-1.5rem))] flex-col overflow-hidden",
-        mobile ? "right-9 top-0 h-[min(40rem,calc(100vh-5rem))] w-[calc(100vw-4rem)]" : "right-0 top-9",
+        "flex min-h-0 flex-col overflow-hidden",
+        mobile
+          ? gameMobilePanelClass
+          : "absolute right-0 top-9 z-50 h-[min(42rem,calc(100vh-6rem))] w-[min(54rem,calc(100vw-1.5rem))]",
       )}
     >
       <GameAssetsBrowserView embedded onClose={() => setGameAssetsPanelOpen(false)} />
@@ -9324,9 +9426,7 @@ export function GameSurface({
                 open={galleryOpen}
                 onClose={handleCloseGalleryPanel}
                 anchor={galleryAnchor}
-                onIllustrate={() => {
-                  void retryAgents(activeChatId, ["illustrator"]);
-                }}
+                onIllustrate={handleManualSceneIllustration}
               />
               <PinnedImageOverlay activeChatId={activeChatId} />
 

@@ -49,6 +49,7 @@ import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/u
 import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
+import { TouchDragHandle } from "../ui/TouchDragHandle";
 
 const CATEGORIES: Array<{ id: LorebookCategory | "all" | "active"; label: string }> = [
   { id: "all", label: "All" },
@@ -658,7 +659,12 @@ export function LorebooksPanel() {
             event.dataTransfer.setData("text/plain", lb.id);
           }}
           onDragEnd={() => setDraggedLorebookId(null)}
-          onTouchStart={(event) => startLorebookTouchDrag(event, lb.id)}
+          onTouchStart={(event) => {
+            startLorebookTouchDrag(event, lb.id, {
+              allowInteractiveTarget: true,
+              sourceElement: event.currentTarget.closest<HTMLElement>('[data-touch-drag-card="lorebook"]'),
+            });
+          }}
         />
       );
     },
@@ -840,7 +846,7 @@ export function LorebooksPanel() {
                 }
               }}
               className={cn(
-                "mari-chrome-control mari-chrome-control--compact group/tag cursor-pointer",
+                "mari-chrome-control mari-chrome-control--compact group/tag cursor-pointer whitespace-nowrap",
                 activeTag === tag && "mari-chrome-control--selected",
               )}
             >
@@ -1091,7 +1097,7 @@ function LorebookRow({
   isDragging?: boolean;
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void;
   onDragEnd?: () => void;
-  onTouchStart?: (event: TouchEvent<HTMLDivElement>) => void;
+  onTouchStart?: (event: TouchEvent<HTMLButtonElement>) => void;
 }) {
   const gradient = CATEGORY_COLORS[lorebook.category] ?? CATEGORY_COLORS.uncategorized;
   const imageContent = lorebook.imagePath ? (
@@ -1106,18 +1112,18 @@ function LorebookRow({
 
   return (
     <div
-	      className={cn(
-	        "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
-	        selectionMode &&
-	          isSelected &&
-	          "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
-	        isDragging && "opacity-50",
-	      )}
+      data-touch-drag-card="lorebook"
+      className={cn(
+        "group relative flex touch-pan-y cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+        selectionMode &&
+          isSelected &&
+          "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+        isDragging && "opacity-50",
+      )}
       onClick={onClick}
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onTouchStart={onTouchStart}
     >
       {selectionMode && (
         <button
@@ -1127,15 +1133,23 @@ function LorebookRow({
             onToggleSelect?.();
           }}
           className={cn(
-	            "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
-	            isSelected
-	              ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]"
-	              : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
-	          )}
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+            isSelected
+              ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]"
+              : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
+          )}
           aria-label={isSelected ? "Deselect lorebook" : "Select lorebook"}
         >
           <span className="text-[0.75rem]">✓</span>
         </button>
+      )}
+      {onTouchStart && (
+        <TouchDragHandle
+          label="Drag lorebook"
+          onTouchStart={(event) => {
+            onTouchStart(event);
+          }}
+        />
       )}
       {selectionMode ? (
         <div className={imageClasses}>{imageContent}</div>

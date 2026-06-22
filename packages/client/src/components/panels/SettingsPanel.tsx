@@ -1101,11 +1101,11 @@ export function SettingsPanel() {
             tabIndex={settingsTab === tab.id ? 0 : -1}
             onClick={() => setSettingsTab(tab.id)}
             className={cn(
-              "mari-chrome-control min-h-[2.5rem] w-full min-w-0 px-2 py-2 text-[0.6875rem] leading-tight sm:text-xs",
+              "mari-chrome-control mari-settings-tab-button min-h-[2.5rem] w-full min-w-0 px-2 py-2 text-[0.6875rem] leading-tight sm:text-xs",
               settingsTab === tab.id && "mari-chrome-control--selected",
             )}
           >
-            <span className="max-w-full text-center">{tab.label}</span>
+            <span className="mari-settings-tab-label min-w-0 max-w-full truncate text-center">{tab.label}</span>
           </button>
         ))}
       </div>
@@ -3862,6 +3862,20 @@ function getLooseExtensionFolderName(files: PackageTextFile[], fallbackName: str
   return firstSlash > 0 ? firstPath.slice(0, firstSlash) : fallbackName;
 }
 
+function describeExtensionImportError(error: unknown, name?: string) {
+  const rawMessage =
+    error instanceof ApiError && error.message
+      ? error.message
+      : error instanceof Error && error.message
+        ? error.message
+        : "Failed to import extension.";
+  const subject = name ? `Failed to install "${name}": ${rawMessage}` : rawMessage;
+  if (error instanceof ApiError && error.status === 403) {
+    return `${subject} Installing extensions requires loopback access or admin access. Open Marinara Engine through localhost, or set ADMIN_SECRET on the server and enter it in Settings.`;
+  }
+  return subject;
+}
+
 function ExtensionsSettings() {
   const { data: extensions, isLoading } = useExtensions();
   const extensionList = extensions ?? [];
@@ -3877,12 +3891,14 @@ function ExtensionsSettings() {
     fallbackName: string,
   ) => {
     let imported = 0;
+    let failed = 0;
     let skipped = 0;
-    const failures: string[] = [];
+    const failureMessages: string[] = [];
     for (const entry of entries) {
       const normalized = normalizeExtensionImportEntry(entry, fallbackName);
       if (!normalized) {
         skipped++;
+        failureMessages.push("Skipped an extension entry because it did not contain importable extension data.");
         continue;
       }
       try {
@@ -3892,25 +3908,32 @@ function ExtensionsSettings() {
         });
         imported++;
       } catch (err) {
-        failures.push(`"${normalized.name}": ${getPrivilegedActionErrorMessage(err, "install failed")}`);
+        failed++;
+        failureMessages.push(describeExtensionImportError(err, normalized.name));
         console.warn("[ExtensionsSettings] Failed to import extension entry:", normalized.name, err);
       }
     }
-
-    // Nothing installed and nothing errored → the file held no importable entries.
-    if (imported === 0 && failures.length === 0) throw new Error("No valid extensions found in file");
-
-    if (failures.length > 0) {
-      // Surface the real cause (privileged-gate 403s become an actionable hint),
-      // not just a count — that count-only toast is exactly what hid the failure.
-      const more = failures.length > 1 ? ` (+${failures.length - 1} more)` : "";
+    if (imported === 0 && failed === 0 && skipped === 0) throw new Error("No valid extensions found in file");
+    const skipNote = skipped > 0 ? ` (${skipped} skipped — no importable entry)` : "";
+    if (failed > 0) {
+      const more = failureMessages.length > 1 ? ` (+${failureMessages.length - 1} more)` : "";
       toast.error(
         imported > 0
-          ? `Installed ${imported} extension${imported === 1 ? "" : "s"}; ${failures.length} failed — ${failures[0]}${more}`
-          : `Failed to install ${failures.length} extension${failures.length === 1 ? "" : "s"} — ${failures[0]}${more}`,
+          ? `Installed ${imported} extension${imported === 1 ? "" : "s"}${skipNote}; ${failed} failed — ${failureMessages[0]}${more}`
+          : `Failed to install ${failed} extension${failed === 1 ? "" : "s"}${skipNote} — ${failureMessages[0]}${more}`,
+        { duration: 12_000 },
+      );
+    } else if (skipped > 0) {
+      toast.warning(
+        imported > 0
+          ? `Installed ${imported} extension${imported === 1 ? "" : "s"}${skipNote}.`
+          : `Skipped ${skipped} extension entr${skipped === 1 ? "y" : "ies"}.`,
+        {
+          description: failureMessages[0],
+          duration: 12_000,
+        },
       );
     } else {
-      const skipNote = skipped > 0 ? ` (${skipped} skipped — no importable entry)` : "";
       toast.success(`Installed ${imported} extension${imported === 1 ? "" : "s"}${skipNote}`);
     }
   };
@@ -3944,24 +3967,32 @@ function ExtensionsSettings() {
       } else if (lowerName.endsWith(".js")) {
         const text = await file.text();
         const name = file.name.replace(/\.js$/i, "");
-        await createExtension.mutateAsync({
-          name,
-          description: "JS extension imported from file",
-          js: text,
-          enabled: true,
-          installedAt,
-        });
+        try {
+          await createExtension.mutateAsync({
+            name,
+            description: "JS extension imported from file",
+            js: text,
+            enabled: true,
+            installedAt,
+          });
+        } catch (err) {
+          throw new Error(describeExtensionImportError(err, name));
+        }
         toast.success(`Extension "${name}" installed`);
       } else if (lowerName.endsWith(".css")) {
         const text = await file.text();
         const name = file.name.replace(/\.css$/i, "");
-        await createExtension.mutateAsync({
-          name,
-          description: "CSS extension imported from file",
-          css: text,
-          enabled: true,
-          installedAt,
-        });
+        try {
+          await createExtension.mutateAsync({
+            name,
+            description: "CSS extension imported from file",
+            css: text,
+            enabled: true,
+            installedAt,
+          });
+        } catch (err) {
+          throw new Error(describeExtensionImportError(err, name));
+        }
         toast.success(`Extension "${name}" installed`);
       } else {
         toast.error("Only .zip, .json, .css, and .js extension files are supported.");

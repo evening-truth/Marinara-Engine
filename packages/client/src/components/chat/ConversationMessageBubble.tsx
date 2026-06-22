@@ -2,6 +2,7 @@
 // Bubble message layout (Messenger-style)
 // ──────────────────────────────────────────────
 import { User } from "lucide-react";
+import { normalizeTextForMatch } from "@marinara-engine/shared";
 import { cn } from "../../lib/utils";
 import {
   HiddenFromAIConversationSummary,
@@ -69,7 +70,6 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
     <>
       {/* Inner row: avatar + body — swipes live outside so avatar never drifts */}
       <div className={cn("flex items-end gap-2", isUser ? "justify-end" : "justify-start")}>
-
         {/* Multi-select checkbox */}
         {multiSelectMode && (
           <div className="flex items-center flex-shrink-0">
@@ -79,8 +79,16 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
               aria-checked={isSelected}
               aria-label={isSelected ? "Deselect message" : "Select message"}
               tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
-              onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onToggleSelect?.(); } }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect?.();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === " " || e.key === "Enter") {
+                  e.preventDefault();
+                  onToggleSelect?.();
+                }
+              }}
               className={cn(
                 "h-5 w-5 rounded border-2 flex items-center justify-center transition-colors cursor-pointer",
                 isSelected
@@ -99,7 +107,13 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
             <>
               <div className="relative h-10 w-10 overflow-hidden rounded-full bg-[var(--accent)]">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt={displayName} loading="lazy" className="h-full w-full object-cover" style={avatarCropStyle} />
+                  <img
+                    src={avatarUrl}
+                    alt={displayName}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                    style={avatarCropStyle}
+                  />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center text-sm font-bold text-[var(--muted-foreground)]">
                     {isUser ? <User size="1.125rem" /> : displayName[0]?.toUpperCase()}
@@ -116,14 +130,26 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
         </div>
 
         {/* Body column — header + bubble + attachments (no swipes) */}
-        <div className={cn("mari-message-body min-w-0 flex max-w-[72%] flex-none flex-col", isUser ? "items-end" : "items-start")}>
-
+        <div
+          className={cn(
+            "mari-message-body min-w-0 flex max-w-[72%] flex-none flex-col",
+            isUser ? "items-end" : "items-start",
+          )}
+        >
           {/* Header — name + timestamp for first in group */}
           {!isGrouped && (!isUser || hiddenFromAIHeader) && (
-            <div className={cn("mari-message-meta mb-0.5 flex items-baseline gap-2", isUser ? "justify-end pr-2 text-right" : "pl-2")}>
+            <div
+              className={cn(
+                "mari-message-meta mb-0.5 flex items-baseline gap-2",
+                isUser ? "justify-end pr-2 text-right" : "pl-2",
+              )}
+            >
               {hiddenFromAIHeader}
               {!isUser && (
-                <span className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default" style={nameColorStyle(nameColor)}>
+                <span
+                  className="mari-message-name text-[0.9375rem] font-semibold leading-tight hover:underline cursor-default"
+                  style={nameColorStyle(nameColor)}
+                >
                   {displayName}
                 </span>
               )}
@@ -163,7 +189,13 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
                 /* Typing dots + optional stable preview */
                 <div className={cn("space-y-2", streamingBubbleDraftContent && "animate-[fadeSlideIn_0.25s_ease-out]")}>
                   {streamingBubbleDraftContent && (
-                    <MessageContent content={streamingBubbleDraftContent} mentionNames={mentionNames} emojiMap={emojiMap} stickerMap={stickerMap} onImageOpen={(url) => onImageOpen(url)} />
+                    <MessageContent
+                      content={streamingBubbleDraftContent}
+                      mentionNames={mentionNames}
+                      emojiMap={emojiMap}
+                      stickerMap={stickerMap}
+                      onImageOpen={(url) => onImageOpen(url)}
+                    />
                   )}
                   <div className="flex items-center gap-1" aria-label="Still typing">
                     <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
@@ -175,29 +207,51 @@ export function ConversationMessageBubble({ ctx }: { ctx: MessageRenderContext }
                 /* Multi-speaker content inside a bubble */
                 <div className="space-y-2">
                   {groupedSegments.slice(0, visibleSegments).map((grp, i) => {
-                    const segChar = grp.speaker && charByName ? charByName.get(grp.speaker.toLowerCase()) : null;
+                    const segChar =
+                      grp.speaker && charByName ? charByName.get(normalizeTextForMatch(grp.speaker)) : null;
                     const segName = segChar?.name ?? grp.speaker ?? "";
                     const segColor = segChar?.nameColor;
                     const combinedText = grp.lines.join("\n");
                     if (!grp.speaker) {
                       return (
                         <div key={i} className="italic text-[var(--muted-foreground)]">
-                          <MessageContent content={combinedText} mentionNames={mentionNames} emojiMap={emojiMap} stickerMap={stickerMap} onImageOpen={(url) => onImageOpen(url)} />
+                          <MessageContent
+                            content={combinedText}
+                            mentionNames={mentionNames}
+                            emojiMap={emojiMap}
+                            stickerMap={stickerMap}
+                            onImageOpen={(url) => onImageOpen(url)}
+                          />
                         </div>
                       );
                     }
                     return (
                       <div key={i} className="space-y-0.5">
-                        <div className="text-[0.75rem] font-semibold leading-tight opacity-90" style={nameColorStyle(segColor)}>
+                        <div
+                          className="text-[0.75rem] font-semibold leading-tight opacity-90"
+                          style={nameColorStyle(segColor)}
+                        >
                           {segName}
                         </div>
-                        <MessageContent content={combinedText} mentionNames={mentionNames} emojiMap={emojiMap} stickerMap={stickerMap} onImageOpen={(url) => onImageOpen(url)} />
+                        <MessageContent
+                          content={combinedText}
+                          mentionNames={mentionNames}
+                          emojiMap={emojiMap}
+                          stickerMap={stickerMap}
+                          onImageOpen={(url) => onImageOpen(url)}
+                        />
                       </div>
                     );
                   })}
                 </div>
               ) : (
-                <MessageContent content={renderedContent} mentionNames={mentionNames} emojiMap={emojiMap} stickerMap={stickerMap} onImageOpen={(url) => onImageOpen(url)} />
+                <MessageContent
+                  content={renderedContent}
+                  mentionNames={mentionNames}
+                  emojiMap={emojiMap}
+                  stickerMap={stickerMap}
+                  onImageOpen={(url) => onImageOpen(url)}
+                />
               )}
             </div>
           )}

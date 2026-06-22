@@ -2,7 +2,7 @@
 // Layout: Right Panel (polished with panel transitions)
 // ──────────────────────────────────────────────
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
-import { X, Users, BookOpen, FileText, Link, Sparkles, Settings, User, Bot } from "lucide-react";
+import { ArrowLeft, X, Users, BookOpen, FileText, Link, Sparkles, Settings, User, Bot } from "lucide-react";
 import { useUIStore } from "../../stores/ui.store";
 import { cn } from "../../lib/utils";
 
@@ -96,9 +96,11 @@ export function RightPanel() {
         </div>
         <button
           onClick={close}
+          aria-label="Close panel"
           className="mari-chrome-control mari-chrome-control--small mari-accent-animated p-1.5 active:scale-90"
         >
-          <X size="0.875rem" />
+          <ArrowLeft className="md:hidden" size="0.875rem" />
+          <X className="hidden md:block" size="0.875rem" />
         </button>
       </div>
 

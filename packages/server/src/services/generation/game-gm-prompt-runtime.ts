@@ -1,4 +1,11 @@
-import type { GameActiveState, GameCampaignPlan, GameMap, GameNpc, SessionSummary } from "@marinara-engine/shared";
+import {
+  normalizeTextForMatch,
+  type GameActiveState,
+  type GameCampaignPlan,
+  type GameMap,
+  type GameNpc,
+  type SessionSummary,
+} from "@marinara-engine/shared";
 import { buildGmSystemPrompt, type GmPromptContext } from "../game/gm-prompts.js";
 import { listPartySprites } from "../game/sprite.service.js";
 import { generatePerceptionHints, formatPerceptionHints, type PerceptionContext } from "../game/perception.service.js";
@@ -148,7 +155,7 @@ export async function injectGameGmPromptRuntime(args: {
     : [];
   const gameCardByName = new Map<string, Record<string, unknown>>();
   for (const card of gameCharCards) {
-    if (card.name) gameCardByName.set((card.name as string).toLowerCase(), card);
+    if (card.name) gameCardByName.set(normalizeTextForMatch(card.name), card);
   }
 
   for (const pcId of partyCharIds) {
@@ -159,7 +166,7 @@ export async function injectGameGmPromptRuntime(args: {
         const { name, parts } = buildLibraryCardParts(pcData);
         partyNames.push(name);
         partyIdNamePairs.push({ id: pcId, name });
-        appendGameCardDetails(parts, gameCardByName.get(name.toLowerCase()));
+        appendGameCardDetails(parts, gameCardByName.get(normalizeTextForMatch(name)));
         partyCards.push({ name, card: parts.join("\n") });
       }
     } catch {
@@ -178,7 +185,7 @@ export async function injectGameGmPromptRuntime(args: {
     if (npc.description) parts.push(`Description: ${npc.description}`);
     if (npc.location) parts.push(`Last Known Location: ${npc.location}`);
     if (npc.notes?.length) parts.push(`Notes: ${npc.notes.join("; ")}`);
-    appendGameCardDetails(parts, gameCardByName.get(name.toLowerCase()));
+    appendGameCardDetails(parts, gameCardByName.get(normalizeTextForMatch(name)));
     partyCards.push({ name, card: parts.join("\n") });
   }
 
@@ -197,7 +204,7 @@ export async function injectGameGmPromptRuntime(args: {
         if (personality) parts.push(`Personality: ${personality}`);
         if (backstory) parts.push(`Backstory: ${backstory}`);
         if (appearance) parts.push(`Appearance: ${appearance}`);
-        appendGameCardDetails(parts, gameCardByName.get(persona.name.toLowerCase()));
+        appendGameCardDetails(parts, gameCardByName.get(normalizeTextForMatch(persona.name)));
         playerCard = parts.join("\n");
       }
     } catch {

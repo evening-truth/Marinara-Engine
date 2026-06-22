@@ -3,7 +3,12 @@
 // ──────────────────────────────────────────────
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import type { HudWidget, HudWidgetConfig, HudWidgetType } from "@marinara-engine/shared";
+import {
+  normalizeTextForMatch,
+  type HudWidget,
+  type HudWidgetConfig,
+  type HudWidgetType,
+} from "@marinara-engine/shared";
 import { cn } from "../../lib/utils";
 import { DraftNumberInput } from "../ui/DraftNumberInput";
 
@@ -94,7 +99,15 @@ function parseNumber(value: unknown, fallback: number, min?: number) {
 }
 
 function nextStatBlockName(stats: readonly { name?: unknown }[]) {
-  const used = new Set(stats.map((stat) => String(stat.name ?? "").trim().toLowerCase()).filter(Boolean));
+  const used = new Set(
+    stats
+      .map((stat) =>
+        String(stat.name ?? "")
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
+  );
   let index = stats.length + 1;
   let candidate = `Stat ${index}`;
   while (used.has(candidate.toLowerCase())) {
@@ -109,7 +122,7 @@ function buildInventoryGridContentsFromText(
 ): NonNullable<HudWidgetConfig["contents"]> {
   const previousByName = new Map<string, NonNullable<HudWidgetConfig["contents"]>>();
   for (const item of previousContents) {
-    const key = item.name.trim().toLowerCase();
+    const key = normalizeTextForMatch(item.name);
     if (!key) continue;
     const bucket = previousByName.get(key) ?? [];
     bucket.push(item);
@@ -121,7 +134,7 @@ function buildInventoryGridContentsFromText(
     .map((name) => name.trim())
     .filter(Boolean)
     .map((name) => {
-      const previous = previousByName.get(name.toLowerCase())?.shift();
+      const previous = previousByName.get(normalizeTextForMatch(name))?.shift();
       return {
         ...previous,
         name,
@@ -214,10 +227,11 @@ export function createDefaultGameHudWidget(type: HudWidgetType, widgets: readonl
     type,
     label,
     icon: DEFAULT_ICONS[type],
-    position: widgets.filter((widget) => widget.position === "hud_left").length <=
+    position:
+      widgets.filter((widget) => widget.position === "hud_left").length <=
       widgets.filter((widget) => widget.position === "hud_right").length
-      ? "hud_left"
-      : "hud_right",
+        ? "hud_left"
+        : "hud_right",
     accent: DEFAULT_ACCENTS[type],
     config: defaultWidgetConfig(type),
   };
@@ -233,8 +247,7 @@ export function normalizeGameHudWidgets(value: unknown): HudWidget[] {
     const raw = entry as Partial<HudWidget>;
     const type = isHudWidgetType(raw.type) ? raw.type : "progress_bar";
     const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : formatWidgetTypeLabel(type);
-    const preferredId =
-      typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : nextWidgetId(label, normalized);
+    const preferredId = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : nextWidgetId(label, normalized);
     const id = usedIds.has(preferredId) ? nextWidgetId(label, normalized) : preferredId;
     usedIds.add(id);
     normalized.push({
@@ -281,7 +294,9 @@ export function GameWidgetSetupEditor({ widgets, onChange, disabled, className }
   const updateWidgetConfig = (widgetId: string, patch: Partial<HudWidgetConfig>) => {
     onChange(
       normalizedWidgets.map((widget) =>
-        widget.id === widgetId ? { ...widget, config: normalizeConfig(widget.type, { ...widget.config, ...patch }) } : widget,
+        widget.id === widgetId
+          ? { ...widget, config: normalizeConfig(widget.type, { ...widget.config, ...patch }) }
+          : widget,
       ),
     );
   };
@@ -383,7 +398,9 @@ export function GameWidgetSetupEditor({ widgets, onChange, disabled, className }
                     value={widget.position}
                     disabled={disabled}
                     onChange={(event) =>
-                      replaceWidget(widget.id, { position: event.target.value === "hud_right" ? "hud_right" : "hud_left" })
+                      replaceWidget(widget.id, {
+                        position: event.target.value === "hud_right" ? "hud_right" : "hud_left",
+                      })
                     }
                     className="w-full rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-2 text-xs text-[var(--foreground)]"
                   >

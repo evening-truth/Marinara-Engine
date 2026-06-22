@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ExternalLink, Pencil, Sliders, Trash2 } from "lucide-react";
 import { DEFAULT_CONVERSATION_PROMPT } from "@marinara-engine/shared";
-import { useUIStore } from "../../../stores/ui.store";
 import { ExpandedTextarea } from "../../../components/ui/ExpandedTextarea";
 import { ChatSettingsSection } from "../ChatSettingsSection";
 
@@ -47,13 +46,11 @@ export function ConversationPromptSection({
     const isPresetPrompt = promptDraft.trim() === basePrompt.trim();
     const nextPrompt = !promptDraft.trim() || isPresetPrompt ? null : promptDraft;
     onCustomPromptChange(chatId, nextPrompt);
-    useUIStore.getState().setCustomConversationPrompt(nextPrompt);
     setPromptOpen(false);
   };
 
   const resetPrompt = () => {
     onCustomPromptChange(chatId, null);
-    useUIStore.getState().setCustomConversationPrompt(null);
   };
 
   return (
@@ -71,7 +68,7 @@ export function ConversationPromptSection({
                 value={promptPresetId ?? ""}
                 onChange={(event) => onPromptPresetChange(event.target.value || null)}
                 disabled={promptPresets.length === 0}
-                className="min-w-0 flex-1 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-w-0 flex-1 truncate rounded-lg bg-[var(--secondary)] px-3 py-2 pr-8 text-xs text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="">{promptPresets.length === 0 ? "No presets available" : "Default conversation prompt"}</option>
                 {promptPresets.length > 0 &&
@@ -96,7 +93,7 @@ export function ConversationPromptSection({
           <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2 ring-1 ring-[var(--border)]">
             <div className="min-w-0">
               <span className="block text-[0.6875rem] font-medium text-[var(--foreground)]">Conversation Prompt</span>
-              <span className="block text-[0.625rem] text-[var(--muted-foreground)]">
+              <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
                 {customPrompt
                   ? "Using chat-local edit"
                   : promptPresetId

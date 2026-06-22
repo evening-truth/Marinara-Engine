@@ -10,6 +10,7 @@ import { useGameStateStore } from "./game-state.store";
 
 const STORAGE_KEY = "marinara-active-chat-id";
 const DRAFTS_KEY = "marinara-input-drafts";
+const NOTIFICATION_AUTODISMISS_MS = 8000;
 
 type NotificationAvatarCrop = AvatarCropValue | null;
 
@@ -58,6 +59,33 @@ function abortGenerationForChat(chatId: string, controller?: AbortController) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chatId }),
   }).catch(() => {});
+}
+
+const notificationAutoDismissTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearNotificationTimer(chatId: string) {
+  const timer = notificationAutoDismissTimers.get(chatId);
+  if (!timer) return;
+  clearTimeout(timer);
+  notificationAutoDismissTimers.delete(chatId);
+}
+
+function clearAllNotificationTimers() {
+  for (const timer of notificationAutoDismissTimers.values()) {
+    clearTimeout(timer);
+  }
+  notificationAutoDismissTimers.clear();
+}
+
+function scheduleNotificationAutoDismiss(chatId: string, getState: () => ChatState) {
+  clearNotificationTimer(chatId);
+  notificationAutoDismissTimers.set(
+    chatId,
+    setTimeout(() => {
+      clearNotificationTimer(chatId);
+      getState().autoDismissNotification(chatId);
+    }, NOTIFICATION_AUTODISMISS_MS),
+  );
 }
 
 interface ChatState {
@@ -191,7 +219,9 @@ interface ChatState {
     avatarUrl: string | null,
     avatarCrop?: NotificationAvatarCrop,
   ) => void;
+  autoDismissNotification: (chatId: string) => void;
   dismissNotification: (chatId: string) => void;
+  dismissNotifications: (chatIds: string[]) => void;
   requestGotoMessage: (chatId: string, messageNumber: number) => void;
   clearGotoRequest: () => void;
   reset: () => void;
@@ -250,7 +280,10 @@ export const useChatStore = create<ChatState>()(
           const m = hasUnread ? new Map(state.unreadCounts) : state.unreadCounts;
           if (hasUnread) m.delete(id);
           const n = hasNotif ? new Map(state.chatNotifications) : state.chatNotifications;
-          if (hasNotif) n.delete(id);
+          if (hasNotif) {
+            clearNotificationTimer(id);
+            n.delete(id);
+          }
           const d = hasDismissed ? new Set(state.dismissedNotifications) : state.dismissedNotifications;
           if (hasDismissed) d.delete(id);
           return { unreadCounts: m, chatNotifications: n, dismissedNotifications: d };
@@ -588,6 +621,7 @@ export const useChatStore = create<ChatState>()(
           }
           for (const chatId of Array.from(chatNotifications.keys())) {
             if (!known.has(chatId) || !serverChatIds.has(chatId)) {
+              clearNotificationTimer(chatId);
               chatNotifications.delete(chatId);
             }
           }
@@ -605,8 +639,14 @@ export const useChatStore = create<ChatState>()(
     addNotification: (chatId, characterName, avatarUrl, avatarCrop) =>
       set((state) => {
         // Don't add if this chat is currently active or was dismissed
-        if (state.activeChatId === chatId) return state;
-        if (state.dismissedNotifications.has(chatId)) return state;
+        if (state.activeChatId === chatId) {
+          clearNotificationTimer(chatId);
+          return state;
+        }
+        if (state.dismissedNotifications.has(chatId)) {
+          clearNotificationTimer(chatId);
+          return state;
+        }
         const m = new Map(state.chatNotifications);
         const existing = m.get(chatId);
         m.set(chatId, {
@@ -616,14 +656,36 @@ export const useChatStore = create<ChatState>()(
           avatarCrop: avatarCrop ?? existing?.avatarCrop ?? null,
           count: (existing?.count ?? 0) + 1,
         });
+        scheduleNotificationAutoDismiss(chatId, get);
+        return { chatNotifications: m };
+      }),
+    autoDismissNotification: (chatId) =>
+      set((state) => {
+        clearNotificationTimer(chatId);
+        if (!state.chatNotifications.has(chatId)) return state;
+        const m = new Map(state.chatNotifications);
+        m.delete(chatId);
         return { chatNotifications: m };
       }),
     dismissNotification: (chatId) =>
       set((state) => {
+        clearNotificationTimer(chatId);
         const m = new Map(state.chatNotifications);
         m.delete(chatId);
         const d = new Set(state.dismissedNotifications);
         d.add(chatId);
+        return { chatNotifications: m, dismissedNotifications: d };
+      }),
+    dismissNotifications: (chatIds) =>
+      set((state) => {
+        if (chatIds.length === 0) return state;
+        const m = new Map(state.chatNotifications);
+        const d = new Set(state.dismissedNotifications);
+        for (const chatId of chatIds) {
+          clearNotificationTimer(chatId);
+          m.delete(chatId);
+          d.add(chatId);
+        }
         return { chatNotifications: m, dismissedNotifications: d };
       }),
 
@@ -649,6 +711,7 @@ export const useChatStore = create<ChatState>()(
       for (const [chatId, controller] of abortControllers) {
         abortGenerationForChat(chatId, controller);
       }
+      clearAllNotificationTimers();
       set({
         activeChatId: null,
         activeChat: null,

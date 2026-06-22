@@ -618,7 +618,9 @@
    ───────────────────────────────────────────── */
 .mari-chrome-control {
   display: inline-flex;
+  flex-shrink: 0;
   min-height: 2rem;
+  min-width: 0;
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
@@ -633,6 +635,14 @@
     color 150ms ease,
     box-shadow 150ms ease,
     transform 120ms ease;
+}
+
+.mari-chrome-control > span {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mari-chrome-control:hover {
@@ -1086,6 +1096,13 @@
   --sidebar-foreground: var(--marinara-chat-chrome-panel-text);
 }
 
+.mari-settings-tab-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mari-chrome-accent-text {
   color: var(--marinara-chat-chrome-panel-title);
 }
@@ -1217,9 +1234,8 @@
   color: var(--marinara-chat-chrome-button-text-active);
   stroke: currentColor;
   transition:
-    color 140ms linear,
-    stroke 140ms linear,
-    filter 140ms linear;
+    color 180ms linear,
+    stroke 180ms linear;
 }
 
 .mari-topbar-active-underline {
@@ -1280,11 +1296,9 @@
     .mari-topbar-button
   ) {
   transition:
-    background 140ms linear,
-    background-color 140ms linear,
-    border-color 140ms linear,
-    color 140ms linear,
-    box-shadow 140ms linear;
+    background-color 180ms linear,
+    border-color 180ms linear,
+    color 180ms linear;
 }
 
 /* ─────────────────────────────────────────────
@@ -2693,6 +2707,11 @@ summary[class*="cursor-pointer"],
   animation: mari-logo-title-shift 5.2s ease-in-out infinite;
 }
 
+[data-marinara-effects-paused="true"] .mari-logo-gradient-text--active,
+[data-marinara-effects-paused="true"] .mari-rgb-toggle-track {
+  animation-play-state: paused;
+}
+
 @keyframes mari-logo-title-shift {
   0%,
   100% {
@@ -4015,6 +4034,47 @@ summary[class*="cursor-pointer"],
     max-width: 100% !important;
   }
 
+  .mari-topbar {
+    gap: 0.125rem;
+    padding-left: max(4px, env(safe-area-inset-left)) !important;
+    padding-right: max(4px, env(safe-area-inset-right)) !important;
+  }
+
+  .mari-topbar-left {
+    flex: 1 1 auto;
+    gap: clamp(2px, 1vw, 8px) !important;
+  }
+
+  .mari-topbar-left-controls {
+    gap: clamp(1px, 0.75vw, 4px) !important;
+  }
+
+  .mari-topbar-panel-nav {
+    flex: 1 1 auto !important;
+    min-width: 0;
+    gap: clamp(0px, 0.5vw, 2px) !important;
+    padding: 2px !important;
+  }
+
+  .mari-topbar-action {
+    min-width: 0;
+    padding: clamp(3px, 1.35vw, 7px) !important;
+  }
+
+  .mari-topbar-action > svg {
+    width: clamp(13px, 3.9vw, 17px);
+    height: clamp(13px, 3.9vw, 17px);
+  }
+
+  .mari-settings-tab-button {
+    padding-left: clamp(6px, 2vw, 9px) !important;
+    padding-right: clamp(6px, 2vw, 9px) !important;
+  }
+
+  .mari-settings-tab-label {
+    font-size: clamp(10px, 3vw, 13px);
+  }
+
   .topbar-panel-buttons {
     gap: 0 !important;
     padding: 0.125rem !important;
@@ -4112,6 +4172,20 @@ summary[class*="cursor-pointer"],
 }
 
 @media (max-width: 479px) {
+  .mari-topbar {
+    padding-left: max(2px, env(safe-area-inset-left)) !important;
+    padding-right: max(2px, env(safe-area-inset-right)) !important;
+  }
+
+  .mari-topbar-action {
+    padding: clamp(2px, 1vw, 5px) !important;
+  }
+
+  .mari-topbar-action > svg {
+    width: clamp(12px, 3.8vw, 15px);
+    height: clamp(12px, 3.8vw, 15px);
+  }
+
   .retro-badge {
     display: none;
   }

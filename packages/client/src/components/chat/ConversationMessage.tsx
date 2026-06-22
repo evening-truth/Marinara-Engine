@@ -7,7 +7,7 @@ import { useState, useCallback, useRef, useEffect, memo, useMemo, type CSSProper
 import { createPortal } from "react-dom";
 import { Brain, Trash2, X } from "lucide-react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import { formatTextQuotes, type Message, type MessageReaction } from "@marinara-engine/shared";
+import { formatTextQuotes, normalizeTextForMatch, type Message, type MessageReaction } from "@marinara-engine/shared";
 import { toast } from "sonner";
 import { useUIStore, type ConversationMessageStyle } from "../../stores/ui.store";
 import { cn, copyToClipboard, getAvatarCropStyle, parseAvatarCropJson } from "../../lib/utils";
@@ -353,7 +353,7 @@ export const ConversationMessage = memo(function ConversationMessage({
     const map = new Map<string, NonNullable<ReturnType<CharacterMap["get"]>>>();
     for (const [id, v] of scopedCharacterMap) {
       if (v) {
-        const key = v.name.toLowerCase();
+        const key = normalizeTextForMatch(v.name);
         if (id === message.characterId) map.set(key, v);
         else if (!map.has(key)) map.set(key, v);
       }
@@ -663,7 +663,11 @@ export const ConversationMessage = memo(function ConversationMessage({
           isBubbleStyle && isUser ? "flex justify-end px-4" : "pl-[4.5rem] pr-4",
         )}
       >
-        <MessageReactions reactions={reactions} resolveReactorName={resolveReactorName} onToggle={handleToggleReaction} />
+        <MessageReactions
+          reactions={reactions}
+          resolveReactorName={resolveReactorName}
+          onToggle={handleToggleReaction}
+        />
       </div>
     ) : null;
 
@@ -761,7 +765,7 @@ export const ConversationMessage = memo(function ConversationMessage({
   }
 
   // ── Grouped multi-speaker layout ──
-  if (groupedSegments && !editing && !isUser && !isBubbleStyle) {
+  if (groupedSegments && !editing && !isUser) {
     return (
       <>
         <ConversationMessageGrouped ctx={ctx} msgRef={msgRef} />

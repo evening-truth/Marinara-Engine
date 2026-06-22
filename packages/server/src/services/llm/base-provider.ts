@@ -132,7 +132,7 @@ export interface ChatOptions {
   responseFormat?: { type: string; [key: string]: unknown };
   /** Raw provider request parameters merged into the outgoing request body. */
   customParameters?: Record<string, unknown>;
-  /** Do not add inferred generation/model parameters; only merge customParameters. */
+  /** Do not add inferred sampler/model parameters; max output tokens and customParameters still apply. */
   suppressModelParameters?: boolean;
 }
 

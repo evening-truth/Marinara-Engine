@@ -7,6 +7,7 @@ import { eq, and, ne, asc } from "drizzle-orm";
 import type { DB } from "../../db/connection.js";
 import { chats, chatPresets } from "../../db/schema/index.js";
 import { newId, now } from "../../utils/id-generator.js";
+import { withChatMetadataPatchQueue } from "./chats.storage.js";
 import {
   CHAT_PRESET_EXCLUDED_METADATA_KEYS,
   isRetiredBuiltInAgentId,
@@ -259,57 +260,59 @@ export function createChatPresetsStorage(db: DB) {
      * preset-controlled settings to their system defaults.
      */
     async applyToChat(presetId: string, chatId: string) {
-      const preset = await storage.getById(presetId);
-      if (!preset) return null;
-      const rows = await db.select().from(chats).where(eq(chats.id, chatId));
-      const chatRow = rows[0];
-      if (!chatRow) return null;
+      return withChatMetadataPatchQueue(chatId, async () => {
+        const preset = await storage.getById(presetId);
+        if (!preset) return null;
+        const rows = await db.select().from(chats).where(eq(chats.id, chatId));
+        const chatRow = rows[0];
+        if (!chatRow) return null;
 
-      const currentMetadata: Record<string, unknown> = (() => {
-        try {
-          return chatRow.metadata ? JSON.parse(chatRow.metadata) : {};
-        } catch {
-          return {};
+        const currentMetadata: Record<string, unknown> = (() => {
+          try {
+            return chatRow.metadata ? JSON.parse(chatRow.metadata) : {};
+          } catch {
+            return {};
+          }
+        })();
+
+        // Preserve only chat-specific (non-preset) metadata keys.
+        const preserved: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(currentMetadata)) {
+          if (isPresetExcludedMetadataKey(key)) preserved[key] = value;
         }
-      })();
 
-      // Preserve only chat-specific (non-preset) metadata keys.
-      const preserved: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(currentMetadata)) {
-        if (isPresetExcludedMetadataKey(key)) preserved[key] = value;
-      }
+        const baseDefaults: Record<string, unknown> = {
+          summary: null,
+          tags: [],
+          enableAgents: true,
+          agentOverrides: {},
+          activeAgentIds: [],
+          activeToolIds: [],
+        };
 
-      const baseDefaults: Record<string, unknown> = {
-        summary: null,
-        tags: [],
-        enableAgents: true,
-        agentOverrides: {},
-        activeAgentIds: [],
-        activeToolIds: [],
-      };
+        const presetMetadata = (preset.settings.metadata ?? {}) as Record<string, unknown>;
 
-      const presetMetadata = (preset.settings.metadata ?? {}) as Record<string, unknown>;
+        const newMetadata: Record<string, unknown> = {
+          ...baseDefaults,
+          ...presetMetadata,
+          ...preserved,
+          appliedChatPresetId: preset.id,
+        };
 
-      const newMetadata: Record<string, unknown> = {
-        ...baseDefaults,
-        ...presetMetadata,
-        ...preserved,
-        appliedChatPresetId: preset.id,
-      };
+        const ts = now();
+        await db
+          .update(chats)
+          .set({
+            connectionId: preset.settings.connectionId ?? null,
+            promptPresetId: preset.settings.promptPresetId ?? null,
+            metadata: JSON.stringify(newMetadata),
+            updatedAt: ts,
+          })
+          .where(eq(chats.id, chatId));
 
-      const ts = now();
-      await db
-        .update(chats)
-        .set({
-          connectionId: preset.settings.connectionId ?? null,
-          promptPresetId: preset.settings.promptPresetId ?? null,
-          metadata: JSON.stringify(newMetadata),
-          updatedAt: ts,
-        })
-        .where(eq(chats.id, chatId));
-
-      const updatedRows = await db.select().from(chats).where(eq(chats.id, chatId));
-      return updatedRows[0] ?? null;
+        const updatedRows = await db.select().from(chats).where(eq(chats.id, chatId));
+        return updatedRows[0] ?? null;
+      });
     },
 
     /** Ensure a "Default" preset exists for every chat mode and exactly one preset is active per mode. */

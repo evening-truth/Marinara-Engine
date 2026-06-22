@@ -537,7 +537,7 @@ export function YouTubePlayer({ mobile = false }: { mobile?: boolean } = {}) {
   if (mobile) {
     return (
       <>
-        {active && (
+        {active && hasPlayerContent && (
           <div
             className="fixed z-[60] touch-none select-none md:hidden"
             style={mobileWidgetStyle}
@@ -604,7 +604,7 @@ export function YouTubePlayer({ mobile = false }: { mobile?: boolean } = {}) {
   return (
     <>
       {/* Compact mini-player pill — lives in the top bar (upper-left), like Spotify's. */}
-      {active && (
+      {active && hasPlayerContent && (
         <div
           className={cn(
             "relative hidden h-10 min-w-0 max-w-[31rem] flex-1 items-center gap-2 overflow-hidden rounded-full border px-2.5 md:flex",

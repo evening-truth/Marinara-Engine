@@ -1,11 +1,13 @@
 // ──────────────────────────────────────────────
-// Legacy Extended Descriptions → character lorebooks
+// Legacy Extended Descriptions → character/persona lorebooks
 // ──────────────────────────────────────────────
 //
-// Older character cards could carry toggleable description blocks at
-// `data.extensions.altDescriptions` (and the alias `descriptionExtensions`).
-// The current card editor no longer surfaces those blocks, so migrate them into
-// a character-linked lorebook where each block remains independently editable.
+// Older cards could carry toggleable description blocks at
+// `altDescriptions` (and the alias `descriptionExtensions`). Character cards
+// stored them under `data.extensions`; legacy/file-native persona rows may carry
+// the same containers directly. The current editors no longer surface those
+// blocks, so migrate them into owner-linked lorebooks where each block remains
+// independently editable.
 
 import type { CharacterData } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
@@ -18,6 +20,7 @@ const MIGRATION_METADATA_KEY = "extendedDescriptionsLorebook";
 const LEGACY_EXTENSION_KEYS = ["altDescriptions", "descriptionExtensions"] as const;
 
 type CharacterRow = Awaited<ReturnType<ReturnType<typeof createCharactersStorage>["list"]>>[number];
+type PersonaRow = Awaited<ReturnType<ReturnType<typeof createCharactersStorage>["listPersonas"]>>[number];
 
 type LegacyDescription = {
   legacyId: string | null;
@@ -30,6 +33,7 @@ type LegacyDescription = {
 type MigrationStats = {
   scanned: number;
   charactersMigrated: number;
+  personasMigrated: number;
   lorebooksCreated: number;
   entriesCreated: number;
   skippedAlreadyMigrated: number;
@@ -137,13 +141,12 @@ function collectDescriptionsFromValue(raw: unknown, sourceKey: string): LegacyDe
   return entries;
 }
 
-function collectLegacyDescriptions(data: CharacterData): LegacyDescription[] {
-  const extensions: Record<string, unknown> = isRecord(data.extensions)
-    ? (data.extensions as unknown as Record<string, unknown>)
-    : {};
+function collectDescriptionsFromContainers(containers: Array<Record<string, unknown>>): LegacyDescription[] {
   const descriptions: LegacyDescription[] = [];
-  for (const key of LEGACY_EXTENSION_KEYS) {
-    descriptions.push(...collectDescriptionsFromValue(extensions[key], key));
+  for (const container of containers) {
+    for (const key of LEGACY_EXTENSION_KEYS) {
+      descriptions.push(...collectDescriptionsFromValue(container[key], key));
+    }
   }
 
   const seen = new Set<string>();
@@ -153,6 +156,22 @@ function collectLegacyDescriptions(data: CharacterData): LegacyDescription[] {
     seen.add(key);
     return true;
   });
+}
+
+function collectLegacyDescriptions(data: CharacterData): LegacyDescription[] {
+  const extensions: Record<string, unknown> = isRecord(data.extensions)
+    ? (data.extensions as unknown as Record<string, unknown>)
+    : {};
+  return collectDescriptionsFromContainers([extensions]);
+}
+
+function collectPersonaLegacyDescriptions(persona: PersonaRow): LegacyDescription[] {
+  const row = persona as Record<string, unknown>;
+  const containers = [row];
+  if (isRecord(row.extensions)) containers.push(row.extensions);
+  if (isRecord(row.importMetadata)) containers.push(row.importMetadata);
+  if (isRecord(row.metadata)) containers.push(row.metadata);
+  return collectDescriptionsFromContainers(containers);
 }
 
 function migrationMetadata(data: CharacterData): Record<string, unknown> | null {
@@ -202,6 +221,14 @@ async function findExistingMigrationLorebook(
   characterId: string,
 ): Promise<Record<string, unknown> | null> {
   const books = (await lorebooksStore.listByCharacter(characterId)) as Array<Record<string, unknown>>;
+  return books.find((book) => book.sourceAgentId === SOURCE_AGENT_ID) ?? null;
+}
+
+async function findExistingMigrationPersonaLorebook(
+  lorebooksStore: ReturnType<typeof createLorebooksStorage>,
+  personaId: string,
+): Promise<Record<string, unknown> | null> {
+  const books = (await lorebooksStore.listByPersona(personaId)) as Array<Record<string, unknown>>;
   return books.find((book) => book.sourceAgentId === SOURCE_AGENT_ID) ?? null;
 }
 
@@ -301,10 +328,54 @@ async function migrateCharacter(
   stats.charactersMigrated += 1;
 }
 
+async function migratePersona(
+  db: DB,
+  persona: PersonaRow,
+  stats: MigrationStats,
+): Promise<void> {
+  const descriptions = collectPersonaLegacyDescriptions(persona);
+  if (descriptions.length === 0) return;
+
+  const lorebooksStore = createLorebooksStorage(db);
+  let lorebook = await findExistingMigrationPersonaLorebook(lorebooksStore, persona.id);
+  let createdLorebook = false;
+  if (!lorebook) {
+    lorebook = (await lorebooksStore.create({
+      name: `${persona.name || "Persona"} — Extended Descriptions`,
+      description: "Automatically migrated from legacy Extended Descriptions on the persona card.",
+      category: "character",
+      scanDepth: 2,
+      tokenBudget: 2048,
+      entryLimit: Math.max(100, descriptions.length),
+      recursiveScanning: false,
+      maxRecursionDepth: 3,
+      personaIds: [persona.id],
+      isGlobal: false,
+      enabled: true,
+      tags: ["migrated", "extended-descriptions"],
+      generatedBy: "import",
+      sourceAgentId: SOURCE_AGENT_ID,
+    })) as Record<string, unknown> | null;
+    createdLorebook = Boolean(lorebook);
+    stats.lorebooksCreated += createdLorebook ? 1 : 0;
+  }
+  const lorebookId = typeof lorebook?.id === "string" ? lorebook.id : null;
+  if (!lorebookId) return;
+
+  const createdEntries = await ensureEntries(lorebooksStore, lorebookId, descriptions);
+  stats.entriesCreated += createdEntries;
+  if (!createdLorebook && createdEntries === 0) {
+    stats.skippedAlreadyMigrated += 1;
+    return;
+  }
+  stats.personasMigrated += 1;
+}
+
 export async function migrateCharacterExtendedDescriptionsToLorebooks(db: DB): Promise<MigrationStats> {
   const stats: MigrationStats = {
     scanned: 0,
     charactersMigrated: 0,
+    personasMigrated: 0,
     lorebooksCreated: 0,
     entriesCreated: 0,
     skippedAlreadyMigrated: 0,
@@ -312,7 +383,8 @@ export async function migrateCharacterExtendedDescriptionsToLorebooks(db: DB): P
   };
   const charactersStore = createCharactersStorage(db);
   const characters = await charactersStore.list();
-  stats.scanned = characters.length;
+  const personas = await charactersStore.listPersonas();
+  stats.scanned = characters.length + personas.length;
 
   for (const character of characters) {
     try {
@@ -323,10 +395,20 @@ export async function migrateCharacterExtendedDescriptionsToLorebooks(db: DB): P
     }
   }
 
-  if (stats.charactersMigrated > 0 || stats.errors > 0) {
+  for (const persona of personas) {
+    try {
+      await migratePersona(db, persona, stats);
+    } catch (err) {
+      stats.errors += 1;
+      logger.error(err, "[migration] Failed to migrate legacy Extended Descriptions for persona %s", persona.id);
+    }
+  }
+
+  if (stats.charactersMigrated > 0 || stats.personasMigrated > 0 || stats.errors > 0) {
     logger.info(
-      "[migration] Extended Descriptions migrated: %d characters, %d lorebooks, %d entries, %d errors",
+      "[migration] Extended Descriptions migrated: %d characters, %d personas, %d lorebooks, %d entries, %d errors",
       stats.charactersMigrated,
+      stats.personasMigrated,
       stats.lorebooksCreated,
       stats.entriesCreated,
       stats.errors,

@@ -33,7 +33,7 @@ import { getTranscriptRenderWindow, TRANSCRIPT_RENDER_WINDOW_STEP } from "../../
 import { useConversationCustomEmojis } from "../../hooks/use-conversation-custom-emojis";
 import { useConversationCustomStickers } from "../../hooks/use-conversation-custom-stickers";
 import type { CharacterMap, MessageSelectionToggle, PersonaInfo } from "./chat-area.types";
-import type { Message } from "@marinara-engine/shared";
+import { normalizeTextForMatch, type Message } from "@marinara-engine/shared";
 
 const ConversationAutonomousEffects = lazy(async () => {
   const module = await import("./ConversationAutonomousEffects");
@@ -106,7 +106,7 @@ function hasNamePrefixFormat(msg: Message, characterMap: CharacterMap, chatChara
   if (!msg.content) return false;
   const chatNames = new Set(
     chatCharacterIds
-      .map((id) => characterMap.get(id)?.name?.toLowerCase())
+      .map((id) => normalizeTextForMatch(characterMap.get(id)?.name))
       .filter((name): name is string => typeof name === "string" && name.length > 0),
   );
   if (!chatNames.size) return false;
@@ -115,7 +115,7 @@ function hasNamePrefixFormat(msg: Message, characterMap: CharacterMap, chatChara
     const colonIdx = line.indexOf(": ");
     if (colonIdx > 0) {
       const name = line.slice(0, colonIdx).trim();
-      if (chatNames.has(name.toLowerCase())) return true;
+      if (chatNames.has(normalizeTextForMatch(name))) return true;
     }
   }
   return false;
@@ -294,6 +294,31 @@ export function ConversationView({
     return "Character";
   }, [characterMap, characterNames, chatCharIds, streamingCharacterId, typingCharacterName]);
   const liveTypingVerb = liveTypingName.includes(",") || liveTypingName.includes(" & ") ? "are" : "is";
+  const delayedDisplayName = useMemo(() => {
+    if (!delayedCharacterInfo) return "";
+    const ids = delayedCharacterInfo.characterIds ?? [];
+    const namesFromIds = ids
+      .map((id) => characterMap.get(id)?.name)
+      .filter((name): name is string => typeof name === "string" && name.trim().length > 0);
+    if (namesFromIds.length > 0 && namesFromIds.length === ids.length) return namesFromIds.join(", ");
+
+    const namesFromEvent = (delayedCharacterInfo.characterNames ?? []).filter(
+      (name): name is string => typeof name === "string" && name.trim().length > 0,
+    );
+    const usefulEventNames = namesFromEvent.filter((name) => {
+      const normalized = normalizeTextForMatch(name);
+      return normalized !== "character" && normalized !== "characters";
+    });
+    if (usefulEventNames.length > 0) return usefulEventNames.join(", ");
+    if (namesFromIds.length > 0) return namesFromIds.join(", ");
+    const fallbackName = delayedCharacterInfo.name?.trim() ?? "";
+    const normalizedFallbackName = normalizeTextForMatch(fallbackName);
+    if (fallbackName && normalizedFallbackName !== "character" && normalizedFallbackName !== "characters") {
+      return fallbackName;
+    }
+    return "Character";
+  }, [characterMap, delayedCharacterInfo]);
+  const delayedDisplayVerb = delayedDisplayName.includes(",") || delayedDisplayName.includes(" & ") ? "are" : "is";
   // Single typer → tag the typing row so exclusive-mode card CSS can target it via
   // `[data-card-css="<id>"] .mari-typing-*`. Multiple/unknown typers stay untagged.
   const typingCardCssId = streamingCharacterId ?? (chatCharIds.length === 1 ? chatCharIds[0] : undefined);
@@ -1066,8 +1091,8 @@ export function ConversationView({
           <div className="flex items-center gap-2 px-4 py-1.5 text-[0.8125rem] text-[var(--text-secondary)]">
             <span className="italic">
               {delayedCharacterInfo.status === "dnd"
-                ? `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} busy — they'll respond when they're back`
-                : `${delayedCharacterInfo.name} ${delayedCharacterInfo.name.includes(",") ? "are" : "is"} away — they'll respond in a moment`}
+                ? `${delayedDisplayName} ${delayedDisplayVerb} busy — they'll respond when they're back`
+                : `${delayedDisplayName} ${delayedDisplayVerb} away — they'll respond in a moment`}
             </span>
           </div>
         )}
@@ -1150,17 +1175,19 @@ export function ConversationView({
               ? (chatMeta.groupResponseOrder ?? "sequential")
               : undefined
         }
-        chatCharacters={chatCharIds.filter((id) => characterMap.has(id)).map((id) => {
-          const info = characterMap.get(id)!;
-          return {
-            id,
-            name: info.name,
-            avatarUrl: info.avatarUrl ?? null,
-            avatarCrop: info.avatarCrop ?? null,
-            conversationStatus: info.conversationStatus,
-            conversationActivity: info.conversationActivity,
-          };
-        })}
+        chatCharacters={chatCharIds
+          .filter((id) => characterMap.has(id))
+          .map((id) => {
+            const info = characterMap.get(id)!;
+            return {
+              id,
+              name: info.name,
+              avatarUrl: info.avatarUrl ?? null,
+              avatarCrop: info.avatarCrop ?? null,
+              conversationStatus: info.conversationStatus,
+              conversationActivity: info.conversationActivity,
+            };
+          })}
         onPeekPrompt={onPeekPrompt}
       />
     </div>

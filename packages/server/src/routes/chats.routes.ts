@@ -5,7 +5,6 @@ import type { FastifyInstance } from "fastify";
 import AdmZip from "adm-zip";
 import { logger } from "../lib/logger.js";
 import {
-  LOCAL_SIDECAR_CONNECTION_ID,
   PROFESSOR_MARI_ID,
   createChatSchema,
   createMessageSchema,
@@ -26,6 +25,7 @@ import {
   coerceGameStateTextValue,
   normalizeTrackerFieldLocks,
   parseTrackerFieldLocks,
+  normalizeTextForMatch,
 } from "@marinara-engine/shared";
 import type {
   CharacterData,
@@ -45,10 +45,10 @@ import { createConnectionsStorage } from "../services/storage/connections.storag
 import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { createGameStateStorage, type GameStateVisibleAnchor } from "../services/storage/game-state.storage.js";
 import { createRegexScriptsStorage } from "../services/storage/regex-scripts.storage.js";
-import { getLocalSidecarProvider, LOCAL_SIDECAR_MODEL } from "../services/llm/local-sidecar.js";
 import { createLLMProvider } from "../services/llm/provider-registry.js";
+import { resolveChatSummaryConnection } from "../services/chat-summary/connection-resolution.js";
 import { generateMissingConversationSummaries } from "../services/conversation/auto-summary.service.js";
-import { recordUserReaction } from "../services/conversation/autonomous.service.js";
+import { clearChatActivity, recordUserReaction } from "../services/conversation/autonomous.service.js";
 import { rebuildMemoryChunks } from "../services/memory-recall.js";
 import { wrapContent } from "../services/prompt/format-engine.js";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../services/prompt/chat-summary-fingerprint.js";
@@ -66,6 +66,7 @@ import {
   parseExtra,
   resolveRoleplayChatSummary,
   isMessageHiddenFromAI,
+  resolveBaseUrl,
   resolveActiveCharacterIds,
   resolveVisibleGameStateAnchor,
   shouldEnableAgentsForGeneration,
@@ -76,6 +77,7 @@ import {
 } from "../services/lorebook/game-lorebook-scope.js";
 import {
   isMemoryRecallVectorizerAvailable,
+  resetMemoryRecallVectorizerCache,
   resolveMemoryRecallEmbeddingSource,
 } from "../services/memory-recall-embedding.js";
 import { applyRegexScriptsToPromptMessages } from "../services/regex/regex-application.js";
@@ -148,8 +150,7 @@ function resolvePromptChoiceVariables(
       continue;
     }
 
-    variables[block.variableName] =
-      typeof selected === "string" && optionValues.has(selected) ? selected : fallback;
+    variables[block.variableName] = typeof selected === "string" && optionValues.has(selected) ? selected : fallback;
   }
   return variables;
 }
@@ -198,8 +199,8 @@ function hasProfessorMariCharacter(chat: { characterIds?: unknown }) {
   return resolveChatCharacterIds(chat.characterIds).includes(PROFESSOR_MARI_ID);
 }
 
-function shouldHideProfessorMariChat(chat: { metadata?: unknown; characterIds?: unknown }) {
-  return isHomeProfessorMariChat(chat) || hasProfessorMariCharacter(chat);
+function shouldHideProfessorMariChat(chat: { metadata?: unknown }) {
+  return isHomeProfessorMariChat(chat);
 }
 
 function isUsableTimestamp(value: unknown): value is string {
@@ -438,7 +439,7 @@ export async function chatsRoutes(app: FastifyInstance) {
 
   app.get<{ Querystring: { connectionId?: string; personaId?: string } }>("/internal/professor-mari", async (req) => {
     const chats = await storage.list();
-    const existing = chats.find(isHomeProfessorMariChat) ?? chats.find(hasProfessorMariCharacter);
+    const existing = chats.find(isHomeProfessorMariChat);
     const connectionId =
       typeof req.query.connectionId === "string" && req.query.connectionId ? req.query.connectionId : null;
     const personaId = typeof req.query.personaId === "string" && req.query.personaId ? req.query.personaId : null;
@@ -485,7 +486,7 @@ export async function chatsRoutes(app: FastifyInstance) {
   // Get single chat
   app.get<{ Params: { id: string } }>("/:id", async (req, reply) => {
     const chat = await storage.getById(req.params.id);
-    if (!chat || (hasProfessorMariCharacter(chat) && !isHomeProfessorMariChat(chat))) {
+    if (!chat || isHomeProfessorMariChat(chat)) {
       return reply.status(404).send({ error: "Chat not found" });
     }
     return sanitizeChatGameNpcAvatars(chat);
@@ -513,19 +514,19 @@ export async function chatsRoutes(app: FastifyInstance) {
   // Update chat
   app.patch<{ Params: { id: string } }>("/:id", async (req, reply) => {
     const data = createChatSchema.partial().parse(req.body);
-    if (data.characterIds?.includes(PROFESSOR_MARI_ID)) {
-      return reply.status(400).send({ error: "Professor Mari is only available from the Home screen." });
-    }
     const existing = await storage.getById(req.params.id);
-    if (!existing || (hasProfessorMariCharacter(existing) && !isHomeProfessorMariChat(existing))) {
+    if (!existing || isHomeProfessorMariChat(existing)) {
       return reply.status(404).send({ error: "Chat not found" });
+    }
+    if (data.characterIds?.includes(PROFESSOR_MARI_ID) && !hasProfessorMariCharacter(existing)) {
+      return reply.status(400).send({ error: "Professor Mari is only available from the Home screen." });
     }
     return storage.update(req.params.id, data);
   });
 
   app.post<{ Params: { id: string } }>("/:id/touch", async (req, reply) => {
     const chat = await storage.getById(req.params.id);
-    if (!chat || (hasProfessorMariCharacter(chat) && !isHomeProfessorMariChat(chat))) {
+    if (!chat || isHomeProfessorMariChat(chat)) {
       return reply.status(404).send({ error: "Chat not found" });
     }
     return storage.touch(req.params.id);
@@ -597,8 +598,14 @@ export async function chatsRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Invalid summaries payload", issues: parsed.error.issues });
     }
     const updated = await storage.patchMetadata(req.params.id, (current) => ({
-      daySummaries: { ...((current.daySummaries as Record<string, unknown>) ?? {}), ...(parsed.data.daySummaries ?? {}) },
-      weekSummaries: { ...((current.weekSummaries as Record<string, unknown>) ?? {}), ...(parsed.data.weekSummaries ?? {}) },
+      daySummaries: {
+        ...((current.daySummaries as Record<string, unknown>) ?? {}),
+        ...(parsed.data.daySummaries ?? {}),
+      },
+      weekSummaries: {
+        ...((current.weekSummaries as Record<string, unknown>) ?? {}),
+        ...(parsed.data.weekSummaries ?? {}),
+      },
     }));
     if (!updated) return reply.status(404).send({ error: "Chat not found" });
     return updated;
@@ -950,19 +957,24 @@ export async function chatsRoutes(app: FastifyInstance) {
     // If this is a scene chat, clean up the origin chat's scene pointer
     const chat = await storage.getById(req.params.id);
     if (chat) {
-      const meta = typeof chat.metadata === "string" ? JSON.parse(chat.metadata) : (chat.metadata ?? {});
+      const meta = parseExtra(chat.metadata) as Record<string, unknown>;
       const originId = meta.sceneOriginChatId;
-      if (originId) {
+      if (typeof originId === "string" && originId) {
         const origin = await storage.getById(originId);
         if (origin) {
-          const originMeta =
-            typeof origin.metadata === "string" ? JSON.parse(origin.metadata) : (origin.metadata ?? {});
+          const originMeta = parseExtra(origin.metadata) as Record<string, unknown>;
           delete originMeta.activeSceneChatId;
           delete originMeta.sceneBusyCharIds;
           await storage.updateMetadata(originId, originMeta);
         }
       }
     }
+    const activeGenerations = (app as unknown as {
+      activeGenerations?: Map<string, { abortController?: AbortController }>;
+    }).activeGenerations;
+    activeGenerations?.get(req.params.id)?.abortController?.abort();
+    activeGenerations?.delete(req.params.id);
+    clearChatActivity(req.params.id);
     // Disconnect from partner chat before deleting
     await storage.disconnectChat(req.params.id);
     await storage.remove(req.params.id);
@@ -1168,6 +1180,7 @@ export async function chatsRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>("/:id/memories/refresh", async (req, reply) => {
     const chat = await storage.getById(req.params.id);
     if (!chat) return reply.status(404).send({ error: "Chat not found" });
+    resetMemoryRecallVectorizerCache();
 
     const characterIds: string[] = Array.isArray(chat.characterIds)
       ? chat.characterIds
@@ -1342,7 +1355,9 @@ export async function chatsRoutes(app: FastifyInstance) {
     const presentCharacters = JSON.parse((row.presentCharacters as string) ?? "[]") as Array<Record<string, unknown>>;
     const playerStats = row.playerStats ? JSON.parse(row.playerStats as string) : null;
     const personaStats = row.personaStats ? JSON.parse(row.personaStats as string) : null;
-    const storedManualOverrides = row.manualOverrides ? (JSON.parse(row.manualOverrides as string) as Record<string, string>) : null;
+    const storedManualOverrides = row.manualOverrides
+      ? (JSON.parse(row.manualOverrides as string) as Record<string, string>)
+      : null;
     const fieldLocks = parseTrackerFieldLocks(row.fieldLocks);
 
     // ── Enrich present characters with avatar paths ──
@@ -1369,7 +1384,9 @@ export async function chatsRoutes(app: FastifyInstance) {
         for (const cr of charRows) {
           try {
             const d = typeof cr.data === "string" ? JSON.parse(cr.data) : cr.data;
-            if (d?.name && cr.avatarPath) nameToAvatar.set((d.name as string).toLowerCase(), cr.avatarPath as string);
+            if (d?.name && cr.avatarPath) {
+              nameToAvatar.set(normalizeTextForMatch(d.name), cr.avatarPath as string);
+            }
           } catch {
             /* skip */
           }
@@ -1379,7 +1396,7 @@ export async function chatsRoutes(app: FastifyInstance) {
       for (const char of charsNeedingAvatar) {
         const name = char.name as string;
         // 1. Try matching a known character card by name
-        const knownAvatar = nameToAvatar.get(name.toLowerCase());
+        const knownAvatar = nameToAvatar.get(normalizeTextForMatch(name));
         if (knownAvatar) {
           char.avatarPath = knownAvatar;
           continue;
@@ -1629,9 +1646,8 @@ export async function chatsRoutes(app: FastifyInstance) {
       try {
         const { createPromptsStorage } = await import("../services/storage/prompts.storage.js");
         const { createCharactersStorage } = await import("../services/storage/characters.storage.js");
-        const { assemblePrompt, buildPromptMacroContext, resolvePromptIdleDuration } = await import(
-          "../services/prompt/index.js"
-        );
+        const { assemblePrompt, buildPromptMacroContext, resolvePromptIdleDuration } =
+          await import("../services/prompt/index.js");
         const presetStore = createPromptsStorage(app.db);
         const charStore = createCharactersStorage(app.db);
 
@@ -1717,16 +1733,16 @@ export async function chatsRoutes(app: FastifyInstance) {
           })();
 
           const chatChoices = (chatMeta.presetChoices ?? {}) as Record<string, string | string[]>;
-	          const promptMacroContext = await buildPromptMacroContext({
-	            db: app.db,
-	            characterIds,
-	            personaName,
-	            personaDescription,
-	            personaFields,
-	            variables:
-	              chatMode === "conversation" || chatMode === "game"
-	                ? resolvePromptChoiceVariables(choiceBlocks as PromptChoiceBlockRow[], chatChoices)
-	                : {},
+          const promptMacroContext = await buildPromptMacroContext({
+            db: app.db,
+            characterIds,
+            personaName,
+            personaDescription,
+            personaFields,
+            variables:
+              chatMode === "conversation" || chatMode === "game"
+                ? resolvePromptChoiceVariables(choiceBlocks as PromptChoiceBlockRow[], chatChoices)
+                : {},
             groupScenarioOverrideText:
               typeof chatMeta.groupScenarioText === "string" && (chatMeta.groupScenarioText as string).trim()
                 ? (chatMeta.groupScenarioText as string).trim()
@@ -1742,41 +1758,41 @@ export async function chatsRoutes(app: FastifyInstance) {
           applyRegexScriptsToPromptMessages(mappedMessages, await regexStore.list(), {
             resolveMacros: (value) => resolveMacros(value, promptMacroContext, { trimResult: false }),
           });
-	          promptMacroContext.lastInput = [...mappedMessages]
-	            .reverse()
-	            .find((message) => message.role === "user")?.content;
+          promptMacroContext.lastInput = [...mappedMessages]
+            .reverse()
+            .find((message) => message.role === "user")?.content;
           if (chatMode === "conversation") {
             const customPrompt =
               typeof chatMeta.customSystemPrompt === "string" && chatMeta.customSystemPrompt.trim()
                 ? (chatMeta.customSystemPrompt as string).trim()
                 : null;
-		            const selectedConversationPrompt = presetStringField(
-		              preset as Record<string, unknown> | null,
-		              "conversationPrompt",
-		            );
-	            const conversationPromptTemplate =
-	              customPrompt ?? (selectedConversationPrompt || DEFAULT_CONVERSATION_PROMPT);
-	            const charNameList = promptMacroContext.characters.join(", ") || "Character";
-	            const renderedConversationPrompt = resolveMacros(
-	              conversationPromptTemplate
-	                .replace(/\{\{charName\}\}/g, charNameList)
-	                .replace(/\{\{userName\}\}/g, personaName),
-	              promptMacroContext,
-	            );
-	            const messages = [
-	              {
-	                role: "system" as const,
-	                content: wrapConversationInstructions(unwrapConversationInstructions(renderedConversationPrompt)),
-	              },
-	              ...mappedMessages,
-	            ];
-	            return {
-	              messages: toPeekPromptMessages(messages),
-	              parameters: null,
-	              source: "live_preview",
-	              exact: false,
-	              generationInfo: null,
-	              agentNote:
+            const selectedConversationPrompt = presetStringField(
+              preset as Record<string, unknown> | null,
+              "conversationPrompt",
+            );
+            const conversationPromptTemplate =
+              customPrompt ?? (selectedConversationPrompt || DEFAULT_CONVERSATION_PROMPT);
+            const charNameList = promptMacroContext.characters.join(", ") || "Character";
+            const renderedConversationPrompt = resolveMacros(
+              conversationPromptTemplate
+                .replace(/\{\{charName\}\}/g, charNameList)
+                .replace(/\{\{userName\}\}/g, personaName),
+              promptMacroContext,
+            );
+            const messages = [
+              {
+                role: "system" as const,
+                content: wrapConversationInstructions(unwrapConversationInstructions(renderedConversationPrompt)),
+              },
+              ...mappedMessages,
+            ];
+            return {
+              messages: toPeekPromptMessages(messages),
+              parameters: null,
+              source: "live_preview",
+              exact: false,
+              generationInfo: null,
+              agentNote:
                 "No saved model request was available, so this is a live best-effort preview assembled without sending.",
             };
           }
@@ -2501,13 +2517,7 @@ export async function chatsRoutes(app: FastifyInstance) {
     // Copy metadata (preset, lorebooks, agents, persona settings, etc.) from source chat
     // but keep branch labels separate from the stable thread name.
     const settingsToKeep = { ...sourceMeta };
-    for (const key of [
-      "summary",
-      "summaryEntries",
-      "lastAutomaticSummaryMessageId",
-      "daySummaries",
-      "weekSummaries",
-    ]) {
+    for (const key of ["summary", "summaryEntries", "lastAutomaticSummaryMessageId", "daySummaries", "weekSummaries"]) {
       delete settingsToKeep[key];
     }
     await storage.updateMetadata(newChat.id, {
@@ -2663,57 +2673,35 @@ export async function chatsRoutes(app: FastifyInstance) {
     const hasRangeByIndex = requestedRangeStartIndex !== null && requestedRangeEndIndex !== null;
     const hasRange = hasRangeByMessageId || hasRangeByIndex;
 
-    const chatConnId = chat.connectionId;
-
     const connections = createConnectionsStorage(app.db);
 
-    // Model resolution chain:
-    // 1. Default-for-agents connection
-    // 2. Chat's active connection
-    const defaultAgentConn = await connections.getDefaultForAgents();
-
-    let resolvedConnId: string | null = defaultAgentConn?.id ?? null;
-
-    // Fall back to the chat connection
-    if (!resolvedConnId) {
-      resolvedConnId = chatConnId ?? null;
+    const resolvedSummaryConnection = await resolveChatSummaryConnection({
+      chatConnectionId: chat.connectionId,
+      chatMetadata: chatMeta,
+      connections,
+      resolveBaseUrl,
+    });
+    if (!resolvedSummaryConnection.ok) {
+      if (resolvedSummaryConnection.warnings.length > 0) {
+        logger.warn(
+          { chatId: req.params.id, warnings: resolvedSummaryConnection.warnings },
+          "[chat-summary] Could not resolve summary connection",
+        );
+      }
+      return reply.status(400).send({ error: resolvedSummaryConnection.error });
     }
-
-    if (!resolvedConnId) return reply.status(400).send({ error: "No API connection configured for this chat" });
-
-    let provider = getLocalSidecarProvider();
-    let model = LOCAL_SIDECAR_MODEL;
-
-    if (resolvedConnId !== LOCAL_SIDECAR_CONNECTION_ID) {
-      let id = resolvedConnId;
-      if (id === "random") {
-        const pool = await connections.listRandomPool();
-        if (!pool.length) return reply.status(400).send({ error: "No connections in random pool" });
-        id = pool[Math.floor(Math.random() * pool.length)]!.id;
-      }
-      const conn = await connections.getWithKey(id);
-      if (!conn) return reply.status(400).send({ error: "API connection not found" });
-
-      let baseUrl = conn.baseUrl;
-      if (!baseUrl) {
-        const { PROVIDERS } = await import("@marinara-engine/shared");
-        const providerDef = PROVIDERS[conn.provider as keyof typeof PROVIDERS];
-        baseUrl = providerDef?.defaultBaseUrl ?? "";
-      }
-      if (!baseUrl && conn.provider === "claude_subscription") baseUrl = "claude-agent-sdk://local";
-      if (!baseUrl && conn.provider === "openai_chatgpt") baseUrl = "openai-chatgpt://codex-auth";
-      if (!baseUrl) return reply.status(400).send({ error: "No base URL for this connection" });
-
-      provider = createLLMProvider(
-        conn.provider,
-        baseUrl,
-        conn.apiKey,
-        conn.maxContext,
-        conn.openrouterProvider,
-        conn.maxTokensOverride,
+    if (resolvedSummaryConnection.warnings.length > 0) {
+      logger.warn(
+        {
+          chatId: req.params.id,
+          connectionId: resolvedSummaryConnection.connectionId,
+          source: resolvedSummaryConnection.source,
+          warnings: resolvedSummaryConnection.warnings,
+        },
+        "[chat-summary] Resolved summary connection after fallback",
       );
-      model = conn.model;
     }
+    const { provider, model } = resolvedSummaryConnection;
 
     // Build conversation context (use contextSize from popover, or a custom range).
     // Hidden-from-AI messages are excluded from summary generation even when

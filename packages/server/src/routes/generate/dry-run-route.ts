@@ -1333,10 +1333,8 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       effectivePresetId && effectivePreset && (chatMode === "conversation" || chatMode === "game")
         ? parseStoredGenerationParameters(effectivePreset.parameters)
         : null;
-    if (!effectivePresetId || (!modePresetParameters && (chatMode === "conversation" || chatMode === "game"))) {
-      applyParameterOverrides(connectionParams);
-    }
     if (modePresetParameters) applyParameterOverrides(modePresetParameters);
+    applyParameterOverrides(connectionParams);
     applyParameterOverrides(chatParams);
 
     if (!finalMessages.length) {
@@ -1656,7 +1654,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
           enableThinking: suppressModelParameters ? undefined : enableThinking || undefined,
           reasoningEffort: suppressModelParameters ? undefined : resolvedEffort || undefined,
           verbosity: suppressModelParameters ? undefined : verbosity || undefined,
-          serviceTier: suppressModelParameters ? undefined : serviceTier || undefined,
+          serviceTier: serviceTier || undefined,
           showThoughts: showThoughts || undefined,
           assistantPrefill: assistantPrefill || undefined,
           customParameters: Object.keys(customParameters).length > 0 ? customParameters : undefined,

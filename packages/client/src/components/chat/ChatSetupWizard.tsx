@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Chat Setup Wizard — step-by-step new chat configuration
 // ──────────────────────────────────────────────
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -212,7 +212,7 @@ const WIZARD_PANEL_CLASS = cn(
 
 const WIZARD_FIELD_LABEL = "text-[0.6875rem] font-medium uppercase tracking-wider text-[var(--muted-foreground)]";
 const WIZARD_INPUT_CLASS =
-  "w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] transition-shadow placeholder:text-[var(--muted-foreground)] focus:ring-[var(--primary)]/40";
+  "w-full min-w-0 truncate rounded-lg bg-[var(--secondary)] px-3 py-2 pr-8 text-xs text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] transition-shadow placeholder:text-[var(--muted-foreground)] focus:ring-[var(--primary)]/40";
 const WIZARD_NUMBER_INPUT_CLASS =
   "w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs text-[var(--foreground)] outline-none ring-1 ring-transparent transition-shadow placeholder:text-[var(--muted-foreground)] focus:ring-[var(--primary)]/40";
 const WIZARD_GHOST_BUTTON_CLASS =
@@ -629,22 +629,28 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   const [generateSchedule, setGenerateSchedule] = useState(false);
   const [showChoiceModal, setShowChoiceModal] = useState(false);
   const [promptPresetTouched, setPromptPresetTouched] = useState(false);
+  const defaultPromptPresetAppliedRef = useRef<string | null>(null);
+  const selectedConnectionChatIdRef = useRef(chat.id);
+  const latestChatConnectionIdRef = useRef(chat.connectionId);
+  const [selectedConnectionId, setSelectedConnectionId] = useState(chat.connectionId ?? "");
 
   useEffect(() => {
     setSelectedPromptPresetId(chat.promptPresetId ?? null);
   }, [chat.id, chat.promptPresetId]);
 
+  useEffect(() => {
+    latestChatConnectionIdRef.current = chat.connectionId;
+  }, [chat.connectionId]);
+
+  useEffect(() => {
+    if (selectedConnectionChatIdRef.current === chat.id) return;
+    selectedConnectionChatIdRef.current = chat.id;
+    setSelectedConnectionId(latestChatConnectionIdRef.current ?? "");
+  }, [chat.id]);
+
   // Track whether the user has manually edited the chat name.
   // If not, auto-rename to match the selected character name(s).
   const [userEditedName, setUserEditedName] = useState(false);
-
-  // Apply the saved custom conversation prompt immediately so it persists even if the wizard is skipped
-  useEffect(() => {
-    const savedPrompt = useUIStore.getState().customConversationPrompt;
-    if (savedPrompt) {
-      updateMeta.mutate({ id: chat.id, customSystemPrompt: savedPrompt });
-    }
-  }, [chat.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const characters = useMemo(
     () =>
@@ -673,8 +679,8 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
     [connections],
   );
   const selectedConnection = useMemo(
-    () => connectionOptions.find((connection) => connection.id === chat.connectionId) ?? null,
-    [connectionOptions, chat.connectionId],
+    () => connectionOptions.find((connection) => connection.id === selectedConnectionId) ?? null,
+    [connectionOptions, selectedConnectionId],
   );
   const parameterDefaults = useMemo(
     () => getEditableGenerationParameters(CHAT_PARAMETER_DEFAULTS, selectedConnection?.defaultParameters),
@@ -757,7 +763,16 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
 
   const setConnection = useCallback(
     (connectionId: string | null) => {
-      updateChat.mutate({ id: chat.id, connectionId });
+      setSelectedConnectionId(connectionId ?? "");
+      updateChat.mutate(
+        { id: chat.id, connectionId },
+        {
+          onSuccess: () => {
+            latestChatConnectionIdRef.current = connectionId;
+          },
+          onError: () => setSelectedConnectionId(latestChatConnectionIdRef.current ?? ""),
+        },
+      );
     },
     [chat.id, updateChat],
   );
@@ -772,10 +787,15 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   );
 
   useEffect(() => {
-    if (!promptPresetTouched && !chat.promptPresetId && defaultPreset?.id) {
-      setSelectedPromptPresetId(defaultPreset.id);
-      updateChat.mutate({ id: chat.id, promptPresetId: defaultPreset.id });
-    }
+    const defaultId = defaultPreset?.id ?? null;
+    if (promptPresetTouched || chat.promptPresetId || !defaultId) return;
+
+    const applyKey = `${chat.id}:${defaultId}`;
+    if (defaultPromptPresetAppliedRef.current === applyKey) return;
+
+    defaultPromptPresetAppliedRef.current = applyKey;
+    setSelectedPromptPresetId(defaultId);
+    updateChat.mutate({ id: chat.id, promptPresetId: defaultId });
   }, [chat.id, chat.promptPresetId, defaultPreset?.id, promptPresetTouched, updateChat]);
 
   const setPersona = useCallback(
@@ -808,8 +828,6 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
 
   const handleStartChatting = useCallback(async () => {
     if (!hasConnection || !hasCharacters) return;
-    // Apply user's saved custom conversation prompt (if any) to this new chat
-    const savedPrompt = useUIStore.getState().customConversationPrompt;
     await updateMeta.mutateAsync({
       id: chat.id,
       autonomousMessages: autonomousEnabled,
@@ -817,7 +835,6 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
       characterCommands: commandsEnabled,
       conversationCommandToggles,
       chatParameters: customizeParameters ? generationParameters : null,
-      ...(savedPrompt ? { customSystemPrompt: savedPrompt } : {}),
     });
     if (autonomousEnabled && generateSchedule) {
       setScheduleState("generating");
@@ -877,7 +894,7 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
       <div className="space-y-1.5">
         <label className={WIZARD_FIELD_LABEL}>Connection</label>
         <select
-          value={chat.connectionId ?? ""}
+          value={selectedConnectionId}
           onChange={(event) => setConnection(event.target.value || null)}
           className={WIZARD_INPUT_CLASS}
         >

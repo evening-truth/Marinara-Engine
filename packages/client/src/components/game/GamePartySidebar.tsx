@@ -3,6 +3,7 @@
 // ──────────────────────────────────────────────
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Users, Send, ChevronLeft, ChevronRight, Swords, Heart, Sparkles } from "lucide-react";
+import { normalizeTextForMatch } from "@marinara-engine/shared";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { AnimatedText } from "./AnimatedText";
 import { NEUTRAL_SURFACE_VARIABLES } from "../ui/neutral-surface-styles";
@@ -89,7 +90,7 @@ export function GamePartySidebar({
   };
 
   const selectedCard = selectedMemberId ? partyCards?.[selectedMemberId] : null;
-  const partyMembersByName = new Map((partyMembers ?? []).map((m) => [m.name.toLowerCase(), m]));
+  const partyMembersByName = new Map((partyMembers ?? []).map((m) => [normalizeTextForMatch(m.name), m]));
 
   return (
     <div
@@ -319,7 +320,9 @@ export function GamePartySidebar({
               <p className="py-4 text-center text-xs text-[var(--muted-foreground)]">Party members will chat here...</p>
             ) : (
               messages.map((msg) => {
-                const msgMember = msg.characterName ? partyMembersByName.get(msg.characterName.toLowerCase()) : null;
+                const msgMember = msg.characterName
+                  ? partyMembersByName.get(normalizeTextForMatch(msg.characterName))
+                  : null;
                 return (
                   <div key={msg.id} className="flex items-start gap-1.5 text-xs">
                     {msg.characterAvatar ? (

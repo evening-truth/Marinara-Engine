@@ -3,7 +3,7 @@
 // ──────────────────────────────────────────────
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api-client";
-import { chatKeys } from "./use-chats";
+import { chatKeys, syncCachedChat } from "./use-chats";
 import type { Chat, ChatMode, ChatPreset, ChatPresetSettings } from "@marinara-engine/shared";
 
 export const chatPresetKeys = {
@@ -90,15 +90,17 @@ export function useImportChatPreset() {
   });
 }
 
-/** Apply a preset's settings to an existing chat. Refetches the chat afterward. */
+/** Apply a preset's settings to an existing chat. */
 export function useApplyChatPreset() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ presetId, chatId }: { presetId: string; chatId: string }) =>
       api.post<Chat>(`/chat-presets/${presetId}/apply/${chatId}`),
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
+      if (data) syncCachedChat(qc, data);
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: chatKeys.list() });
+      qc.invalidateQueries({ queryKey: [...chatKeys.all, "group"] });
     },
   });
 }
