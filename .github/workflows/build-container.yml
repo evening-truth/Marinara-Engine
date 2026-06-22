@@ -2,15 +2,16 @@
 # Build & push Container image to GitHub Container Registry (ghcr.io)
 # ──────────────────────────────────────────────
 # Triggers:
+#   • Push to staging         → ghcr.io/pasta-devs/marinara-engine:staging
 #   • Push to main            → ghcr.io/pasta-devs/marinara-engine:sha-abc1234
-#   • Tag v*                  → ghcr.io/pasta-devs/marinara-engine:1.4.0 + :latest
-#   • Manual workflow_dispatch → same as push-to-main
+#   • Tag v*                  → ghcr.io/pasta-devs/marinara-engine:2.0.0 + :latest
+#   • Manual workflow_dispatch → same tags as the selected branch or tag
 # ──────────────────────────────────────────────
 name: Build & Push Container Image
 
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
     tags: ["v*"]
     paths-ignore:
       # Documentation & metadata
@@ -87,6 +88,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.lower.outputs.image }}
           tags: |
+            # On push to staging → :staging
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/staging' }}
             # On push to main → :sha-<short> :main
             type=sha,prefix=sha-,enable={{is_default_branch}}
             type=raw,value=main,enable={{is_default_branch}}
@@ -168,6 +171,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.lower.outputs.image }}
           tags: |
+            # On push to staging → :staging
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/staging' }}
             # On push to main → :sha-<short> :main
             type=sha,prefix=sha-,enable={{is_default_branch}}
             type=raw,value=main,enable={{is_default_branch}}
@@ -181,10 +186,20 @@ jobs:
         id: manifest
         working-directory: /tmp/digests
         run: |
-          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
           image="${{ env.REGISTRY }}/${{ steps.lower.outputs.image }}"
-          digests=$(printf "${image}@sha256:%s " *)
-          docker buildx imagetools create $tags $digests
+          tag_args=()
+          while IFS= read -r tag; do
+            tag_args+=("-t" "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          digest_args=()
+          for digest_file in *; do
+            digest_args+=("${image}@sha256:${digest_file}")
+          done
+          if [ "${#digest_args[@]}" -eq 0 ]; then
+            echo "No digest files found" >&2
+            exit 1
+          fi
+          docker buildx imagetools create "${tag_args[@]}" "${digest_args[@]}"
           # Get the digest of the pushed manifest list using raw format
           digest=$(docker buildx imagetools inspect "$image:${{ steps.meta.outputs.version }}" --raw | sha256sum | cut -d' ' -f1 | sed 's/^/sha256:/')
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
