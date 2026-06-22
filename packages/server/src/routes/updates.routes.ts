@@ -35,7 +35,7 @@ const MANUAL_GIT_UPDATE_COMMAND =
 const DOCKER_UPDATE_COMMAND = "docker compose pull && docker compose up -d";
 const ANDROID_APK_NOTICE =
   "> [!IMPORTANT]\n" +
-  "> **Android APK notice:** The APK is not a standalone Marinara Engine app yet. It is a WebView shell for the local Marinara server, so Termux must be installed and `./start-termux.sh` must be running on the same Android device before you open the APK.";
+  "> **Android APK notice:** The APK is a Termux bootstrap + WebView shell, not a native Android server build. It opens an already-running local Marinara server, and on first launch it can download Termux from F-Droid, hand it to Android's installer, and start Marinara through Termux after Android permission prompts.";
 
 // ── Cached release info (15-min TTL) ──
 let cachedRelease: {

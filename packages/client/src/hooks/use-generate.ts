@@ -1122,13 +1122,6 @@ export function useGenerate() {
       const canInspectPageFocus = typeof document !== "undefined";
       const shouldFlushTypewriterForBackground = () => canInspectPageFocus && document.visibilityState !== "visible";
 
-      console.log(
-        "[Typewriter] streaming=%s, speed=%d, charsPerSecond=%s",
-        streamingEnabled,
-        useUIStore.getState().streamingSpeed,
-        getCharsPerSecond(),
-      );
-
       const flushTypewriterBuffer = () => {
         cancelAnimationFrame(rafId);
         fullBuffer = normalizeLineBreakSpacing(fullBuffer + pendingText);
@@ -1879,9 +1872,6 @@ export function useGenerate() {
             }
 
             case "schedule_updated": {
-              const schedData = event.data as { characterId: string; status?: string; activity?: string };
-              const charName = schedData.activity || schedData.status || "schedule";
-              console.log(`[commands] Schedule updated for ${schedData.characterId}: ${charName}`);
               break;
             }
 
@@ -2007,22 +1997,6 @@ export function useGenerate() {
             }
 
             case "haptic_command": {
-              const hapData = event.data as {
-                action?: string;
-                intensity?: number;
-                duration?: number;
-                commands?: unknown[];
-                reasoning?: string;
-              };
-              if (hapData.commands) {
-                console.log(
-                  `[haptic] Agent sent ${(hapData.commands as unknown[]).length} command(s): ${hapData.reasoning ?? ""}`,
-                );
-              } else {
-                console.log(
-                  `[haptic] ${hapData.action} intensity=${hapData.intensity ?? "?"} duration=${hapData.duration ?? "indefinite"}`,
-                );
-              }
               break;
             }
 

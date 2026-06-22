@@ -146,10 +146,10 @@ Press **Marinara Sync HA Tools** on the integration's device page to push any mi
 Press **Marinara Sync HA Tools**, or restart Home Assistant. Verify under **Settings → Custom Tools** in Marinara.
 
 **Home Assistant agent not showing up in Marinara**
-Press **Marinara Sync HA Tools**. If it's already in the Agents list but not visible in a chat, it may be disabled — enable it there.
+Press **Marinara Sync HA Tools**. If it's already in the Agents list but not visible in a chat, add the Home Assistant custom agent to that chat from Chat Settings -> Agents.
 
 **Tools not available in a chat's Function Calling picker**
-The **Home Assistant** agent must be enabled in Marinara (Agents list). If it's there but disabled, enable it. If it's missing entirely, press **Sync HA Tools** to recreate it.
+The **Home Assistant** custom agent must be synced in Marinara and added to the current chat. If it's missing entirely, press **Sync HA Tools** to recreate it, then add it from Chat Settings -> Agents and select the tools you want in the chat's Function Calling picker.
 
 **Webhook calls failing**
 Check that Home Assistant is reachable from the machine running Marinara Engine. If they run on the same machine, the internal URL (`http://localhost:8123`) is used automatically. If Marinara runs on a different device, make sure HA's local network URL is accessible from that device.

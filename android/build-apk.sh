@@ -80,7 +80,7 @@ if [ -n "${APK_PATH:-}" ] && [ -f "$APK_PATH" ]; then
     echo "  adb install $APK_PATH"
     echo ""
     echo "Important: this APK is a Termux bootstrap + WebView shell, not a native server build."
-    echo "It can open a running Termux server or help launch setup through Termux after Android permission prompts."
+    echo "It can open a running Termux server or download Termux and launch setup after Android permission prompts."
     echo ""
     echo "Or copy to phone and open the file to install."
 else

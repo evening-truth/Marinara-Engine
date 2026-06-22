@@ -82,7 +82,7 @@ The Agents menu is the small activity menu in the Roleplay HUD. By default it sh
 Some troubleshooting tools are opt-in so they don't clutter the normal roleplay view:
 
 - **Injections tab** — enable it via the toggle switch in Chat Settings -> Agents -> Writer Agents -> Injections tab.
-- **Secret Plot tab** — enable Secret Plot Driver, then turn on the Secret Plot tab via the toggle on that agent's active card in Chat Settings.
+- **Secret Plot tab** — add Narrative Director to the chat, enable its Secret Plot option, then turn on the Secret Plot tab via the toggle on that agent's active card in Chat Settings.
 
 The **Injections tab** shows cached prompt injections saved on the latest assistant message. These are snippets that writer-style agents added before the reply was generated, such as Prose Guardian, Narrative Director, knowledge retrieval, knowledge router, or custom prompt-section agents. You can inspect, edit, save, or re-run eligible cached injections.
 
@@ -92,11 +92,13 @@ The important part: edits in the Injections tab don't change the already-visible
 
 Knowledge Retrieval and Knowledge Router cached injections can be viewed but not re-run from this tab because they depend on their own retrieval/routing paths. Custom agents with **Add as Prompt Section** enabled appear below the cached injections so you can inspect and edit their latest saved prompt-section output too.
 
-## Secret Plot Driver
+<a id="secret-plot-driver"></a>
 
-Secret Plot Driver is an optional hidden-story agent. It maintains private plot memory for one roleplay chat: a long-term **arc memory** plus short-term **scene directions** that can be injected before replies. This is different from visible summaries or lorebook entries. It's meant to steer pacing, reveals, and long-term tension without printing the plan directly in the chat.
+## Narrative Director Secret Plot
 
-When Secret Plot Driver is active and the Secret Plot tab is shown, you can edit:
+Secret Plot is an optional hidden-story mode inside Narrative Director. It maintains private plot memory for one roleplay chat: a long-term **arc memory** plus short-term **scene directions** that can be injected before replies. This is different from visible summaries or lorebook entries. It's meant to steer pacing, reveals, and long-term tension without printing the plan directly in the chat.
+
+When Narrative Director's Secret Plot option is active and the Secret Plot tab is shown, you can edit:
 
 - **Scene direction** — short-term guidance for the next turn or near-term scene motion.
 - **Needs momentum shift** — a hint that the current scene has gone stale and should move.
@@ -107,7 +109,7 @@ There are two re-run buttons with different blast radius:
 - **Re-run scene direction** keeps the current arc memory and only refreshes the turn-level guidance.
 - **Re-run full secret plot state** always asks for confirmation first, then may replace the hidden arc and scene directions depending on the model output. When it does, it overwrites the chat's arc memory and hidden plot plan.
 
-Saving edits writes directly to the agent memory used during generation. Hiding the Secret Plot tab only hides the editor; it doesn't disable the agent or delete memory. Removing Secret Plot Driver from the chat DOES delete that chat's hidden plot memory for the agent, including the current arc and scene directions.
+Saving edits writes directly to the agent memory used during generation. Hiding the Secret Plot tab only hides the editor; it doesn't disable the agent or delete memory. Removing Narrative Director from the chat DOES delete that chat's hidden plot memory for the agent, including the current arc and scene directions.
 
 ## Sprite expressions
 
@@ -265,11 +267,11 @@ If Prose Guardian, Narrative Director, knowledge retrieval, or a custom prompt-s
 
 This works because Marinara stores the prompt injections used for each assistant message. On regeneration, it reuses that message's cached guidance instead of blindly using whatever the newest chat state would produce.
 
-### Secret Plot Driver keeps steering toward the wrong arc
+### Narrative Director Secret Plot keeps steering toward the wrong arc
 
-Open chat settings -> Agents, make sure Secret Plot Driver is active, and show its **Secret Plot tab**. In the Roleplay HUD's Agents menu, use the Secret Plot tab to edit or re-run the hidden state.
+Open chat settings -> Agents, make sure Narrative Director is active with Secret Plot enabled, and show its **Secret Plot tab**. In the Roleplay HUD's Agents menu, use the Secret Plot tab to edit or re-run the hidden state.
 
-Use **Re-run scene direction** when the current turn needs a fresher nudge but the long-term arc is still good. Use **Re-run full secret plot state** when the hidden arc itself is wrong. Removing Secret Plot Driver from the chat wipes its hidden plot memory for that chat, so only do that if you want a clean slate.
+Use **Re-run scene direction** when the current turn needs a fresher nudge but the long-term arc is still good. Use **Re-run full secret plot state** when the hidden arc itself is wrong. Removing Narrative Director from the chat wipes its hidden plot memory for that chat, so only do that if you want a clean slate.
 
 ---
 

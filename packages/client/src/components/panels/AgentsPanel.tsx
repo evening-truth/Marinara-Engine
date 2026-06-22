@@ -28,6 +28,7 @@ import {
   useUploadAgentImage,
   type AgentConfigRow,
 } from "../../hooks/use-agents";
+import { useCreateCustomTool, useCustomTools, type CustomToolRow } from "../../hooks/use-custom-tools";
 import {
   BUILT_IN_AGENTS,
   DEFAULT_AGENT_TOOLS,
@@ -49,6 +50,10 @@ import {
   sanitizeAgentSettingsForTransfer,
   type AgentTransferConfig,
 } from "../../lib/agent-transfer";
+import {
+  importCustomToolEntries,
+  serializeCustomToolForTransfer,
+} from "../../lib/custom-tool-transfer";
 import {
   collectFolderPackageEntries,
   readTextFilesFromFileList,
@@ -202,9 +207,24 @@ function normalizeAgentImportEntry(entry: unknown, resolveTextFile?: (path: unkn
   };
 }
 
+function getReferencedCustomTools(agents: AgentConfigRow[], customTools: CustomToolRow[]) {
+  if (agents.length === 0 || customTools.length === 0) return [];
+  const referencedNames = new Set<string>();
+  for (const agent of agents) {
+    const enabledTools = parseAgentSettings(agent.settings).enabledTools;
+    if (!Array.isArray(enabledTools)) continue;
+    for (const tool of enabledTools) {
+      if (typeof tool === "string" && tool.trim()) referencedNames.add(tool);
+    }
+  }
+  return customTools.filter((tool) => referencedNames.has(tool.name));
+}
+
 export function AgentsPanel() {
   const { data: agentConfigs, isLoading } = useAgentConfigs();
+  const { data: customTools } = useCustomTools();
   const createAgent = useCreateAgent();
+  const createCustomTool = useCreateCustomTool();
   const deleteAgent = useDeleteAgent();
   const uploadAgentImage = useUploadAgentImage();
   const { data: agentFolders = [] } = useLibraryFolders("agents");
@@ -231,6 +251,7 @@ export function AgentsPanel() {
   const handleFolderRenameGesture = useFolderRenameGesture();
 
   const agentConfigRows = useMemo(() => (agentConfigs ?? []) as AgentConfigRow[], [agentConfigs]);
+  const customToolRows = useMemo(() => (customTools ?? []) as CustomToolRow[], [customTools]);
   const visibleAgentConfigs = useMemo(
     () => agentConfigRows.filter((config) => !isAgentConfigDeleted(config.settings)),
     [agentConfigRows],
@@ -446,7 +467,9 @@ export function AgentsPanel() {
 
     setExportingSelected(true);
     try {
-      const files = createAgentFolderPackageFiles(selectedAgents.map(serializeAgentConfig));
+      const files = createAgentFolderPackageFiles(selectedAgents.map(serializeAgentConfig), {
+        customTools: getReferencedCustomTools(selectedAgents, customToolRows).map(serializeCustomToolForTransfer),
+      });
       const firstAgent = selectedAgents[0];
       const filename =
         selectedAgents.length === 1 && firstAgent
@@ -459,7 +482,7 @@ export function AgentsPanel() {
     } finally {
       setExportingSelected(false);
     }
-  }, [selectedAgents]);
+  }, [customToolRows, selectedAgents]);
 
   const handleDuplicateAgent = useCallback(
     async (agent: AgentConfigRow) => {
@@ -510,11 +533,17 @@ export function AgentsPanel() {
   }, [deleteAgent, exitSelectionMode, selectedAgents]);
 
   const importAgentEntries = useCallback(
-    async (entries: FolderPackageImportEntry[]) => {
+    async (entries: FolderPackageImportEntry[], functionEntries: FolderPackageImportEntry[] = []) => {
       if (entries.length === 0) throw new Error("No agents found in file");
 
       let imported = 0;
       const failed: string[] = [];
+      let importedFunctions = 0;
+      if (functionEntries.length > 0) {
+        const result = await importCustomToolEntries(functionEntries, createCustomTool);
+        importedFunctions = result.imported;
+        failed.push(...result.failed);
+      }
       for (const entry of entries) {
         const normalized = normalizeAgentImportEntry(entry.raw, entry.resolveTextFile);
         if (!normalized) continue;
@@ -530,13 +559,17 @@ export function AgentsPanel() {
         throw new Error("No valid agents found in file");
       }
       if (imported > 0) {
-        setAgentImportSuccess(`Imported ${imported} agent${imported === 1 ? "" : "s"}.`);
+        setAgentImportSuccess(
+          `Imported ${imported} agent${imported === 1 ? "" : "s"}${
+            importedFunctions > 0 ? ` and ${importedFunctions} function${importedFunctions === 1 ? "" : "s"}` : ""
+          }.`,
+        );
       }
       if (failed.length > 0) {
-        setAgentImportError(`${failed.length} agent${failed.length === 1 ? "" : "s"} failed. ${failed[0]}`);
+        setAgentImportError(`${failed.length} import item${failed.length === 1 ? "" : "s"} failed. ${failed[0]}`);
       }
     },
-    [createAgent],
+    [createAgent, createCustomTool],
   );
 
   const handleImportAgents = useCallback(
@@ -548,19 +581,41 @@ export function AgentsPanel() {
 
       try {
         const entries = isZipFile(file)
-          ? collectFolderPackageEntries(await readTextFilesFromZip(file), {
-              rootFilenames: ["marinara-agents.json", "marinara-agent.json"],
-              collectionKeys: ["agents"],
-            })
-          : getAgentImportEntries(JSON.parse(await file.text())).map(
-              (raw): FolderPackageImportEntry => ({
-                raw,
-                path: file.name,
-                basePath: "",
-                resolveTextFile: () => null,
-              }),
-            );
-        await importAgentEntries(entries);
+          ? await (async () => {
+              const files = await readTextFilesFromZip(file);
+              return {
+                agents: collectFolderPackageEntries(files, {
+                  rootFilenames: ["marinara-agents.json", "marinara-agent.json"],
+                  collectionKeys: ["agents"],
+                }),
+                functions: collectFolderPackageEntries(files, {
+                  rootFilenames: ["marinara-agents.json", "marinara-agent.json", "marinara-functions.json"],
+                  collectionKeys: ["functions", "customTools", "tools"],
+                }),
+              };
+            })()
+          : await (async () => {
+              const parsed = JSON.parse(await file.text());
+              return {
+                agents: getAgentImportEntries(parsed).map(
+                  (raw): FolderPackageImportEntry => ({
+                    raw,
+                    path: file.name,
+                    basePath: "",
+                    resolveTextFile: () => null,
+                  }),
+                ),
+                functions: getFolderImportEntries(parsed, ["functions", "customTools", "tools"]).map(
+                  (raw): FolderPackageImportEntry => ({
+                    raw,
+                    path: file.name,
+                    basePath: "",
+                    resolveTextFile: () => null,
+                  }),
+                ),
+              };
+            })();
+        await importAgentEntries(entries.agents, entries.functions);
       } catch (error) {
         setAgentImportError(error instanceof Error ? error.message : "Failed to import agents");
       }
@@ -575,11 +630,16 @@ export function AgentsPanel() {
       setAgentImportError(null);
       setAgentImportSuccess(null);
       try {
-        const entries = collectFolderPackageEntries(await readTextFilesFromFileList(event.target.files), {
+        const files = await readTextFilesFromFileList(event.target.files);
+        const entries = collectFolderPackageEntries(files, {
           rootFilenames: ["marinara-agents.json", "marinara-agent.json"],
           collectionKeys: ["agents"],
         });
-        await importAgentEntries(entries);
+        const functionEntries = collectFolderPackageEntries(files, {
+          rootFilenames: ["marinara-agents.json", "marinara-agent.json", "marinara-functions.json"],
+          collectionKeys: ["functions", "customTools", "tools"],
+        });
+        await importAgentEntries(entries, functionEntries);
       } catch (error) {
         setAgentImportError(error instanceof Error ? error.message : "Failed to import agents");
       }

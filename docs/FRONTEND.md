@@ -571,7 +571,7 @@ The agent system processes AI responses through configurable pipelines. Agents r
 
 Retry requests go through `/api/generate/retry-agents` with an explicit `agentTypes` list. Broad UI actions such as **Re-run Trackers** pass all active tracker types; individual widget controls pass only the target tracker.
 
-Agent memory tools, such as the Secret Plot tab, use `/api/agents/memory/:agentType/:chatId`. The route applies to configured agents that store per-chat memory, currently including `secret-plot-driver` for the Secret Plot tab. `agentType` is the agent type string and `chatId` is the target chat id.
+Agent memory tools, such as Narrative Director's Secret Plot tab, use `/api/agents/memory/:agentType/:chatId`. The route applies to configured agents that store per-chat memory. Secret Plot memory is stored under `director` in current configs, while `secret-plot-driver` remains accepted for legacy chats. `agentType` is the agent type string and `chatId` is the target chat id.
 
 | Method | Body                            | Success                         | Errors                                                                                                 | Use                                    |
 | ------ | ------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
@@ -579,40 +579,37 @@ Agent memory tools, such as the Secret Plot tab, use `/api/agents/memory/:agentT
 | PATCH  | `{ "patch": { "key": value } }` | `200 { agentConfigId, memory }` | `400` for invalid patch bodies or Secret Plot memory shapes; `404` when the agent cannot be configured | Update memory keys                     |
 | DELETE | none                            | `204`                           | none for a missing config                                                                              | Clear that agent's memory for the chat |
 
-### Built-in Agents (24)
+### Built-in Agents (21)
 
 | Agent                   | Phase           | Description                                                 |
 | ----------------------- | --------------- | ----------------------------------------------------------- |
-| `world-state`           | parallel        | Extracts date, time, location, weather from narrative       |
 | `prose-guardian`        | post_processing | Enforces writing quality (anti-repetition, show-don't-tell) |
-| `continuity`            | parallel        | Detects contradictions (names, locations, timeline)         |
-| `expression`            | parallel        | Selects character sprite expressions                        |
-| `echo-chamber`          | post_processing | Simulates Twitch-style viewer reactions                     |
-| `director`              | pre_generation  | Injects narrative stage directions                          |
-| `quest`                 | parallel        | Tracks quest creation, updates, completion                  |
-| `illustrator`           | parallel        | Generates image prompts for key scenes                      |
+| `continuity`            | post_processing | Detects continuity issues and can produce rewrite guidance  |
+| `director`              | pre_generation  | Injects narrative directions and optional Secret Plot state |
+| `echo-chamber`          | parallel        | Simulates audience reactions                                |
+| `world-state`           | post_processing | Extracts date, time, location, and weather from narrative   |
+| `expression`            | post_processing | Selects character sprite expressions                        |
+| `quest`                 | post_processing | Tracks quest creation, updates, and completion              |
+| `background`            | post_processing | Selects fitting background images                           |
+| `character-tracker`     | post_processing | Tracks character state changes                              |
+| `persona-stats`         | post_processing | Tracks player persona stat changes                          |
+| `custom-tracker`        | post_processing | Tracks user-defined structured state                        |
+| `illustrator`           | post_processing | Generates scene image prompts and media requests            |
 | `lorebook-keeper`       | post_processing | Auto-creates/updates lorebook entries                       |
-| `prompt-reviewer`       | pre_generation  | Quality-checks the assembled prompt                         |
-| `combat`                | parallel        | Tracks combat rounds, HP, initiative                        |
-| `background`            | parallel        | Selects fitting background image                            |
-| `character-tracker`     | parallel        | Tracks character state changes                              |
-| `persona-stats`         | parallel        | Tracks player persona stat changes                          |
-| `html`                  | post_processing | Injects HTML elements into messages                         |
-| `chat-summary`          | post_processing | Generates conversation summaries                            |
-| `spotify`               | parallel        | Controls Spotify playback                                   |
-| `editor`                | post_processing | Edits/transforms the response                               |
+| `card-evolution-auditor` | post_processing | Audits character cards for suggested evolution              |
+| `combat`                | parallel        | Tracks combat rounds, HP, initiative, and outcomes          |
+| `html`                  | pre_generation  | Adds immersive HTML/CSS instructions                        |
+| `spotify`               | post_processing | Controls Music DJ playback for Spotify or YouTube           |
 | `knowledge-retrieval`   | pre_generation  | RAG from knowledge sources                                  |
-| `schedule-planner`      | pre_generation  | Plans character message schedules                           |
-| `response-orchestrator` | pre_generation  | Orchestrates multi-character responses                      |
-| `autonomous-messenger`  | pre_generation  | Handles autonomous character messages                       |
-| `custom-tracker`        | parallel        | User-defined tracking                                       |
+| `knowledge-router`      | pre_generation  | Routes relevant lorebook and knowledge entries              |
 | `haptic`                | post_processing | Haptic device commands                                      |
+| `cyoa`                  | post_processing | Generates choice prompts                                    |
 
 ### Agent Result Types
 
 Agents produce typed results that the frontend handles:
 
-`game_state_update`, `text_rewrite`, `sprite_change`, `echo_message`, `quest_update`, `image_prompt`, `context_injection`, `continuity_check`, `director_event`, `lorebook_update`, `prompt_review`, `background_change`, `character_tracker_update`, `persona_stats_update`, `custom_tracker_update`, `chat_summary`, `spotify_control`, `haptic_command`, `cyoa_choices`
+`game_state_update`, `text_rewrite`, `sprite_change`, `echo_message`, `quest_update`, `image_prompt`, `context_injection`, `continuity_check`, `director_event`, `lorebook_update`, `character_card_update`, `background_change`, `character_tracker_update`, `persona_stats_update`, `custom_tracker_update`, `spotify_control`, `youtube_control`, `haptic_command`, `cyoa_choices`, `secret_plot`, `game_master_narration`, `party_action`, `game_map_update`, `game_state_transition`, `prompt_patch`, `frontend_theme_update`
 
 ---
 
@@ -622,7 +619,7 @@ Agents produce typed results that the frontend handles:
 
 Plain dialogue with one or more AI characters. Characters can have different statuses (online, idle, DnD, offline) that influence response timing and style.
 
-**Default agents**: schedule-planner, response-orchestrator, autonomous-messenger
+**Commonly added agents**: Prose Guardian, Continuity Checker, Echo Chamber, Music DJ, custom agents, and function-tool agents. Built-in agents are added per chat rather than globally enabled.
 
 ### Roleplay Mode
 
@@ -635,7 +632,7 @@ Immersive narrative experience with game state tracking:
 - World info from lorebooks
 - Sprite expressions
 
-**Default agents**: world-state, prose-guardian, continuity, expression
+**Commonly added agents**: World State, Character Tracker, Persona Stats, Quest Tracker, Expression Engine, Background, Narrative Director, Lorebook Keeper, Illustrator, Music DJ, CYOA Choices, and custom agents.
 
 ### Visual Novel Mode
 
@@ -646,7 +643,7 @@ VN-style experience with:
 - Choice-based branching
 - Expression changes
 
-**Default agents**: world-state, prose-guardian, expression
+**Commonly added agents**: World State, Expression Engine, Quest Tracker, Combat, Knowledge Retrieval, Knowledge Router, CYOA Choices, and custom agents.
 
 ---
 

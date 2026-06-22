@@ -1,5 +1,9 @@
 import { sanitizeFolderSegment } from "@marinara-engine/shared";
 import type { ZipFileInput } from "./download-zip";
+import {
+  createCustomToolFolderPackageEntries,
+  type CustomToolTransferConfig,
+} from "./custom-tool-transfer";
 import { reservePackageFolderSegment } from "./folder-package-transfer";
 
 export type AgentTransferConfig = {
@@ -47,7 +51,10 @@ export function sanitizeAgentSettingsForTransfer(settings: Record<string, unknow
   return sanitized;
 }
 
-export function createAgentFolderPackageFiles(agents: AgentTransferConfig[]): ZipFileInput[] {
+export function createAgentFolderPackageFiles(
+  agents: AgentTransferConfig[],
+  options: { customTools?: CustomToolTransferConfig[] } = {},
+): ZipFileInput[] {
   const usedSegments = new Set<string>();
   const entries = agents.map((agent) => {
     const segment = reservePackageFolderSegment(agent.type || agent.name, "agent", usedSegments);
@@ -76,6 +83,10 @@ export function createAgentFolderPackageFiles(agents: AgentTransferConfig[]): Zi
       config,
     };
   });
+  const functionEntries =
+    options.customTools && options.customTools.length > 0
+      ? createCustomToolFolderPackageEntries(options.customTools)
+      : [];
 
   const envelope = {
     kind: "marinara.agent-folder",
@@ -83,6 +94,7 @@ export function createAgentFolderPackageFiles(agents: AgentTransferConfig[]): Zi
     exportedAt: new Date().toISOString(),
     folderName: "Agents",
     agents: entries.map(({ entry }) => entry),
+    ...(functionEntries.length > 0 ? { functions: functionEntries.map(({ entry }) => entry) } : {}),
   };
 
   return [
@@ -92,6 +104,7 @@ export function createAgentFolderPackageFiles(agents: AgentTransferConfig[]): Zi
       { path: `${folderPath}/${promptTemplatePath}`, content: config.promptTemplate },
       { path: `${folderPath}/${settingsPath}`, content: JSON.stringify(config.settings, null, 2) },
     ]),
+    ...functionEntries.flatMap(({ files }) => files),
   ];
 }
 

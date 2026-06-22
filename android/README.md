@@ -7,14 +7,15 @@ The Android app is a Termux bootstrap + WebView shell for Marinara Engine. It is
 ## How It Works
 
 - If Marinara Engine is already running in Termux, the APK opens `http://127.0.0.1:<PORT>` inside a fullscreen WebView. The default build-time port is `7860`.
-- If the server is not running, the APK shows bootstrap actions: **Start setup in Termux**, **Get Termux**, and **Retry connection**.
-- **Start setup in Termux** uses Termux's `RUN_COMMAND` integration to run the Marinara Termux installer command. This requires Termux to be installed, the Android **Run commands in Termux environment** permission to be granted to Marinara Engine, and `allow-external-apps=true` to be enabled in Termux.
+- If the server is not running, the APK shows bootstrap actions: **Install / Start Marinara**, **Get Termux manually**, and **Retry connection**.
+- **Install / Start Marinara** downloads the current suggested Termux APK from F-Droid when Termux is missing, hands it to Android's package installer, then continues setup after the user approves the install.
+- After Termux is installed, **Install / Start Marinara** uses Termux's `RUN_COMMAND` integration to run the Marinara Termux installer command. This requires the Android **Run commands in Termux environment** permission to be granted to Marinara Engine, and `allow-external-apps=true` to be enabled in Termux.
 - If Termux blocks external commands, the APK copies the required `allow-external-apps` command to the clipboard and opens Termux so the user can paste it once.
 - The server, launcher updates, and `AUTO_OPEN_BROWSER` behavior are still owned by the Termux launcher, not by this APK.
 - Release and versioning policy follows the main repo docs in [../CONTRIBUTING.md](../CONTRIBUTING.md): root `package.json` is canonical, Android `versionName` should match the app version, and `versionCode` must increase for every shipped APK.
 - If you build the APK with a non-default port, Termux must use the same `PORT` value in `.env`.
 
-**Fast path:** install the APK, open it, tap **Start setup in Termux**, approve Android/Termux prompts, wait for the Termux launcher to finish, then return to the Marinara Engine app.
+**Fast path:** install the APK, open it, tap **Install / Start Marinara**, approve Android/Termux prompts, wait for the Termux launcher to finish, then return to the Marinara Engine app.
 
 **Manual fallback:** install Termux from F-Droid, run `./start-termux.sh`, then open the Marinara Engine Android app.
 
@@ -88,10 +89,10 @@ cd android
 
 1. Install the APK from the GitHub Release.
 2. Open **Marinara Engine**.
-3. If the server is not running, tap **Start setup in Termux**.
-4. If Termux is missing, install it from F-Droid when prompted, then return to Marinara Engine and tap **Start setup in Termux** again.
+3. If the server is not running, tap **Install / Start Marinara**.
+4. If Termux is missing, approve Android's install prompts so Marinara can install the F-Droid Termux APK.
 5. If Android asks for **Run commands in Termux environment**, grant it.
-6. If Termux blocks external commands, paste the copied `allow-external-apps` command in Termux once, then tap **Start setup in Termux** again.
+6. If Termux blocks external commands, paste the copied `allow-external-apps` command in Termux once, then tap **Install / Start Marinara** again.
 7. Wait for Termux to finish installing dependencies, building Marinara Engine, and starting the local server.
 8. Return to **Marinara Engine**. The WebView shell connects automatically once the server is ready.
 

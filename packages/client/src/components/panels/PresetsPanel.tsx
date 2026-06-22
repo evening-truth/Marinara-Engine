@@ -59,7 +59,15 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { downloadJsonFile } from "../../lib/download-json";
-import { createFolderEntry, getFolderImportEntries, getFolderManifestConfig } from "@marinara-engine/shared";
+import { downloadZipFile } from "../../lib/download-zip";
+import { getFolderImportEntries } from "@marinara-engine/shared";
+import {
+  createCustomToolFolderPackageFiles,
+  importCustomToolEntries,
+  serializeCustomToolForTransfer,
+} from "../../lib/custom-tool-transfer";
+import { collectFolderPackageEntries, type FolderPackageImportEntry } from "../../lib/folder-package-transfer";
+import { isZipFile, readTextFilesFromZip } from "../../lib/read-zip-text";
 import { SettingsSwitch } from "./settings/SettingControls";
 import {
   getNextUnnamedLibraryFolderName,
@@ -120,19 +128,6 @@ function parseNullableNumber(value: unknown): number | null {
   return null;
 }
 
-function parseToolParametersSchema(value: unknown): JsonRecord {
-  if (isJsonRecord(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    try {
-      const parsed = JSON.parse(value);
-      return isJsonRecord(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-  return {};
-}
-
 function getImportEntries(parsed: unknown, envelopeKeys: string[]) {
   return getFolderImportEntries(parsed, envelopeKeys);
 }
@@ -189,54 +184,6 @@ function normalizeRegexImportEntry(entry: unknown) {
     minDepth: parseNullableNumber(entry.minDepth),
     maxDepth: parseNullableNumber(entry.maxDepth),
   };
-}
-
-function serializeCustomTool(tool: CustomToolRow) {
-  return {
-    name: tool.name,
-    description: tool.description,
-    parametersSchema: parseToolParametersSchema(tool.parametersSchema),
-    executionType: tool.executionType,
-    webhookUrl: tool.webhookUrl,
-    staticResult: tool.staticResult,
-    scriptBody: tool.scriptBody,
-    includeHiddenContext: parseBooleanValue(tool.includeHiddenContext),
-    enabled: parseBooleanValue(tool.enabled),
-  };
-}
-
-function normalizeCustomToolImportEntry(entry: unknown) {
-  const source = getFolderManifestConfig(entry);
-  if (!isJsonRecord(source)) return null;
-  const name = typeof source.name === "string" ? source.name.trim() : "";
-  const description = typeof source.description === "string" ? source.description.trim() : "";
-  if (!name || !description) return null;
-  const executionType =
-    source.executionType === "webhook" || source.executionType === "script" || source.executionType === "static"
-      ? source.executionType
-      : "static";
-
-  return {
-    name,
-    description,
-    parametersSchema: parseToolParametersSchema(source.parametersSchema ?? source.parameters),
-    executionType,
-    webhookUrl: executionType === "webhook" && typeof source.webhookUrl === "string" ? source.webhookUrl : null,
-    staticResult: executionType === "static" && typeof source.staticResult === "string" ? source.staticResult : null,
-    scriptBody: executionType === "script" && typeof source.scriptBody === "string" ? source.scriptBody : null,
-    includeHiddenContext: parseBooleanValue(source.includeHiddenContext, false),
-    enabled: parseBooleanValue(source.enabled),
-  };
-}
-
-function serializeCustomToolFolderEntry(tool: CustomToolRow) {
-  return createFolderEntry({
-    folderName: "Function Calls",
-    itemName: tool.name,
-    itemKind: "marinara.function",
-    config: serializeCustomTool(tool),
-    fallbackName: "function",
-  });
 }
 
 export function PresetsPanel() {
@@ -464,15 +411,9 @@ export function PresetsPanel() {
       return;
     }
 
-    downloadJsonFile(
-      {
-        kind: "marinara.function-folder",
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        folderName: "Function Calls",
-        functions: customToolRows.map(serializeCustomToolFolderEntry),
-      },
-      "marinara-functions.json",
+    downloadZipFile(
+      createCustomToolFolderPackageFiles(customToolRows.map(serializeCustomToolForTransfer)),
+      "marinara-functions.zip",
     );
     toast.success(`Exported ${customToolRows.length} function${customToolRows.length === 1 ? "" : "s"}`);
   }, [customToolRows]);
@@ -485,23 +426,22 @@ export function PresetsPanel() {
       if (!file) return;
 
       try {
-        const text = await file.text();
-        const parsed = JSON.parse(text);
-        const entries = getImportEntries(parsed, ["functions", "customTools", "tools"]);
+        const entries: FolderPackageImportEntry[] = isZipFile(file)
+          ? collectFolderPackageEntries(await readTextFilesFromZip(file), {
+              rootFilenames: ["marinara-functions.json"],
+              collectionKeys: ["functions", "customTools", "tools"],
+            })
+          : getImportEntries(JSON.parse(await file.text()), ["functions", "customTools", "tools"]).map(
+              (raw): FolderPackageImportEntry => ({
+                raw,
+                path: file.name,
+                basePath: "",
+                resolveTextFile: () => null,
+              }),
+            );
         if (entries.length === 0) throw new Error("No functions found in file");
 
-        let imported = 0;
-        const failed: string[] = [];
-        for (const entry of entries) {
-          const normalized = normalizeCustomToolImportEntry(entry);
-          if (!normalized) continue;
-          try {
-            await createCustomTool.mutateAsync(normalized);
-            imported++;
-          } catch (error) {
-            failed.push(error instanceof Error ? error.message : `Failed to import ${normalized.name}`);
-          }
-        }
+        const { imported, failed } = await importCustomToolEntries(entries, createCustomTool);
 
         if (imported === 0 && failed.length === 0) {
           throw new Error("No valid functions found in file");
@@ -1416,10 +1356,15 @@ function FunctionsSection({
           </button>
           <label
             className="mari-chrome-control mari-chrome-control--small cursor-pointer p-1.5"
-            title="Import functions from JSON"
-            aria-label="Import functions from JSON"
+            title="Import functions from ZIP or JSON"
+            aria-label="Import functions from ZIP or JSON"
           >
-            <input type="file" accept="application/json,.json" className="hidden" onChange={handleImportFunctions} />
+            <input
+              type="file"
+              accept="application/json,application/zip,.json,.zip"
+              className="hidden"
+              onChange={handleImportFunctions}
+            />
             <Download size="0.8125rem" />
           </label>
           <button
@@ -1427,8 +1372,8 @@ function FunctionsSection({
             onClick={handleExportFunctions}
             disabled={customToolRows.length === 0}
             className="mari-chrome-control mari-chrome-control--small p-1.5"
-            title="Export functions to JSON"
-            aria-label="Export functions to JSON"
+            title="Export functions to ZIP"
+            aria-label="Export functions to ZIP"
           >
             <Upload size="0.8125rem" />
           </button>

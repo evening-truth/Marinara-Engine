@@ -67,6 +67,7 @@ import { useQuoteFormatter } from "../../hooks/use-quote-formatter";
 import { EditorTabRail } from "../ui/EditorTabRail";
 import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { getTouchReorderDropIndex } from "../../lib/touch-reorder";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 
 /** Intercept Tab in a textarea to insert 2 spaces instead of changing focus. */
 function handleTextareaTab(
@@ -2070,20 +2071,12 @@ function VariableCard({
                   <ListChecks size="0.75rem" className="mari-chrome-accent-icon mari-accent-animated" />
                   <span className="text-[0.625rem] font-medium text-[var(--foreground)]">Multi-Select</span>
                 </div>
-                <button
-                  onClick={() => update({ multiSelect: !isMultiSelect })}
-                  className={cn(
-                    "relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors",
-                    isMultiSelect ? "mari-chrome-accent-progress mari-accent-animated" : "bg-[var(--border)]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "pointer-events-none inline-block h-3 w-3 translate-y-0.5 rounded-full bg-white shadow transition-transform",
-                      isMultiSelect ? "translate-x-3.5" : "translate-x-0.5",
-                    )}
-                  />
-                </button>
+                <SettingsSwitch
+                  ariaLabel={isMultiSelect ? "Disable multi-select" : "Enable multi-select"}
+                  checked={isMultiSelect}
+                  onChange={(checked) => update({ multiSelect: checked })}
+                  className="p-0 hover:bg-transparent"
+                />
               </div>
               <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
                 Allow users to select multiple options instead of just one.
@@ -2097,20 +2090,12 @@ function VariableCard({
                       <Shuffle size="0.75rem" className="mari-chrome-accent-icon mari-accent-animated" />
                       <span className="text-[0.625rem] font-medium text-[var(--foreground)]">Random Pick</span>
                     </div>
-                    <button
-                      onClick={() => update({ randomPick: !isRandomPick })}
-                      className={cn(
-                        "relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors",
-                        isRandomPick ? "mari-chrome-accent-progress mari-accent-animated" : "bg-[var(--border)]",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "pointer-events-none inline-block h-3 w-3 translate-y-0.5 rounded-full bg-white shadow transition-transform",
-                          isRandomPick ? "translate-x-3.5" : "translate-x-0.5",
-                        )}
-                      />
-                    </button>
+                    <SettingsSwitch
+                      ariaLabel={isRandomPick ? "Disable random pick" : "Enable random pick"}
+                      checked={isRandomPick}
+                      onChange={(checked) => update({ randomPick: checked })}
+                      className="p-0 hover:bg-transparent"
+                    />
                   </div>
                   <p className="text-[0.5625rem] text-[var(--muted-foreground)]">
                     {isRandomPick
@@ -2178,23 +2163,14 @@ function VariableCard({
                   Manual order is kept for editing and exports.
                 </p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={optionOrderIsAlphabetical}
-                onClick={() => update({ optionSort: optionOrderIsAlphabetical ? "manual" : "alphabetical" })}
-                className={cn(
-                  "relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors",
-                  optionOrderIsAlphabetical ? "mari-chrome-accent-progress mari-accent-animated" : "bg-[var(--border)]",
-                )}
-              >
-                <span
-                  className={cn(
-                    "pointer-events-none inline-block h-3 w-3 translate-y-0.5 rounded-full bg-white shadow transition-transform",
-                    optionOrderIsAlphabetical ? "translate-x-3.5" : "translate-x-0.5",
-                  )}
-                />
-              </button>
+              <SettingsSwitch
+                ariaLabel={
+                  optionOrderIsAlphabetical ? "Use manual option display order" : "Use alphabetical option display order"
+                }
+                checked={optionOrderIsAlphabetical}
+                onChange={(checked) => update({ optionSort: checked ? "alphabetical" : "manual" })}
+                className="p-0 hover:bg-transparent"
+              />
             </div>
           </div>
 

@@ -10,6 +10,7 @@ import { usePresetFull, useUpdatePreset } from "../../hooks/use-presets";
 import { useUpdateChatMetadata } from "../../hooks/use-chats";
 import { CheckCircle2, Circle, CheckSquare2, Square, ListChecks, Shuffle, Save } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 
 interface ChoiceSelectionModalProps {
   open: boolean;
@@ -401,21 +402,16 @@ export function ChoiceSelectionModal({
           })}
 
           <div className="flex items-center justify-between gap-2 pt-2">
-            <label className="flex cursor-pointer items-center gap-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={saveAsDefault}
-                onClick={() => setSaveAsDefault((v) => !v)}
-                className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${saveAsDefault ? "bg-[var(--primary)]" : "bg-[var(--border)]"}`}
-              >
-                <span
-                  className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${saveAsDefault ? "translate-x-3.5" : "translate-x-0.5"}`}
-                />
-              </button>
+            <div className="flex items-center gap-1.5 text-[0.6875rem] text-[var(--muted-foreground)]">
+              <SettingsSwitch
+                ariaLabel={saveAsDefault ? "Do not save choices as default" : "Save choices as default"}
+                checked={saveAsDefault}
+                onChange={setSaveAsDefault}
+                className="p-0 hover:bg-transparent"
+              />
               <Save size="0.75rem" />
               Save as default
-            </label>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={onClose}

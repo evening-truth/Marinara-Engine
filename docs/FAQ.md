@@ -73,8 +73,8 @@ The APK opens `http://127.0.0.1:<PORT>` on the same Android device. If the Termu
 Fast path:
 
 1. Install the APK from GitHub Releases.
-2. Open it and tap **Start setup in Termux**.
-3. Install Termux from F-Droid if prompted.
+2. Open it and tap **Install / Start Marinara**.
+3. Approve Android's install prompts if Marinara needs to install Termux from F-Droid.
 4. Grant **Run commands in Termux environment** if Android asks.
 5. If Termux blocks external commands, paste the copied `allow-external-apps` command into Termux once.
 6. Wait for Termux to install/build/start Marinara Engine, then return to the APK.
@@ -196,9 +196,10 @@ If you want to post your persona message first without triggering a reply, enabl
 ---
 
 <a id="what-happens-if-i-enable-an-agent-and-also-have-similar-instructions-in-my-preset"></a>
+<a id="what-happens-if-i-add-an-agent-and-also-have-similar-instructions-in-my-preset"></a>
 
 <details>
-<summary><strong>What happens if I enable an agent and also have similar instructions in my preset?</strong></summary>
+<summary><strong>What happens if I add an agent to a chat and also have similar instructions in my preset?</strong></summary>
 <br>
 
 Both contribute to the prompt, but in different ways: a preset section is static text concatenated every turn, while an agent runs at request time and produces its own output. If both target the same behavior, the model receives both — usually redundant, occasionally conflicting, and always extra tokens.
@@ -206,16 +207,16 @@ Both contribute to the prompt, but in different ways: a preset section is static
 Common overlaps to watch for:
 
 - Writing-style or anti-repetition directives in the preset and the **Prose Guardian** agent.
-- Plot-steering, twist, pacing, or "what should happen next" directives in the preset and the **Narrative Director** or **Secret Plot Driver** agents.
+- Plot-steering, twist, pacing, or "what should happen next" directives in the preset and the **Narrative Director** agent, including its Secret Plot option.
 - "Track time / weather / location" instructions and the **World State** agent.
 - "Track character mood / outfit / stats" instructions and the **Character Tracker** agent.
 - Quest-tracking, combat-mechanics, or persona-stat instructions and their respective agents.
 - HTML/CSS visual-styling prompts and the **Immersive HTML** agent.
-- "Summarize past events" instructions and the **Automated Chat Summary** agent.
+- "Summarize past events" instructions and the manual or automated summary tools.
 
-**The general rule:** pick one place to express each behavior. If you've enabled an agent that covers a behavior, you can usually remove the matching preset directive. If you'd rather keep your preset version (e.g., it's tuned for a particular character), disable the corresponding agent.
+**The general rule:** pick one place to express each behavior. If you've added an agent that covers a behavior, you can usually remove the matching preset directive. If you'd rather keep your preset version (e.g., it's tuned for a particular character), remove the corresponding agent from that chat or turn off the related chat-level option.
 
-For story direction, choose the tool by how persistent you want the guidance to be. Use **Narrative Director** for occasional next-beat steering. Use **Secret Plot Driver** when you want hidden long-term arc memory and scene directions across turns. Use a preset only when the instruction should be static every turn.
+For story direction, choose the tool by how persistent you want the guidance to be. Use **Narrative Director** for occasional next-beat steering. Turn on its **Secret Plot** option when you want hidden long-term arc memory and scene directions across turns. Use a preset only when the instruction should be static every turn.
 
 **One important exception:** the `agent_data` marker section, and the `{{agent::TYPE}}` macro, are the _intended_ way to thread an agent's output into a specific spot in the preset. That's wiring, not overlap — several agents (World State, Quest Tracker, Character Tracker, and others) set this up for you by default. The pattern to avoid is hand-writing preset sections that duplicate an agent's _behavior_, not using the marker section that carries the agent's _output_.
 
