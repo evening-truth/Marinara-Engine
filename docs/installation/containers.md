@@ -28,6 +28,33 @@ To pull the latest image and restart:
 docker compose down && docker compose pull && docker compose up -d
 ```
 
+### Staging Image
+
+An unstable `ghcr.io/pasta-devs/marinara-engine:staging` image is published from the latest `staging` branch build. Use it only for testing unreleased changes.
+
+Use a separate data volume for staging so unstable builds cannot mutate your stable release data:
+
+```bash
+docker run -d \
+  --name marinara-staging \
+  -p 127.0.0.1:7860:7860 \
+  -v marinara-staging-data:/app/data \
+  ghcr.io/pasta-devs/marinara-engine:staging
+```
+
+To update that staging container:
+
+```bash
+docker pull ghcr.io/pasta-devs/marinara-engine:staging
+docker rm -f marinara-staging 2>/dev/null || true
+docker run -d --name marinara-staging \
+  -p 127.0.0.1:7860:7860 \
+  -v marinara-staging-data:/app/data \
+  ghcr.io/pasta-devs/marinara-engine:staging
+```
+
+> **Warning:** The staging image may be broken, may change behavior without release notes, and may not support downgrading data back to stable builds. `:latest` remains the recommended stable release image.
+
 ### Build from Source
 
 If you prefer to build the image yourself:

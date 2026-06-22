@@ -2,7 +2,7 @@
 # Build & push lite container image to GHCR
 # ──────────────────────────────────────────────
 # Triggers:
-#   • Tag v*  → ghcr.io/pasta-devs/marinara-engine:1.5.4-lite + :lite
+#   • Tag v*  → ghcr.io/pasta-devs/marinara-engine:2.0.0-lite + :lite
 #   • Manual workflow_dispatch
 # NOT triggered on push to main — lite images are only published
 # alongside versioned releases.
@@ -149,10 +149,20 @@ jobs:
         id: manifest
         working-directory: /tmp/digests
         run: |
-          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
           image="${{ env.REGISTRY }}/${{ steps.lower.outputs.image }}"
-          digests=$(printf "${image}@sha256:%s " *)
-          docker buildx imagetools create $tags $digests
+          tag_args=()
+          while IFS= read -r tag; do
+            tag_args+=("-t" "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          digest_args=()
+          for digest_file in *; do
+            digest_args+=("${image}@sha256:${digest_file}")
+          done
+          if [ "${#digest_args[@]}" -eq 0 ]; then
+            echo "No digest files found" >&2
+            exit 1
+          fi
+          docker buildx imagetools create "${tag_args[@]}" "${digest_args[@]}"
           digest=$(docker buildx imagetools inspect "$image:${{ steps.meta.outputs.version }}" --raw | sha256sum | cut -d' ' -f1 | sed 's/^/sha256:/')
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
