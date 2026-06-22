@@ -18,8 +18,9 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
-import { ChevronDown, Copy, Folder, GripVertical, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, GripVertical, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { confirmNonEmptyFolderDelete } from "../../lib/app-dialogs";
 import { useUpdateLorebookFolder, useDeleteLorebookFolder, useCloneLorebookFolder } from "../../hooks/use-lorebooks";
@@ -49,6 +50,7 @@ interface Props {
   onDragOver: (e: ReactDragEvent<HTMLDivElement>) => void;
   onDrop: (e: ReactDragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
+  onDragHandleTouchStart?: (e: ReactTouchEvent<HTMLButtonElement>, sourceElement: HTMLDivElement | null) => void;
 }
 
 export function LorebookFolderRow({
@@ -68,6 +70,7 @@ export function LorebookFolderRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  onDragHandleTouchStart,
 }: Props) {
   const updateFolder = useUpdateLorebookFolder();
   const deleteFolder = useDeleteLorebookFolder();
@@ -191,6 +194,7 @@ export function LorebookFolderRow({
         isNestTarget && "border-[var(--marinara-editor-accent)] shadow-[0_0_0_1px_var(--marinara-editor-accent)]",
       )}
       ref={rowRef}
+      data-lorebook-folder-row-id={folder.id}
       draggable={draggable && isDragReady}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -226,6 +230,10 @@ export function LorebookFolderRow({
           onMouseUp={(e) => {
             e.stopPropagation();
             onDragHandleMouseUp();
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            if (draggable) onDragHandleTouchStart?.(e, rowRef.current);
           }}
         >
           <GripVertical size="0.875rem" />
@@ -265,14 +273,7 @@ export function LorebookFolderRow({
           />
         </div>
 
-        {/* Folder icon + name */}
-        <Folder
-          size="0.875rem"
-          className={cn(
-            "shrink-0",
-            localEnabled ? "mari-chrome-accent-icon mari-accent-animated" : "text-[var(--muted-foreground)]",
-          )}
-        />
+        {/* Folder name */}
         <input
           value={localName}
           onChange={(e) => setLocalName(e.target.value)}

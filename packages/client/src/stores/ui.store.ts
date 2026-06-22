@@ -805,9 +805,10 @@ interface UIState {
 
 function getMobileDetailReturnState(state: UIState) {
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const useOverlayDetailReturn = isMobile || state.centerCompact;
   return {
-    detailReturnRightPanel: isMobile && state.rightPanelOpen ? state.rightPanel : null,
-    ...(isMobile && { rightPanelOpen: false }),
+    detailReturnRightPanel: useOverlayDetailReturn && state.rightPanelOpen ? state.rightPanel : null,
+    ...(useOverlayDetailReturn && { rightPanelOpen: false }),
   };
 }
 

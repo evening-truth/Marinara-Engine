@@ -347,14 +347,17 @@ export function ChatArea() {
     () => (activeChatId ? (allChats?.find((candidate) => candidate.id === activeChatId) ?? null) : null),
     [activeChatId, allChats],
   );
-  const readFloatingPanelAnchor = useCallback((event?: ReactMouseEvent<HTMLElement>): FloatingPanelAnchor => {
-    if (!event || typeof window === "undefined" || window.innerWidth < 768) return null;
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      right: Math.max(12, Math.round(window.innerWidth - rect.right)),
-      top: Math.max(56, Math.round(rect.bottom + 8)),
-    };
-  }, []);
+  const readFloatingPanelAnchor = useCallback(
+    (event?: ReactMouseEvent<HTMLElement>): FloatingPanelAnchor => {
+      if (!event || typeof window === "undefined" || window.innerWidth < 768 || centerCompact) return null;
+      const rect = event.currentTarget.getBoundingClientRect();
+      return {
+        right: Math.max(12, Math.round(window.innerWidth - rect.right)),
+        top: Math.max(56, Math.round(rect.bottom + 8)),
+      };
+    },
+    [centerCompact],
+  );
   const handleOpenSettingsPanel = useCallback(
     (event?: ReactMouseEvent<HTMLElement>, options?: OpenSettingsOptions) => {
       setSettingsAnchor(readFloatingPanelAnchor(event));

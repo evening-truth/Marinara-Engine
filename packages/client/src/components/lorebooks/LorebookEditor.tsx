@@ -16,6 +16,7 @@ import {
   useRef,
   type DragEvent as ReactDragEvent,
   type ReactNode,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ import {
   useLorebookEntries,
   useCreateLorebookEntry,
   useDeleteLorebook,
+  useDeleteLorebookEntry,
   useReorderLorebookEntries,
   useLorebookFolders,
   useCreateLorebookFolder,
@@ -37,6 +39,7 @@ import {
 } from "../../hooks/use-lorebooks";
 import { useCharacters, usePersonas } from "../../hooks/use-characters";
 import { useConnections } from "../../hooks/use-connections";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { showConfirmDialog } from "../../lib/app-dialogs";
 import { useUIStore } from "../../stores/ui.store";
 import { useChatStore } from "../../stores/chat.store";
@@ -97,6 +100,11 @@ import { EditorTabRail } from "../ui/EditorTabRail";
 // state is independent across books.
 // ──────────────────────────────────────────────
 const FOLDER_COLLAPSE_KEY_PREFIX = "lorebook-folder-collapsed:";
+
+function closestElementFromPoint(x: number, y: number, selector: string) {
+  const element = document.elementFromPoint(x, y);
+  return element instanceof Element ? element.closest<HTMLElement>(selector) : null;
+}
 
 function readCollapsedFolderIds(lorebookId: string | null): Set<string> {
   if (!lorebookId || typeof window === "undefined") return new Set();
@@ -200,7 +208,10 @@ function LinkedResourcePicker({
       ) : (
         <div className="flex flex-col gap-1">
           {selectedItems.map((item) => (
-            <div key={item.id} className="mari-editor-panel mari-editor-panel--soft flex items-center gap-2.5 px-3 py-2">
+            <div
+              key={item.id}
+              className="mari-editor-panel mari-editor-panel--soft flex items-center gap-2.5 px-3 py-2"
+            >
               <span className="mari-chrome-accent-icon mari-accent-animated">{icon}</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs">{item.name}</span>
@@ -317,6 +328,7 @@ export function LorebookEditor() {
   const updateLorebook = useUpdateLorebook();
   const deleteLorebook = useDeleteLorebook();
   const createEntry = useCreateLorebookEntry();
+  const deleteEntry = useDeleteLorebookEntry();
   const updateEntry = useUpdateLorebookEntry();
   const reorderEntries = useReorderLorebookEntries();
   const createFolder = useCreateLorebookFolder();
@@ -724,6 +736,41 @@ export function LorebookEditor() {
     ],
   );
 
+  const handleDeleteSelectedEntries = useCallback(async () => {
+    if (!lorebookId || selectedEntryIds.size === 0) return;
+    const selectedIds = Array.from(selectedEntryIds);
+    const count = selectedIds.length;
+
+    if (
+      !(await showConfirmDialog({
+        title: "Delete Lorebook Entries",
+        message: `Delete ${count} selected ${count === 1 ? "entry" : "entries"}? This cannot be undone.`,
+        confirmLabel: "Delete",
+        tone: "destructive",
+      }))
+    ) {
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      selectedIds.map((entryId) => deleteEntry.mutateAsync({ lorebookId, entryId })),
+    );
+    const failedIds = selectedIds.filter((_, index) => results[index]?.status === "rejected");
+    const deletedCount = selectedIds.length - failedIds.length;
+
+    if (deletedCount > 0) {
+      toast.success(`Deleted ${deletedCount} ${deletedCount === 1 ? "entry" : "entries"}.`);
+    }
+
+    if (failedIds.length > 0) {
+      setSelectedEntryIds(new Set(failedIds));
+      toast.error(`Failed to delete ${failedIds.length} ${failedIds.length === 1 ? "entry" : "entries"}.`);
+      return;
+    }
+
+    exitEntrySelectionMode();
+  }, [deleteEntry, exitEntrySelectionMode, lorebookId, selectedEntryIds]);
+
   // Toggle the inline drawer for an entry. Single-expand keeps the page
   // tidy; users can collapse the open one and click another to jump.
   const toggleEntryExpanded = useCallback((entryId: string) => {
@@ -1036,6 +1083,193 @@ export function LorebookEditor() {
     ],
   );
 
+  const locateEntryForTouchDrag = useCallback(
+    (entryId: string): { containerId: string | null; index: number } | null => {
+      for (const [containerId, containerEntries] of entriesByContainer) {
+        const index = containerEntries.findIndex((entry) => entry.id === entryId);
+        if (index >= 0) return { containerId, index };
+      }
+      return null;
+    },
+    [entriesByContainer],
+  );
+
+  const commitTouchEntryDrop = useCallback(
+    (entryId: string, x: number, y: number) => {
+      const source = locateEntryForTouchDrag(entryId);
+      resetEntryDragState();
+      if (!lorebookId || !canReorderEntries || !source) return;
+
+      let targetContainer: string | null | undefined;
+      let targetIdx: number | null = null;
+      const entryRow = closestElementFromPoint(x, y, "[data-lorebook-entry-row-id]");
+      const targetEntryId = entryRow?.dataset.lorebookEntryRowId;
+
+      if (targetEntryId) {
+        const target = locateEntryForTouchDrag(targetEntryId);
+        if (!target) return;
+        const rect = entryRow.getBoundingClientRect();
+        targetContainer = target.containerId;
+        targetIdx = y < rect.top + rect.height / 2 ? target.index : target.index + 1;
+      } else {
+        const folderRow = closestElementFromPoint(x, y, "[data-lorebook-folder-row-id]");
+        const folderBody = closestElementFromPoint(x, y, "[data-lorebook-folder-body-id]");
+        const rootEntries = closestElementFromPoint(x, y, "[data-lorebook-entry-root]");
+
+        if (folderRow?.dataset.lorebookFolderRowId) {
+          targetContainer = folderRow.dataset.lorebookFolderRowId;
+          targetIdx = 0;
+        } else if (folderBody?.dataset.lorebookFolderBodyId) {
+          targetContainer = folderBody.dataset.lorebookFolderBodyId;
+          targetIdx = entriesByContainer.get(targetContainer)?.length ?? 0;
+        } else if (rootEntries) {
+          targetContainer = null;
+          targetIdx = entriesByContainer.get(null)?.length ?? 0;
+        }
+      }
+
+      if (targetContainer === undefined || targetIdx === null) return;
+
+      const sourceList = (entriesByContainer.get(source.containerId) ?? []).slice();
+      const moved = sourceList[source.index];
+      if (!moved) return;
+
+      if (source.containerId === targetContainer) {
+        let insertAt = targetIdx;
+        if (source.index < insertAt) insertAt--;
+        if (source.index === insertAt) return;
+        const ids = sourceList.map((entry) => entry.id);
+        ids.splice(source.index, 1);
+        ids.splice(insertAt, 0, moved.id);
+        reorderEntries.mutate({ lorebookId, entryIds: ids, folderId: source.containerId });
+        return;
+      }
+
+      updateEntry.mutate({ lorebookId, entryId: moved.id, folderId: targetContainer });
+    },
+    [
+      canReorderEntries,
+      entriesByContainer,
+      locateEntryForTouchDrag,
+      lorebookId,
+      reorderEntries,
+      resetEntryDragState,
+      updateEntry,
+    ],
+  );
+
+  const cancelTouchEntryDrag = useCallback(
+    (_entryId: string, _wasActive: boolean) => {
+      resetEntryDragState();
+    },
+    [resetEntryDragState],
+  );
+
+  const { startTouchDrag: startEntryTouchDrag } = useTouchFolderDrag({
+    onActivate: (entryId) => {
+      const source = locateEntryForTouchDrag(entryId);
+      if (!source || !canReorderEntries) return;
+      setDraggingEntryIdx(source.index);
+      setEntryDragReadyIdx(source.index);
+      setDragSourceContainer(source.containerId);
+    },
+    onDrop: commitTouchEntryDrop,
+    onCancel: cancelTouchEntryDrag,
+  });
+
+  const handleEntryDragHandleTouchStart = useCallback(
+    (entryId: string, e: ReactTouchEvent<HTMLButtonElement>, sourceElement: HTMLDivElement | null) => {
+      if (!canReorderEntries) return;
+      startEntryTouchDrag(e, entryId, { allowInteractiveTarget: true, sourceElement });
+    },
+    [canReorderEntries, startEntryTouchDrag],
+  );
+
+  const commitTouchFolderDrop = useCallback(
+    (folderId: string, x: number, y: number) => {
+      const sourceIdx = folders.findIndex((folder) => folder.id === folderId);
+      resetFolderDragState();
+      if (!lorebookId || !canReorderFolders || sourceIdx < 0) return;
+      const dragged = folders[sourceIdx];
+      if (!dragged) return;
+
+      const folderRow = closestElementFromPoint(x, y, "[data-lorebook-folder-row-id]");
+      const targetFolderId = folderRow?.dataset.lorebookFolderRowId;
+      if (targetFolderId === dragged.id) return;
+      if (targetFolderId) {
+        const targetIdx = folders.findIndex((folder) => folder.id === targetFolderId);
+        const target = folders[targetIdx];
+        if (!target) return;
+
+        const rect = folderRow.getBoundingClientRect();
+        const offset = rect.height > 0 ? (y - rect.top) / rect.height : 0.5;
+        const canNest = dragged.parentFolderId !== target.id && canReparentFolder(folders, dragged.id, target.id).ok;
+        if (canNest && offset > 0.3 && offset < 0.7) {
+          updateFolder.mutate({ lorebookId, folderId: dragged.id, parentFolderId: target.id });
+          return;
+        }
+
+        let insertAt = y < rect.top + rect.height / 2 ? targetIdx : targetIdx + 1;
+        if (sourceIdx < insertAt) insertAt--;
+        if (sourceIdx === insertAt) return;
+        const ids = folders.map((folder) => folder.id);
+        const [moved] = ids.splice(sourceIdx, 1);
+        if (!moved) return;
+        ids.splice(insertAt, 0, moved);
+        reorderFolders.mutate({ lorebookId, folderIds: ids });
+        return;
+      }
+
+      const folderBody = closestElementFromPoint(x, y, "[data-lorebook-folder-body-id]");
+      const bodyTargetId = folderBody?.dataset.lorebookFolderBodyId;
+      if (bodyTargetId && bodyTargetId !== dragged.id) {
+        if (dragged.parentFolderId === bodyTargetId) {
+          updateFolder.mutate({ lorebookId, folderId: dragged.id, parentFolderId: null });
+          return;
+        }
+        if (canReparentFolder(folders, dragged.id, bodyTargetId).ok) {
+          updateFolder.mutate({ lorebookId, folderId: dragged.id, parentFolderId: bodyTargetId });
+        }
+        return;
+      }
+
+      if (
+        dragged.parentFolderId != null &&
+        (closestElementFromPoint(x, y, "[data-lorebook-folder-root]") ||
+          closestElementFromPoint(x, y, "[data-lorebook-entry-root]"))
+      ) {
+        updateFolder.mutate({ lorebookId, folderId: dragged.id, parentFolderId: null });
+      }
+    },
+    [canReorderFolders, folders, lorebookId, reorderFolders, resetFolderDragState, updateFolder],
+  );
+
+  const cancelTouchFolderDrag = useCallback(
+    (_folderId: string, _wasActive: boolean) => {
+      resetFolderDragState();
+    },
+    [resetFolderDragState],
+  );
+
+  const { startTouchDrag: startFolderTouchDrag } = useTouchFolderDrag({
+    onActivate: (folderId) => {
+      const idx = folders.findIndex((folder) => folder.id === folderId);
+      if (idx < 0 || !canReorderFolders) return;
+      setDraggingFolderIdx(idx);
+      setFolderDragReadyIdx(idx);
+    },
+    onDrop: commitTouchFolderDrop,
+    onCancel: cancelTouchFolderDrag,
+  });
+
+  const handleFolderDragHandleTouchStart = useCallback(
+    (folderId: string, e: ReactTouchEvent<HTMLButtonElement>, sourceElement: HTMLDivElement | null) => {
+      if (!canReorderFolders) return;
+      startFolderTouchDrag(e, folderId, { allowInteractiveTarget: true, sourceElement });
+    },
+    [canReorderFolders, startFolderTouchDrag],
+  );
+
   // The folder list's own padding/gaps are the un-nest drop zone: dropping a
   // nested folder there lifts it back to the top level.
   const handleFolderRootDragOver = useCallback(
@@ -1190,7 +1424,9 @@ export function LorebookEditor() {
       draggingFolderIdx !== fIdx;
     return (
       <div key={folder.id} className="space-y-1">
-        {showFolderDropBefore && <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />}
+        {showFolderDropBefore && (
+          <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />
+        )}
         <LorebookFolderRow
           folder={folder}
           lorebookId={lorebookId}
@@ -1206,6 +1442,7 @@ export function LorebookEditor() {
             if (canReorderFolders) setFolderDragReadyIdx(fIdx);
           }}
           onDragHandleMouseUp={() => setFolderDragReadyIdx(null)}
+          onDragHandleTouchStart={(e, sourceElement) => handleFolderDragHandleTouchStart(folder.id, e, sourceElement)}
           onDragStart={(e) => handleFolderDragStart(fIdx, folder.id, e)}
           onDragOver={(e) => {
             e.stopPropagation();
@@ -1224,6 +1461,7 @@ export function LorebookEditor() {
         />
         {!isCollapsed && (
           <div
+            data-lorebook-folder-body-id={folder.id}
             className={cn(
               "ml-2 space-y-1.5 border-l pl-2 transition-colors sm:ml-3 sm:pl-2.5",
               isEntryDropTarget || isFolderNestTarget
@@ -1262,7 +1500,9 @@ export function LorebookEditor() {
                 draggingEntryIdx !== eIdx;
               return (
                 <div key={entry.id}>
-                  {showDropBefore && <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />}
+                  {showDropBefore && (
+                    <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />
+                  )}
                   <LorebookEntryRow
                     entry={entry}
                     lorebookId={lorebookId}
@@ -1281,6 +1521,9 @@ export function LorebookEditor() {
                       }
                     }}
                     onDragHandleMouseUp={() => setEntryDragReadyIdx(null)}
+                    onDragHandleTouchStart={(e, sourceElement) =>
+                      handleEntryDragHandleTouchStart(entry.id, e, sourceElement)
+                    }
                     onDragStart={(e) => handleEntryDragStart(folder.id, eIdx, entry.id, e)}
                     onDragOver={(e) => {
                       // A folder dragged over an entry is really being dragged over the
@@ -1303,14 +1546,18 @@ export function LorebookEditor() {
                     onToggleSelected={() => toggleEntrySelection(entry.id)}
                     previewMatch={previewMatches.get(entry.id)}
                   />
-                  {showDropAfter && <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mt-1 h-0.5 rounded-full" />}
+                  {showDropAfter && (
+                    <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mt-1 h-0.5 rounded-full" />
+                  )}
                 </div>
               );
             })}
             {childFolders.map((child) => renderFolder(child))}
           </div>
         )}
-        {showFolderDropAfter && <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mt-1 h-0.5 rounded-full" />}
+        {showFolderDropAfter && (
+          <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mt-1 h-0.5 rounded-full" />
+        )}
       </div>
     );
   };
@@ -1461,10 +1708,7 @@ export function LorebookEditor() {
                   </label>
                   <div className="flex flex-wrap gap-1.5 mb-2">
                     {formTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="mari-editor-chip mari-editor-chip--accent px-2 py-1 text-[0.6875rem]"
-                      >
+                      <span key={tag} className="mari-editor-chip mari-editor-chip--accent px-2 py-1 text-[0.6875rem]">
                         {tag}
                         <button
                           onClick={() => {
@@ -1491,10 +1735,7 @@ export function LorebookEditor() {
                       placeholder="Add tag…"
                       className="mari-editor-field flex-1 px-3 py-2 text-xs"
                     />
-                    <button
-                      onClick={handleAddTags}
-                      className="mari-editor-action px-3 py-2"
-                    >
+                    <button onClick={handleAddTags} className="mari-editor-action px-3 py-2">
                       <Plus size="0.75rem" />
                     </button>
                   </div>
@@ -1902,10 +2143,9 @@ export function LorebookEditor() {
                       else setEntrySelectionMode(true);
                     }}
                     className={cn(
-                      "flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-medium ring-1 transition-colors",
-                      entrySelectionMode
-                        ? "mari-chrome-accent-surface mari-accent-animated"
-                        : "mari-editor-action",
+                      "mari-editor-action flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs",
+                      entrySelectionMode &&
+                        "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-highlight-bg)] text-[var(--marinara-chat-chrome-button-text-active)]",
                     )}
                     title="Select entries to copy or move"
                   >
@@ -1966,7 +2206,12 @@ export function LorebookEditor() {
                     </select>
                     <button
                       onClick={() => void handleTransferEntries("copy")}
-                      disabled={selectedEntryIds.size === 0 || !entryTransferTargetId || transferEntries.isPending}
+                      disabled={
+                        selectedEntryIds.size === 0 ||
+                        !entryTransferTargetId ||
+                        transferEntries.isPending ||
+                        deleteEntry.isPending
+                      }
                       className="mari-editor-action mari-editor-action--primary mari-editor-action--compact inline-flex items-center gap-1 px-2.5 py-1.5 text-[0.625rem] disabled:opacity-40"
                     >
                       {transferEntries.isPending ? (
@@ -1978,7 +2223,12 @@ export function LorebookEditor() {
                     </button>
                     <button
                       onClick={() => void handleTransferEntries("move")}
-                      disabled={selectedEntryIds.size === 0 || !entryTransferTargetId || transferEntries.isPending}
+                      disabled={
+                        selectedEntryIds.size === 0 ||
+                        !entryTransferTargetId ||
+                        transferEntries.isPending ||
+                        deleteEntry.isPending
+                      }
                       className="inline-flex items-center gap-1 rounded-lg bg-[var(--destructive)]/12 px-2.5 py-1.5 text-[0.625rem] font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:opacity-40"
                     >
                       {transferEntries.isPending ? (
@@ -1987,6 +2237,18 @@ export function LorebookEditor() {
                         <MoveRight size="0.6875rem" />
                       )}
                       Move
+                    </button>
+                    <button
+                      onClick={() => void handleDeleteSelectedEntries()}
+                      disabled={selectedEntryIds.size === 0 || transferEntries.isPending || deleteEntry.isPending}
+                      className="mari-editor-action mari-editor-action--danger mari-editor-action--compact inline-flex items-center gap-1 px-2.5 py-1.5 text-[0.625rem] disabled:opacity-40"
+                    >
+                      {deleteEntry.isPending ? (
+                        <Loader2 size="0.6875rem" className="animate-spin" />
+                      ) : (
+                        <Trash2 size="0.6875rem" />
+                      )}
+                      Delete
                     </button>
                     <button
                       onClick={exitEntrySelectionMode}
@@ -2042,6 +2304,7 @@ export function LorebookEditor() {
                       // Chrome and made sub-folders impossible to pick up. So the target is
                       // always present and only its highlight changes.
                       <div
+                        data-lorebook-folder-root
                         className={cn(
                           "space-y-1.5 rounded-lg py-1 transition-colors",
                           folderRootDropActive &&
@@ -2066,6 +2329,7 @@ export function LorebookEditor() {
                         entry to bring it back to root. */}
                     <div
                       ref={entryListRef}
+                      data-lorebook-entry-root
                       className={cn(
                         "space-y-1.5",
                         // Highlight while an entry from another container, or a nested
@@ -2126,7 +2390,9 @@ export function LorebookEditor() {
                           draggingEntryIdx !== idx;
                         return (
                           <div key={entry.id}>
-                            {showDropBefore && <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />}
+                            {showDropBefore && (
+                              <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />
+                            )}
                             <LorebookEntryRow
                               entry={entry}
                               lorebookId={lorebookId}
@@ -2145,6 +2411,9 @@ export function LorebookEditor() {
                                 }
                               }}
                               onDragHandleMouseUp={() => setEntryDragReadyIdx(null)}
+                              onDragHandleTouchStart={(e, sourceElement) =>
+                                handleEntryDragHandleTouchStart(entry.id, e, sourceElement)
+                              }
                               onDragStart={(e) => handleEntryDragStart(null, idx, entry.id, e)}
                               onDragOver={(e) => {
                                 // Let folder drags fall through to the root list (un-nest).
@@ -2163,7 +2432,9 @@ export function LorebookEditor() {
                               onToggleSelected={() => toggleEntrySelection(entry.id)}
                               previewMatch={previewMatches.get(entry.id)}
                             />
-                            {showDropAfter && <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mt-1 h-0.5 rounded-full" />}
+                            {showDropAfter && (
+                              <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mt-1 h-0.5 rounded-full" />
+                            )}
                           </div>
                         );
                       })}

@@ -65,6 +65,8 @@ import { useAgentConfigs, type AgentConfigRow } from "../../hooks/use-agents";
 import { type WrapFormat, type MarkerType } from "@marinara-engine/shared";
 import { useQuoteFormatter } from "../../hooks/use-quote-formatter";
 import { EditorTabRail } from "../ui/EditorTabRail";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
+import { getTouchReorderDropIndex } from "../../lib/touch-reorder";
 
 /** Intercept Tab in a textarea to insert 2 spaces instead of changing focus. */
 function handleTextareaTab(
@@ -140,6 +142,32 @@ function reorderItems<T>(items: T[], sourceIndex: number, targetIndex: number): 
   const [moved] = next.splice(sourceIndex, 1);
   if (moved === undefined) return null;
   next.splice(targetIndex, 0, moved);
+  return next;
+}
+
+function reorderIdsToGap(items: Array<{ id: string }>, sourceIndex: number, targetGapIndex: number): string[] | null {
+  if (sourceIndex < 0 || sourceIndex >= items.length || targetGapIndex < 0 || targetGapIndex > items.length)
+    return null;
+  let insertAt = targetGapIndex;
+  if (sourceIndex < insertAt) insertAt--;
+  if (sourceIndex === insertAt) return null;
+  const ids = items.map((item) => item.id);
+  const [moved] = ids.splice(sourceIndex, 1);
+  if (!moved) return null;
+  ids.splice(insertAt, 0, moved);
+  return ids;
+}
+
+function reorderItemsToGap<T>(items: T[], sourceIndex: number, targetGapIndex: number): T[] | null {
+  if (sourceIndex < 0 || sourceIndex >= items.length || targetGapIndex < 0 || targetGapIndex > items.length)
+    return null;
+  let insertAt = targetGapIndex;
+  if (sourceIndex < insertAt) insertAt--;
+  if (sourceIndex === insertAt) return null;
+  const next = [...items];
+  const [moved] = next.splice(sourceIndex, 1);
+  if (moved === undefined) return null;
+  next.splice(insertAt, 0, moved);
   return next;
 }
 
@@ -938,6 +966,15 @@ function SectionsTab({
     setDropIdx(sections.length);
   };
 
+  const commitSectionReorder = useCallback(
+    (sourceIdx: number, target: number) => {
+      const ids = reorderIdsToGap(sections, sourceIdx, target);
+      if (!ids) return;
+      onReorderSections.mutate({ presetId, sectionIds: ids });
+    },
+    [onReorderSections, presetId, sections],
+  );
+
   const commitDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const sourceIdx = draggingIdx;
@@ -945,15 +982,7 @@ function SectionsTab({
     setDraggingIdx(null);
     setDropIdx(null);
     if (sourceIdx === null || target === null) return;
-    // Adjust for removal: if source is before target, target shifts down by 1
-    let insertAt = target;
-    if (sourceIdx < insertAt) insertAt--;
-    if (sourceIdx === insertAt) return;
-
-    const ids = sections.map((s: any) => s.id);
-    const [moved] = ids.splice(sourceIdx, 1);
-    ids.splice(insertAt, 0, moved);
-    onReorderSections.mutate({ presetId, sectionIds: ids });
+    commitSectionReorder(sourceIdx, target);
   };
 
   const handleDragEnd = () => {
@@ -966,6 +995,35 @@ function SectionsTab({
     if (!sectionIds) return;
     onReorderSections.mutate({ presetId, sectionIds });
   };
+
+  const { startTouchDrag: startSectionTouchDrag } = useTouchFolderDrag({
+    onActivate: (sectionId) => {
+      const idx = sections.findIndex((section: any) => section.id === sectionId);
+      if (idx < 0) return;
+      setDraggingIdx(idx);
+      setDragReady(idx);
+    },
+    onDrop: (sectionId, x, y) => {
+      const sourceIdx = sections.findIndex((section: any) => section.id === sectionId);
+      const targetIdx = getTouchReorderDropIndex({
+        x,
+        y,
+        itemSelector: '[data-touch-reorder-item="preset-section"]',
+        rootSelector: "[data-preset-section-root]",
+        itemCount: sections.length,
+      });
+      setDraggingIdx(null);
+      setDropIdx(null);
+      setDragReady(null);
+      if (sourceIdx < 0 || targetIdx === null) return;
+      commitSectionReorder(sourceIdx, targetIdx);
+    },
+    onCancel: () => {
+      setDraggingIdx(null);
+      setDropIdx(null);
+      setDragReady(null);
+    },
+  });
 
   const duplicateSection = async (section: any, idx: number) => {
     try {
@@ -1163,7 +1221,13 @@ function SectionsTab({
       )}
 
       {/* ── Section list with drag & drop ── */}
-      <div ref={containerRef} className="space-y-1" onDragOver={handleContainerDragOver} onDrop={commitDrop}>
+      <div
+        ref={containerRef}
+        data-preset-section-root
+        className="space-y-1"
+        onDragOver={handleContainerDragOver}
+        onDrop={commitDrop}
+      >
         {sections.length === 0 ? (
           <div className="mari-editor-empty flex flex-col items-center gap-2 py-10 text-center">
             <Layers size="1.5rem" className="text-[var(--muted-foreground)]" />
@@ -1189,6 +1253,8 @@ function SectionsTab({
                   <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />
                 )}
                 <div
+                  data-touch-reorder-item="preset-section"
+                  data-touch-reorder-index={idx}
                   draggable={dragReady === idx}
                   onDragStart={(e) => handleDragStart(idx, e)}
                   onDragOver={(e) => {
@@ -1219,6 +1285,15 @@ function SectionsTab({
                         title="Drag to reorder"
                         onMouseDown={() => setDragReady(idx)}
                         onMouseUp={() => setDragReady(null)}
+                        onTouchStart={(event) => {
+                          event.stopPropagation();
+                          startSectionTouchDrag(event, section.id, {
+                            allowInteractiveTarget: true,
+                            sourceElement: event.currentTarget.closest<HTMLElement>(
+                              '[data-touch-reorder-item="preset-section"]',
+                            ),
+                          });
+                        }}
                       >
                         <GripVertical size="0.875rem" className="text-[var(--muted-foreground)]" />
                       </div>
@@ -1549,6 +1624,15 @@ function PresetVariablesEditor({
     setDropIdx(variables.length);
   };
 
+  const commitVariableReorder = useCallback(
+    (sourceIdx: number, target: number) => {
+      const ids = reorderIdsToGap(variables, sourceIdx, target);
+      if (!ids) return;
+      onReorderVariables.mutate({ presetId, variableIds: ids });
+    },
+    [onReorderVariables, presetId, variables],
+  );
+
   const commitDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const sourceIdx = draggingIdx;
@@ -1556,13 +1640,7 @@ function PresetVariablesEditor({
     setDraggingIdx(null);
     setDropIdx(null);
     if (sourceIdx === null || target === null) return;
-    let insertAt = target;
-    if (sourceIdx < insertAt) insertAt--;
-    if (sourceIdx === insertAt) return;
-    const ids = variables.map((v: any) => v.id);
-    const [moved] = ids.splice(sourceIdx, 1);
-    ids.splice(insertAt, 0, moved);
-    onReorderVariables.mutate({ presetId, variableIds: ids });
+    commitVariableReorder(sourceIdx, target);
   };
 
   const handleDragEnd = () => {
@@ -1575,6 +1653,35 @@ function PresetVariablesEditor({
     if (!variableIds) return;
     onReorderVariables.mutate({ presetId, variableIds });
   };
+
+  const { startTouchDrag: startVariableTouchDrag } = useTouchFolderDrag({
+    onActivate: (variableId) => {
+      const idx = variables.findIndex((variable: any) => variable.id === variableId);
+      if (idx < 0) return;
+      setDraggingIdx(idx);
+      setDragReady(idx);
+    },
+    onDrop: (variableId, x, y) => {
+      const sourceIdx = variables.findIndex((variable: any) => variable.id === variableId);
+      const targetIdx = getTouchReorderDropIndex({
+        x,
+        y,
+        itemSelector: '[data-touch-reorder-item="preset-variable"]',
+        rootSelector: "[data-preset-variable-root]",
+        itemCount: variables.length,
+      });
+      setDraggingIdx(null);
+      setDropIdx(null);
+      setDragReady(null);
+      if (sourceIdx < 0 || targetIdx === null) return;
+      commitVariableReorder(sourceIdx, targetIdx);
+    },
+    onCancel: () => {
+      setDraggingIdx(null);
+      setDropIdx(null);
+      setDragReady(null);
+    },
+  });
 
   return (
     <div className="mari-editor-panel mt-6 space-y-3 p-3">
@@ -1620,7 +1727,7 @@ function PresetVariablesEditor({
           </p>
         </div>
       ) : (
-        <div className="space-y-2" onDragOver={handleContainerDragOver} onDrop={commitDrop}>
+        <div data-preset-variable-root className="space-y-2" onDragOver={handleContainerDragOver} onDrop={commitDrop}>
           {variables.map((variable: any, idx: number) => {
             const showDropBefore =
               dropIdx === idx && draggingIdx !== null && draggingIdx !== idx && draggingIdx !== idx - 1;
@@ -1635,6 +1742,8 @@ function PresetVariablesEditor({
                   <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />
                 )}
                 <div
+                  data-touch-reorder-item="preset-variable"
+                  data-touch-reorder-index={idx}
                   draggable={dragReady === idx}
                   onDragStart={(e) => handleDragStart(idx, e)}
                   onDragOver={(e) => {
@@ -1660,6 +1769,15 @@ function PresetVariablesEditor({
                     onDeleteVariable={onDeleteVariable}
                     onGripDown={() => setDragReady(idx)}
                     onGripUp={() => setDragReady(null)}
+                    onGripTouchStart={(event) => {
+                      event.stopPropagation();
+                      startVariableTouchDrag(event, variable.id, {
+                        allowInteractiveTarget: true,
+                        sourceElement: event.currentTarget.closest<HTMLElement>(
+                          '[data-touch-reorder-item="preset-variable"]',
+                        ),
+                      });
+                    }}
                     onMoveUp={() => moveVariableByOffset(idx, -1)}
                     onMoveDown={() => moveVariableByOffset(idx, 1)}
                     canMoveUp={idx > 0}
@@ -1690,6 +1808,7 @@ function VariableCard({
   onDeleteVariable,
   onGripDown,
   onGripUp,
+  onGripTouchStart,
   onMoveUp,
   onMoveDown,
   canMoveUp,
@@ -1704,6 +1823,7 @@ function VariableCard({
   onDeleteVariable: any;
   onGripDown: () => void;
   onGripUp: () => void;
+  onGripTouchStart: (event: React.TouchEvent<HTMLElement>) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   canMoveUp: boolean;
@@ -1783,9 +1903,7 @@ function VariableCard({
     setDropOptIdx(null);
     setDragReadyOptIdx(null);
     if (optionOrderIsAlphabetical || sourceIdx === null || target === null) return;
-    let insertAt = target;
-    if (sourceIdx < insertAt) insertAt--;
-    const next = reorderItems(opts, sourceIdx, insertAt);
+    const next = reorderItemsToGap(currentOpts(), sourceIdx, target);
     if (next) updateOpts(next);
   };
 
@@ -1794,6 +1912,38 @@ function VariableCard({
     const next = reorderItems(opts, optionIdx, optionIdx + offset);
     if (next) updateOpts(next);
   };
+
+  const { startTouchDrag: startOptionTouchDrag } = useTouchFolderDrag({
+    onActivate: (optionId) => {
+      if (optionOrderIsAlphabetical) return;
+      const idx = currentOpts().findIndex((option) => option.id === optionId);
+      if (idx < 0) return;
+      setDraggingOptIdx(idx);
+      setDragReadyOptIdx(idx);
+    },
+    onDrop: (optionId, x, y) => {
+      const options = currentOpts();
+      const sourceIdx = options.findIndex((option) => option.id === optionId);
+      const targetIdx = getTouchReorderDropIndex({
+        x,
+        y,
+        itemSelector: `[data-touch-reorder-item="preset-variable-option-${variable.id}"]`,
+        rootSelector: `[data-preset-variable-option-root="${variable.id}"]`,
+        itemCount: options.length,
+      });
+      setDraggingOptIdx(null);
+      setDropOptIdx(null);
+      setDragReadyOptIdx(null);
+      if (optionOrderIsAlphabetical || sourceIdx < 0 || targetIdx === null) return;
+      const next = reorderItemsToGap(options, sourceIdx, targetIdx);
+      if (next) updateOpts(next);
+    },
+    onCancel: () => {
+      setDraggingOptIdx(null);
+      setDropOptIdx(null);
+      setDragReadyOptIdx(null);
+    },
+  });
 
   return (
     <div className="mari-editor-panel mari-editor-panel--soft transition-all">
@@ -1805,6 +1955,7 @@ function VariableCard({
             title="Drag to reorder"
             onMouseDown={onGripDown}
             onMouseUp={onGripUp}
+            onTouchStart={onGripTouchStart}
           >
             <GripVertical size="0.875rem" className="text-[var(--muted-foreground)]" />
           </div>
@@ -2048,7 +2199,7 @@ function VariableCard({
           </div>
 
           {/* Options */}
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-preset-variable-option-root={variable.id}>
             <label className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">Options</label>
             {opts.map((opt, oi) => {
               const valueBlank = !opt.value || !opt.value.trim();
@@ -2065,6 +2216,8 @@ function VariableCard({
                     <div className="mari-chrome-accent-progress mari-accent-animated mx-2 mb-1 h-0.5 rounded-full" />
                   )}
                   <div
+                    data-touch-reorder-item={`preset-variable-option-${variable.id}`}
+                    data-touch-reorder-index={oi}
                     draggable={dragReadyOptIdx === oi && !optionOrderIsAlphabetical}
                     onDragStart={(e) => handleOptionDragStart(oi, e)}
                     onDragOver={(e) => {
@@ -2103,6 +2256,16 @@ function VariableCard({
                           if (!optionOrderIsAlphabetical) setDragReadyOptIdx(oi);
                         }}
                         onMouseUp={() => setDragReadyOptIdx(null)}
+                        onTouchStart={(event) => {
+                          event.stopPropagation();
+                          if (optionOrderIsAlphabetical) return;
+                          startOptionTouchDrag(event, opt.id, {
+                            allowInteractiveTarget: true,
+                            sourceElement: event.currentTarget.closest<HTMLElement>(
+                              `[data-touch-reorder-item="preset-variable-option-${variable.id}"]`,
+                            ),
+                          });
+                        }}
                       >
                         <GripVertical size="0.75rem" className="text-[var(--muted-foreground)]" />
                       </div>

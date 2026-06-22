@@ -120,6 +120,10 @@ function readVisibleElementRect(element: HTMLElement) {
   return rect;
 }
 
+function getViewportWidth() {
+  return typeof window === "undefined" ? 0 : window.innerWidth;
+}
+
 function MainPaneFallback() {
   return (
     <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted-foreground)]">Loading...</div>
@@ -218,26 +222,30 @@ export function AppShell() {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  // Auto-close right panel when viewport is too narrow for comfort
+  const [viewportWidth, setViewportWidth] = useState(getViewportWidth);
   useEffect(() => {
-    if (isMobile) return; // Mobile uses overlays, no squishing concern
     let rafId = 0;
-    const handleResize = () => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const { rightPanelOpen: rp, sidebarOpen: sb, sidebarWidth: sw, closeRightPanel: close } = useUIStore.getState();
-        if (!rp) return;
-        const panelWidth = useUIStore.getState().rightPanelWidth;
-        const reserved = (sb ? sw : 0) + panelWidth;
-        if (window.innerWidth - reserved < 400) close();
+    const updateViewportWidth = () => {
+      window.cancelAnimationFrame(rafId);
+      rafId = window.requestAnimationFrame(() => {
+        setViewportWidth(getViewportWidth());
       });
     };
-    window.addEventListener("resize", handleResize);
+
+    updateViewportWidth();
+    window.addEventListener("resize", updateViewportWidth);
     return () => {
-      window.removeEventListener("resize", handleResize);
-      cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", updateViewportWidth);
+      window.cancelAnimationFrame(rafId);
     };
-  }, [isMobile]);
+  }, []);
+
+  const desktopReservedSidebarWidth = sidebarOpen ? liveSidebarWidth : 0;
+  const desktopReservedRightPanelWidth = rightPanelOpen ? liveRightPanelWidth : 0;
+  const desktopCenterWidth = Math.max(0, viewportWidth - desktopReservedSidebarWidth - desktopReservedRightPanelWidth);
+  const centerSqueezedByPanels =
+    !isMobile && (sidebarOpen || rightPanelOpen) && viewportWidth > 0 && desktopCenterWidth < CENTER_COMPACT_WIDTH;
+  const shellOverlayMode = isMobile || centerSqueezedByPanels;
 
   // ── Center-area compact detection ──
   // Side panels can shrink the center pane below the chat chrome's usable desktop
@@ -248,13 +256,20 @@ export function AppShell() {
   const centerCompact = useUIStore((s) => s.centerCompact);
   const setCenterCompact = useUIStore((s) => s.setCenterCompact);
 
+  useEffect(() => {
+    if (centerSqueezedByPanels && !useUIStore.getState().centerCompact) {
+      compactWidthRef.current = desktopCenterWidth;
+      setCenterCompact(true);
+    }
+  }, [centerSqueezedByPanels, desktopCenterWidth, setCenterCompact]);
+
   const checkOverflow = useCallback(() => {
     const el = mainRef.current;
     if (!el) return;
     const compact = useUIStore.getState().centerCompact;
     const width = el.clientWidth;
     const tooNarrowForDesktopChatChrome = width > 0 && width < CENTER_COMPACT_WIDTH;
-    const shouldCompact = tooNarrowForDesktopChatChrome || (!compact && hasHorizontalOverflow(el));
+    const shouldCompact = centerSqueezedByPanels || tooNarrowForDesktopChatChrome || (!compact && hasHorizontalOverflow(el));
 
     if (shouldCompact) {
       compactWidthRef.current = width;
@@ -280,7 +295,7 @@ export function AppShell() {
         });
       });
     }
-  }, [setCenterCompact]);
+  }, [centerSqueezedByPanels, setCenterCompact]);
 
   // Debounce the overflow check so ResizeObserver doesn't cause layout thrashing
   const overflowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -347,7 +362,7 @@ export function AppShell() {
 
   const startSidebarResize = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (isMobile) return;
+      if (shellOverlayMode) return;
       event.preventDefault();
       const originalCursor = document.body.style.cursor;
       const originalUserSelect = document.body.style.userSelect;
@@ -381,12 +396,12 @@ export function AppShell() {
       window.addEventListener("mouseup", finishResize);
       window.addEventListener("blur", finishResize);
     },
-    [isMobile, setRightPanelWidth, setSidebarWidth, sharedSidebarWidth],
+    [setRightPanelWidth, setSidebarWidth, sharedSidebarWidth, shellOverlayMode],
   );
 
   const startRightPanelResize = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (isMobile) return;
+      if (shellOverlayMode) return;
       event.preventDefault();
       const originalCursor = document.body.style.cursor;
       const originalUserSelect = document.body.style.userSelect;
@@ -424,7 +439,7 @@ export function AppShell() {
       window.addEventListener("mouseup", finishResize);
       window.addEventListener("blur", finishResize);
     },
-    [isMobile, setRightPanelWidth, setSidebarWidth, sharedSidebarWidth],
+    [setRightPanelWidth, setSidebarWidth, sharedSidebarWidth, shellOverlayMode],
   );
 
   const adjustSidebarWidth = useCallback(
@@ -546,7 +561,7 @@ export function AppShell() {
   }, []);
 
   useLayoutEffect(() => {
-    if (isMobile || trackerPanelVisible || !trackerPanelSurfaceAvailable) return;
+    if (shellOverlayMode || trackerPanelVisible || !trackerPanelSurfaceAvailable) return;
 
     let frame = 0;
     let discoveryObserver: MutationObserver | null = null;
@@ -596,14 +611,14 @@ export function AppShell() {
     botBrowserOpen,
     gameAssetsBrowserOpen,
     centerCompact,
-    isMobile,
+    shellOverlayMode,
     trackerPanelSurfaceAvailable,
     trackerPanelVisible,
     updateTrackerPanelToggleAnchor,
   ]);
 
   useLayoutEffect(() => {
-    if (isMobile || !trackerPanelAnchoredForMotion || !trackerPanelSurfaceAvailable) {
+    if (shellOverlayMode || !trackerPanelAnchoredForMotion || !trackerPanelSurfaceAvailable) {
       setTrackerPanelTop(TRACKER_PANEL_EDGE_OFFSET);
       return;
     }
@@ -656,7 +671,7 @@ export function AppShell() {
     botBrowserOpen,
     gameAssetsBrowserOpen,
     centerCompact,
-    isMobile,
+    shellOverlayMode,
     trackerPanelAnchoredForMotion,
     trackerPanelDockToEdge,
     trackerPanelSurfaceAvailable,
@@ -664,11 +679,11 @@ export function AppShell() {
   ]);
 
   const trackerPanelChatAvoidance =
-    !isMobile && trackerPanelAnchoredForMotion && trackerPanelSurfaceAvailable
+    !shellOverlayMode && trackerPanelAnchoredForMotion && trackerPanelSurfaceAvailable
       ? Math.round(trackerPanelWidth * 0.62)
       : 0;
   const trackerPanelHudClearance =
-    !isMobile && trackerPanelAnchoredForMotion && trackerPanelHideHudWidgets && trackerPanelSurfaceAvailable
+    !shellOverlayMode && trackerPanelAnchoredForMotion && trackerPanelHideHudWidgets && trackerPanelSurfaceAvailable
       ? trackerPanelWidth + TRACKER_PANEL_HUD_GAP
       : 0;
 
@@ -751,12 +766,9 @@ export function AppShell() {
         </>
       )}
 
-      {/* Mobile sidebar backdrop */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+      {/* Overlay sidebar backdrop */}
+      {sidebarOpen && shellOverlayMode && (
+        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* Left sidebar - Chat list */}
@@ -767,18 +779,18 @@ export function AppShell() {
         className={cn(
           "mari-sidebar flex-shrink-0 overflow-hidden bg-[var(--background)]/80 backdrop-blur-xl",
           sidebarDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
-          sidebarOpen && "mari-shell-panel-edge mari-shell-panel-edge--right md:relative",
-          // Mobile: fixed overlay
-          "max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:h-screen max-md:max-h-screen max-md:pb-[max(env(safe-area-inset-bottom),0.5rem)] max-md:pt-[max(env(safe-area-inset-top),0.5rem)] max-md:shadow-2xl supports-[height:100dvh]:max-md:h-[100dvh] supports-[height:100dvh]:max-md:max-h-[100dvh]",
-          !sidebarOpen && "max-md:!w-0",
+          sidebarOpen && !shellOverlayMode && "mari-shell-panel-edge mari-shell-panel-edge--right md:relative",
+          shellOverlayMode &&
+            "fixed inset-y-0 left-0 z-50 h-screen max-h-screen pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-[max(env(safe-area-inset-top),0.5rem)] shadow-2xl supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:max-h-[100dvh]",
+          !sidebarOpen && shellOverlayMode && "!w-0",
         )}
-        style={{ width: sidebarOpen ? (isMobile ? "100vw" : liveSidebarWidth) : 0 }}
+        style={{ width: sidebarOpen ? (shellOverlayMode ? "100vw" : liveSidebarWidth) : 0 }}
       >
-        <div className="h-full" style={{ width: isMobile ? "100vw" : liveSidebarWidth }}>
+        <div className="h-full" style={{ width: shellOverlayMode ? "100vw" : liveSidebarWidth }}>
           <ChatSidebar />
         </div>
       </aside>
-      {!isMobile && sidebarOpen && (
+      {!shellOverlayMode && sidebarOpen && (
         <div
           role="separator"
           aria-orientation="vertical"
@@ -795,7 +807,7 @@ export function AppShell() {
       )}
 
       <AnimatePresence initial={false}>
-        {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}
+        {!shellOverlayMode && trackerPanelSurfaceAvailable && trackerPanelDesktop("left")}
       </AnimatePresence>
 
       {/* Center content */}
@@ -803,6 +815,8 @@ export function AppShell() {
         ref={mainRef}
         data-tour="chat-area"
         data-component="CenterContent"
+        data-center-compact={centerCompact ? "true" : undefined}
+        data-shell-overlay-mode={shellOverlayMode ? "true" : undefined}
         aria-label="Main content"
         className="@container mari-main mari-app-background-paint relative flex min-w-0 flex-1 flex-col overflow-hidden"
       >
@@ -838,19 +852,16 @@ export function AppShell() {
       </main>
 
       <AnimatePresence initial={false}>
-        {!isMobile && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}
+        {!shellOverlayMode && trackerPanelSurfaceAvailable && trackerPanelDesktop("right")}
       </AnimatePresence>
 
-      {/* Mobile tracker panel backdrop */}
-      {trackerPanelVisible && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
-          onClick={() => setTrackerPanelOpen(false)}
-        />
+      {/* Overlay tracker panel backdrop */}
+      {trackerPanelVisible && shellOverlayMode && (
+        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => setTrackerPanelOpen(false)} />
       )}
 
-      {/* Mobile tracker panel */}
-      {isMobile && (
+      {/* Overlay tracker panel */}
+      {shellOverlayMode && (
         <AnimatePresence mode="wait">
           {trackerPanelVisible && (
             <motion.aside
@@ -875,13 +886,13 @@ export function AppShell() {
         </AnimatePresence>
       )}
 
-      {/* Mobile right panel backdrop */}
-      {rightPanelOpen && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden" onClick={() => closeRightPanel()} />
+      {/* Overlay right panel backdrop */}
+      {rightPanelOpen && shellOverlayMode && (
+        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => closeRightPanel()} />
       )}
 
       {/* Right panel - Context / Settings */}
-      {isMobile ? (
+      {shellOverlayMode ? (
         <AnimatePresence mode="wait">
           {rightPanelOpen && (
             <motion.aside
@@ -926,7 +937,7 @@ export function AppShell() {
           )}
         </aside>
       )}
-      {!isMobile && rightPanelOpen && (
+      {!shellOverlayMode && rightPanelOpen && (
         <div
           role="separator"
           aria-orientation="vertical"

@@ -107,6 +107,7 @@ import { useRegexScripts, useUpdateRegexScript, type RegexScriptRow } from "../.
 import { api } from "../../lib/api-client";
 import { filterLanguageGenerationConnections } from "../../lib/connection-filters";
 import { getConnectedChatDisplayName } from "../../lib/chat-display";
+import { getTouchReorderDropIndex } from "../../lib/touch-reorder";
 import {
   getAgentRunIntervalMeta,
   getCadenceInputValue,
@@ -117,6 +118,7 @@ import { getCharacterTitle, parseCharacterDisplayData } from "../../lib/characte
 import { extractCreatorNotesCss } from "../../lib/creator-notes-css";
 import { isLorebookScopeActiveForChat } from "../../lib/lorebook-scope";
 import { useUIStore } from "../../stores/ui.store";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import {
   useChatPresets,
   useSaveChatPresetSettings,
@@ -1776,6 +1778,21 @@ export function ChatSettingsDrawer({
     setDropIdx(e.clientY < midY ? cardIdx : cardIdx + 1);
   };
 
+  const commitCharacterReorder = useCallback(
+    (sourceIdx: number, targetIdx: number) => {
+      if (sourceIdx < 0 || sourceIdx >= chatCharIds.length || targetIdx < 0 || targetIdx > chatCharIds.length) return;
+      let insertAt = targetIdx;
+      if (sourceIdx < insertAt) insertAt--;
+      if (sourceIdx === insertAt) return;
+      const ids = [...chatCharIds];
+      const [moved] = ids.splice(sourceIdx, 1);
+      if (!moved) return;
+      ids.splice(insertAt, 0, moved);
+      updateChat.mutate({ id: chat.id, characterIds: ids });
+    },
+    [chat.id, chatCharIds, updateChat],
+  );
+
   const handleCharDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const src = dragIdx;
@@ -1783,19 +1800,39 @@ export function ChatSettingsDrawer({
     setDragIdx(null);
     setDropIdx(null);
     if (src === null || tgt === null) return;
-    let insertAt = tgt;
-    if (src < insertAt) insertAt--;
-    if (src === insertAt) return;
-    const ids = [...chatCharIds];
-    const [moved] = ids.splice(src, 1);
-    ids.splice(insertAt, 0, moved!);
-    updateChat.mutate({ id: chat.id, characterIds: ids });
+    commitCharacterReorder(src, tgt);
   };
 
   const handleCharDragEnd = () => {
     setDragIdx(null);
     setDropIdx(null);
   };
+
+  const { startTouchDrag: startCharacterReorderTouchDrag } = useTouchFolderDrag({
+    onActivate: (characterId) => {
+      const idx = chatCharIds.indexOf(characterId);
+      if (idx < 0) return;
+      setDragIdx(idx);
+    },
+    onDrop: (characterId, x, y) => {
+      const sourceIdx = chatCharIds.indexOf(characterId);
+      const targetIdx = getTouchReorderDropIndex({
+        x,
+        y,
+        itemSelector: '[data-touch-reorder-item="chat-settings-character"]',
+        rootSelector: "[data-chat-settings-character-root]",
+        itemCount: chatCharIds.length,
+      });
+      setDragIdx(null);
+      setDropIdx(null);
+      if (sourceIdx < 0 || targetIdx === null) return;
+      commitCharacterReorder(sourceIdx, targetIdx);
+    },
+    onCancel: () => {
+      setDragIdx(null);
+      setDropIdx(null);
+    },
+  });
 
   const toggleLorebook = (lbId: string) => {
     const current = [...activeLorebookIds];
@@ -3445,6 +3482,7 @@ export function ChatSettingsDrawer({
                 <p className="text-[0.6875rem] text-[var(--muted-foreground)]">No characters added to this chat.</p>
               ) : (
                 <div
+                  data-chat-settings-character-root
                   className="flex flex-col gap-1"
                   onDragOver={(e) => {
                     e.preventDefault();
@@ -3463,6 +3501,8 @@ export function ChatSettingsDrawer({
                           <div className="h-0.5 rounded-full bg-[var(--primary)] mx-2 mb-1" />
                         )}
                         <div
+                          data-touch-reorder-item="chat-settings-character"
+                          data-touch-reorder-index={i}
                           draggable
                           onDragStart={(e) => handleCharDragStart(i, e)}
                           onDragOver={(e) => {
@@ -3480,6 +3520,15 @@ export function ChatSettingsDrawer({
                           <div
                             className="cursor-grab text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors active:cursor-grabbing"
                             title="Drag to reorder"
+                            onTouchStart={(event) => {
+                              event.stopPropagation();
+                              startCharacterReorderTouchDrag(event, c.id, {
+                                allowInteractiveTarget: true,
+                                sourceElement: event.currentTarget.closest<HTMLElement>(
+                                  '[data-touch-reorder-item="chat-settings-character"]',
+                                ),
+                              });
+                            }}
                           >
                             <GripVertical size="0.75rem" />
                           </div>

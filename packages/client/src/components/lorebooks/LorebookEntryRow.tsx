@@ -12,6 +12,7 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -77,6 +78,7 @@ interface Props {
   onDragOver: (e: ReactDragEvent<HTMLDivElement>) => void;
   onDrop: (e: ReactDragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
+  onDragHandleTouchStart?: (e: ReactTouchEvent<HTMLButtonElement>, sourceElement: HTMLDivElement | null) => void;
   selectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelected?: () => void;
@@ -194,6 +196,7 @@ export function LorebookEntryRow({
   onDragOver,
   onDrop,
   onDragEnd,
+  onDragHandleTouchStart,
   selectionMode = false,
   isSelected = false,
   onToggleSelected,
@@ -219,6 +222,7 @@ export function LorebookEntryRow({
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [statusMenuPosition, setStatusMenuPosition] = useState({ top: 0, left: 0, width: ENTRY_STATUS_MENU_WIDTH });
   const mobileControlsRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
   const statusButtonRef = useRef<HTMLButtonElement>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
 
@@ -445,6 +449,8 @@ export function LorebookEntryRow({
         selectionMode && isSelected && "mari-chrome-accent-surface mari-accent-animated",
         isDragging && "opacity-40",
       )}
+      ref={rowRef}
+      data-lorebook-entry-row-id={entry.id}
       draggable={draggable && isDragReady}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -486,6 +492,10 @@ export function LorebookEntryRow({
           onMouseUp={(e) => {
             e.stopPropagation();
             onDragHandleMouseUp();
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            if (draggable) onDragHandleTouchStart?.(e, rowRef.current);
           }}
         >
           <GripVertical size="0.875rem" />
@@ -545,7 +555,7 @@ export function LorebookEntryRow({
           title={localUseRegex ? "Regex key matching enabled" : "Plain-text key matching"}
           onClick={handleUseRegexToggle}
           className={cn(
-            "shrink-0 rounded p-0 transition-colors sm:p-0.5",
+            "ml-1 shrink-0 rounded p-0 transition-colors sm:ml-0 sm:p-0.5",
             localUseRegex
               ? "bg-orange-400/15 text-orange-300 ring-1 ring-orange-400/25"
               : "text-[var(--muted-foreground)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",

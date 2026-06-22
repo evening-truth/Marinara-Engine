@@ -32,6 +32,11 @@ type TouchFolderDragOptions = {
   onCancel?: (id: string, active: boolean) => void;
 };
 
+type StartTouchDragOptions = {
+  allowInteractiveTarget?: boolean;
+  sourceElement?: HTMLElement | null;
+};
+
 type AutoScrollTarget = {
   kind: "element" | "window";
   element: HTMLElement | Window;
@@ -361,16 +366,20 @@ export function useTouchFolderDrag({
   }, [handleTouchCancel, handleTouchEnd, handleTouchMove, removeListeners]);
 
   const startTouchDrag = useCallback(
-    (event: ReactTouchEvent<HTMLElement>, id: string) => {
+    (event: ReactTouchEvent<HTMLElement>, id: string, options?: StartTouchDragOptions) => {
       if (event.touches.length !== 1) return;
-      if (event.target instanceof Element && event.target.closest("button,a,input,textarea,select,[role='button']")) {
+      if (
+        !options?.allowInteractiveTarget &&
+        event.target instanceof Element &&
+        event.target.closest("button,a,input,textarea,select,[role='button']")
+      ) {
         return;
       }
       cancelTouchDrag(false);
       attachListeners();
 
       const touch = event.touches[0];
-      const sourceElement = event.currentTarget;
+      const sourceElement = options?.sourceElement ?? event.currentTarget;
       const previousDraggable = sourceElement.getAttribute("draggable");
       const previousTouchCallout = sourceElement.style.getPropertyValue(WEBKIT_TOUCH_CALLOUT_PROPERTY);
       const previousTouchAction = sourceElement.style.touchAction;
