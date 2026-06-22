@@ -10,7 +10,6 @@ import {
   type Dispatch,
   type ReactNode,
   type SetStateAction,
-  type TouchEvent,
 } from "react";
 import { toast } from "sonner";
 import { usePresets, useDeletePreset, useDuplicatePreset, useSetDefaultPreset } from "../../hooks/use-presets";
@@ -51,8 +50,6 @@ import {
   Star,
   Regex,
   GripVertical,
-  ToggleLeft,
-  ToggleRight,
   Pencil,
   ChevronDown,
   ChevronRight,
@@ -63,6 +60,7 @@ import {
 import { cn } from "../../lib/utils";
 import { downloadJsonFile } from "../../lib/download-json";
 import { createFolderEntry, getFolderImportEntries, getFolderManifestConfig } from "@marinara-engine/shared";
+import { SettingsSwitch } from "./settings/SettingControls";
 import {
   getNextUnnamedLibraryFolderName,
   useCreateLibraryFolder,
@@ -72,6 +70,7 @@ import {
   useUpdateLibraryFolder,
 } from "../../hooks/use-library-folders";
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
 
 type PresetRow = {
@@ -281,7 +280,6 @@ export function PresetsPanel() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState("");
   const [draggedPresetId, setDraggedPresetId] = useState<string | null>(null);
-  const presetTouchDragRef = useRef<{ id: string; timer: number | null; active: boolean } | null>(null);
   const suppressPresetClickRef = useRef(false);
   const handleFolderRenameGesture = useFolderRenameGesture();
 
@@ -615,40 +613,15 @@ export function PresetsPanel() {
     [draggedPresetId, movePresetsToFolder],
   );
 
-  const startPresetTouchDrag = useCallback((event: TouchEvent, presetId: string) => {
-    const timer = window.setTimeout(() => {
-      presetTouchDragRef.current = { id: presetId, timer: null, active: true };
-      suppressPresetClickRef.current = true;
-      setDraggedPresetId(presetId);
-    }, 450);
-    presetTouchDragRef.current = { id: presetId, timer, active: false };
-    event.currentTarget.addEventListener(
-      "touchcancel",
-      () => {
-        const current = presetTouchDragRef.current;
-        if (current?.timer) window.clearTimeout(current.timer);
-        presetTouchDragRef.current = null;
-        setDraggedPresetId(null);
-      },
-      { once: true },
-    );
-  }, []);
-
   const finishPresetTouchDrag = useCallback(
-    (event: TouchEvent) => {
-      const current = presetTouchDragRef.current;
-      if (!current) return;
-      if (current.timer) window.clearTimeout(current.timer);
-      presetTouchDragRef.current = null;
-      if (!current.active) return;
-      const touch = event.changedTouches[0];
-      const target = touch ? document.elementFromPoint(touch.clientX, touch.clientY) : null;
+    (presetId: string, x: number, y: number) => {
+      const target = document.elementFromPoint(x, y);
       const folderElement = target?.closest("[data-preset-folder-id]") as HTMLElement | null;
       const rootElement = target?.closest("[data-preset-folder-root]") as HTMLElement | null;
       if (folderElement?.dataset.presetFolderId) {
-        movePresetsToFolder(getDraggedPresetIds(current.id), folderElement.dataset.presetFolderId);
+        movePresetsToFolder(getDraggedPresetIds(presetId), folderElement.dataset.presetFolderId);
       } else if (rootElement) {
-        movePresetsToFolder(getDraggedPresetIds(current.id), null);
+        movePresetsToFolder(getDraggedPresetIds(presetId), null);
       }
       setDraggedPresetId(null);
       window.setTimeout(() => {
@@ -657,6 +630,26 @@ export function PresetsPanel() {
     },
     [getDraggedPresetIds, movePresetsToFolder],
   );
+
+  const cancelPresetTouchDrag = useCallback((_presetId: string, wasActive: boolean) => {
+    setDraggedPresetId(null);
+    if (wasActive) {
+      window.setTimeout(() => {
+        suppressPresetClickRef.current = false;
+      }, 0);
+    } else {
+      suppressPresetClickRef.current = false;
+    }
+  }, []);
+
+  const { startTouchDrag: startPresetTouchDrag } = useTouchFolderDrag({
+    onActivate: (presetId) => {
+      suppressPresetClickRef.current = true;
+      setDraggedPresetId(presetId);
+    },
+    onDrop: finishPresetTouchDrag,
+    onCancel: cancelPresetTouchDrag,
+  });
 
   const renderPresetRow = useCallback(
     (preset: PresetRow) => {
@@ -688,7 +681,6 @@ export function PresetsPanel() {
           }}
           onDragEnd={() => setDraggedPresetId(null)}
           onTouchStart={(event) => startPresetTouchDrag(event, preset.id)}
-          onTouchEnd={finishPresetTouchDrag}
         >
           <div
             className="flex min-w-0 flex-1 items-center gap-3"
@@ -816,7 +808,6 @@ export function PresetsPanel() {
       deletePreset,
       draggedPresetId,
       duplicatePreset,
-      finishPresetTouchDrag,
       getDraggedPresetIds,
       getSectionCount,
       openPresetDetail,
@@ -1111,6 +1102,7 @@ export function PresetsPanel() {
 
       {selectionMode && (
         <SelectionActionBar
+          placement="panel"
           selectedCount={selectedPresetIds.size}
           onExport={() => void handleExportSelected()}
           onDelete={handleDeleteSelected}
@@ -1281,18 +1273,20 @@ function RegexSection({
                   </span>
                 </div>
               </button>
-              <button
-                type="button"
-                className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
+              <div
+                className="mt-0.5 shrink-0"
                 title={enabled ? "Disable regex" : "Enable regex"}
-                aria-label={enabled ? "Disable regex" : "Enable regex"}
                 onClick={(event) => {
                   event.stopPropagation();
-                  updateRegex.mutate({ id: script.id, enabled: !enabled });
                 }}
               >
-                {enabled ? <ToggleRight size="0.875rem" /> : <ToggleLeft size="0.875rem" />}
-              </button>
+                <SettingsSwitch
+                  ariaLabel={enabled ? "Disable regex" : "Enable regex"}
+                  checked={enabled}
+                  onChange={(checked) => updateRegex.mutate({ id: script.id, enabled: checked })}
+                  className="p-0 hover:bg-transparent"
+                />
+              </div>
               <button
                 type="button"
                 className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
@@ -1431,18 +1425,20 @@ function FunctionsSection({
                   {tool.description || "No description"}
                 </div>
               </button>
-              <button
-                type="button"
-                className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
+              <div
+                className="mt-0.5 shrink-0"
                 title={enabled ? "Disable function" : "Enable function"}
-                aria-label={enabled ? "Disable function" : "Enable function"}
                 onClick={(event) => {
                   event.stopPropagation();
-                  updateCustomTool.mutate({ id: tool.id, enabled: !enabled });
                 }}
               >
-                {enabled ? <ToggleRight size="0.875rem" /> : <ToggleLeft size="0.875rem" />}
-              </button>
+                <SettingsSwitch
+                  ariaLabel={enabled ? "Disable function" : "Enable function"}
+                  checked={enabled}
+                  onChange={(checked) => updateCustomTool.mutate({ id: tool.id, enabled: checked })}
+                  className="p-0 hover:bg-transparent"
+                />
+              </div>
               <button
                 type="button"
                 className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"

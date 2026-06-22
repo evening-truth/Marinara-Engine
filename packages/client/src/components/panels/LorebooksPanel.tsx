@@ -46,6 +46,7 @@ import {
   useUpdateLibraryFolder,
 } from "../../hooks/use-library-folders";
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
 
@@ -100,7 +101,6 @@ export function LorebooksPanel() {
   const [draggedLorebookId, setDraggedLorebookId] = useState<string | null>(null);
   const lorebookImageInputRef = useRef<HTMLInputElement>(null);
   const imageTargetLorebookIdRef = useRef<string | null>(null);
-  const lorebookTouchDragRef = useRef<{ id: string; timer: number | null; active: boolean } | null>(null);
   const suppressLorebookClickRef = useRef(false);
   const handleFolderRenameGesture = useFolderRenameGesture();
 
@@ -579,43 +579,15 @@ export function LorebooksPanel() {
     [draggedLorebookId, moveLorebooksToFolder],
   );
 
-  const startLorebookTouchDrag = useCallback(
-    (event: TouchEvent, lorebookId: string) => {
-      const timer = window.setTimeout(() => {
-        lorebookTouchDragRef.current = { id: lorebookId, timer: null, active: true };
-        suppressLorebookClickRef.current = true;
-        setDraggedLorebookId(lorebookId);
-      }, 450);
-      lorebookTouchDragRef.current = { id: lorebookId, timer, active: false };
-      event.currentTarget.addEventListener(
-        "touchcancel",
-        () => {
-          const current = lorebookTouchDragRef.current;
-          if (current?.timer) window.clearTimeout(current.timer);
-          lorebookTouchDragRef.current = null;
-          setDraggedLorebookId(null);
-        },
-        { once: true },
-      );
-    },
-    [],
-  );
-
   const finishLorebookTouchDrag = useCallback(
-    (event: TouchEvent) => {
-      const current = lorebookTouchDragRef.current;
-      if (!current) return;
-      if (current.timer) window.clearTimeout(current.timer);
-      lorebookTouchDragRef.current = null;
-      if (!current.active) return;
-      const touch = event.changedTouches[0];
-      const target = touch ? document.elementFromPoint(touch.clientX, touch.clientY) : null;
+    (lorebookId: string, x: number, y: number) => {
+      const target = document.elementFromPoint(x, y);
       const folderElement = target?.closest("[data-lorebook-folder-id]") as HTMLElement | null;
       const rootElement = target?.closest("[data-lorebook-folder-root]") as HTMLElement | null;
       if (folderElement?.dataset.lorebookFolderId) {
-        moveLorebooksToFolder(getDraggedLorebookIds(current.id), folderElement.dataset.lorebookFolderId);
+        moveLorebooksToFolder(getDraggedLorebookIds(lorebookId), folderElement.dataset.lorebookFolderId);
       } else if (rootElement) {
-        moveLorebooksToFolder(getDraggedLorebookIds(current.id), null);
+        moveLorebooksToFolder(getDraggedLorebookIds(lorebookId), null);
       }
       setDraggedLorebookId(null);
       window.setTimeout(() => {
@@ -624,6 +596,26 @@ export function LorebooksPanel() {
     },
     [getDraggedLorebookIds, moveLorebooksToFolder],
   );
+
+  const cancelLorebookTouchDrag = useCallback((_lorebookId: string, wasActive: boolean) => {
+    setDraggedLorebookId(null);
+    if (wasActive) {
+      window.setTimeout(() => {
+        suppressLorebookClickRef.current = false;
+      }, 0);
+    } else {
+      suppressLorebookClickRef.current = false;
+    }
+  }, []);
+
+  const { startTouchDrag: startLorebookTouchDrag } = useTouchFolderDrag({
+    onActivate: (lorebookId) => {
+      suppressLorebookClickRef.current = true;
+      setDraggedLorebookId(lorebookId);
+    },
+    onDrop: finishLorebookTouchDrag,
+    onCancel: cancelLorebookTouchDrag,
+  });
 
   const renderLorebookRow = useCallback(
     (lb: Lorebook) => {
@@ -667,14 +659,12 @@ export function LorebooksPanel() {
           }}
           onDragEnd={() => setDraggedLorebookId(null)}
           onTouchStart={(event) => startLorebookTouchDrag(event, lb.id)}
-          onTouchEnd={finishLorebookTouchDrag}
         />
       );
     },
     [
       deleteLorebook,
       draggedLorebookId,
-      finishLorebookTouchDrag,
       getCharacterNames,
       getDraggedLorebookIds,
       getPersonaNames,
@@ -1059,6 +1049,7 @@ export function LorebooksPanel() {
 
       {selectionMode && (
         <SelectionActionBar
+          placement="panel"
           selectedCount={selectedLorebookIds.size}
           onExport={() => void handleExportSelected()}
           onDelete={handleDeleteSelected}
@@ -1085,7 +1076,6 @@ function LorebookRow({
   onDragStart,
   onDragEnd,
   onTouchStart,
-  onTouchEnd,
 }: {
   lorebook: Lorebook;
   characterName?: string;
@@ -1102,7 +1092,6 @@ function LorebookRow({
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void;
   onDragEnd?: () => void;
   onTouchStart?: (event: TouchEvent<HTMLDivElement>) => void;
-  onTouchEnd?: (event: TouchEvent<HTMLDivElement>) => void;
 }) {
   const gradient = CATEGORY_COLORS[lorebook.category] ?? CATEGORY_COLORS.uncategorized;
   const imageContent = lorebook.imagePath ? (
@@ -1129,7 +1118,6 @@ function LorebookRow({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
     >
       {selectionMode && (
         <button

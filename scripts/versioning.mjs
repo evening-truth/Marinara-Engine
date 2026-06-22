@@ -81,6 +81,13 @@ function updateInstallerBat(content, version) {
 function updateAndroidBuildGradle(content, version, androidVersionCode) {
   let next = replaceOrThrow(content, /versionName "[^"]+"/, `versionName "${version}"`, "Android versionName");
 
+  next = replaceOrThrow(
+    next,
+    /buildConfigField "String", "MARINARA_RELEASE_TAG", "\\"v[^"]+\\""/,
+    `buildConfigField "String", "MARINARA_RELEASE_TAG", "\\"v${version}\\""`,
+    "Android MARINARA_RELEASE_TAG",
+  );
+
   if (androidVersionCode != null) {
     next = replaceOrThrow(next, /versionCode \d+/, `versionCode ${androidVersionCode}`, "Android versionCode");
   }

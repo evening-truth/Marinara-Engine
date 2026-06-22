@@ -433,15 +433,10 @@ function normalizeAgentConfigWriteRow(row: Row): Row {
   if (out.settings === undefined) out.settings = {};
   if (typeof out.phase === "string" && out.phase.trim().toLowerCase() === "inactive") {
     out.phase = "post_processing";
-    out.enabled = "false";
   } else if (typeof out.phase === "string") {
     out.phase = out.phase.trim();
   }
-  if (out.enabled !== undefined) {
-    out.enabled = toBooleanText(out.enabled);
-  } else {
-    out.enabled = "true";
-  }
+  out.enabled = "true";
   return out;
 }
 

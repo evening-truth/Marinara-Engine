@@ -39,6 +39,7 @@ import { fingerprintChatSummary } from "../../services/prompt/chat-summary-finge
 import {
   buildPromptMacroContext,
   resolveCharacterMacroData,
+  resolvePromptIdleDuration,
   resolvePromptMessageMacros,
 } from "../../services/prompt/index.js";
 import { getAssetManifest } from "../../services/game/asset-manifest.service.js";
@@ -525,6 +526,8 @@ async function buildRetryAgentContext(args: {
         : null,
     lastInput: [...recentMessages].reverse().find((message: any) => message.role === "user")?.content,
     chatId,
+    lastGenerationType: "retry_agents",
+    idleDuration: resolvePromptIdleDuration(recentMessages),
   });
   const historyMacroProfilesById = (await resolveCharacterMacroData(db, allCharacterIds)).profilesById;
   const resolveHistoryMessageMacros = <T extends { content: string; characterId?: string | null }>(

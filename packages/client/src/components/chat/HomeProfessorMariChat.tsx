@@ -23,8 +23,6 @@ import {
   ShieldAlert,
   Square,
   Terminal,
-  ToggleLeft,
-  ToggleRight,
   Trash2,
   Wrench,
   X,
@@ -55,6 +53,7 @@ import { useUIStore } from "../../stores/ui.store";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../lib/markdown";
 import { cn } from "../../lib/utils";
 import { ProfessorMariWorkingWindow } from "../ui/ProfessorMariWorkingWindow";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 import { HomeFaq } from "./HomeFaq";
 
 const MARI_AVATAR_URL = "/sprites/mari/Mari_profile.png";
@@ -1375,22 +1374,14 @@ function ProfessorMariSkillsMenu({
                     </span>
                   </button>
                   <span className="flex shrink-0 items-center pr-1">
-                    <button
-                      type="button"
-                      onClick={() => onToggle(skill)}
-                      disabled={saving}
-                      className={cn(
-                        "inline-flex h-7 w-7 items-center justify-center rounded-full transition-colors",
-                        skill.enabled
-                          ? "mari-chrome-accent-icon mari-accent-animated hover:bg-[var(--marinara-chat-chrome-highlight-bg)]"
-                          : "mari-chrome-text-muted hover:bg-[var(--marinara-chat-chrome-highlight-bg)] hover:text-[var(--marinara-chat-chrome-button-text-hover)]",
-                        saving && "cursor-not-allowed opacity-55",
-                      )}
-                      aria-label={skill.enabled ? "Disable skill" : "Enable skill"}
+                    <SettingsSwitch
+                      ariaLabel={skill.enabled ? "Disable skill" : "Enable skill"}
                       title={skill.enabled ? "Enabled" : "Disabled"}
-                    >
-                      {skill.enabled ? <ToggleRight size="1rem" /> : <ToggleLeft size="1rem" />}
-                    </button>
+                      checked={skill.enabled}
+                      onChange={() => onToggle(skill)}
+                      disabled={saving}
+                      className="p-0 hover:bg-transparent"
+                    />
                   </span>
                 </div>
               );

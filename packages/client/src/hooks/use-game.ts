@@ -198,7 +198,7 @@ export function useGameSetup() {
   const store = useGameModeStore;
 
   return useMutation({
-    mutationFn: (data: { chatId: string; connectionId?: string; preferences: string }) =>
+    mutationFn: (data: { chatId: string; connectionId?: string; promptPresetId?: string | null; preferences: string }) =>
       api.post<SetupResponse>("/game/setup", {
         ...data,
         streaming: useUIStore.getState().enableStreaming,

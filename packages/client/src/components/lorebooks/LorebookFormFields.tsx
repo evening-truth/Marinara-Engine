@@ -5,11 +5,12 @@
 // Extracted from LorebookEditor.tsx so styling stays consistent.
 // ──────────────────────────────────────────────
 import { useState } from "react";
-import { FileText, ToggleLeft, ToggleRight } from "lucide-react";
+import { FileText } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { HelpTooltip } from "../ui/HelpTooltip";
 import { MacroTextarea } from "../ui/MacroTextarea";
 import { DraftNumberInput } from "../ui/DraftNumberInput";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 
 export function FieldGroup({
   label,
@@ -24,8 +25,8 @@ export function FieldGroup({
 }) {
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium">
-        <Icon size="0.8125rem" className="text-amber-400" />
+      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--marinara-editor-muted)]">
+        <Icon size="0.8125rem" className="mari-chrome-accent-icon mari-accent-animated" />
         {label}
         {help && <HelpTooltip text={help} />}
       </div>
@@ -51,12 +52,12 @@ export function KeysEditor({ keys, onChange }: { keys: string[]; onChange: (keys
         {keys.map((key, i) => (
           <span
             key={i}
-            className="flex items-center gap-1 rounded-lg bg-amber-400/15 px-2 py-1 text-[0.6875rem] text-amber-300"
+            className="mari-editor-chip mari-editor-chip--accent px-2 py-1 text-[0.6875rem]"
           >
             {key}
             <button
               onClick={() => onChange(keys.filter((_, j) => j !== i))}
-              className="ml-0.5 rounded-sm hover:text-[var(--destructive)]"
+              className="ml-0.5 rounded-sm text-[var(--marinara-editor-muted)] hover:text-[var(--destructive)]"
             >
               ×
             </button>
@@ -68,12 +69,12 @@ export function KeysEditor({ keys, onChange }: { keys: string[]; onChange: (keys
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addKey())}
-          className="flex-1 rounded-lg bg-[var(--secondary)] px-2 py-1.5 text-xs ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+          className="mari-editor-field flex-1 px-2 py-1.5 text-xs"
           placeholder="Type a keyword and press Enter…"
         />
         <button
           onClick={addKey}
-          className="rounded-lg bg-[var(--accent)] px-2 py-1.5 text-[0.6875rem] font-medium transition-colors hover:bg-[var(--accent)]/80"
+          className="mari-editor-action mari-editor-action--compact px-2 py-1.5 text-[0.6875rem]"
         >
           Add
         </button>
@@ -94,19 +95,20 @@ export function ToggleButton({
   tooltip?: string;
 }) {
   return (
-    <button
-      onClick={() => onChange(!value)}
+    <SettingsSwitch
+      label={label}
+      checked={value}
+      onChange={onChange}
       title={tooltip}
       className={cn(
-        "flex items-center justify-between rounded-lg px-2.5 py-2 text-xs font-medium ring-1 transition-all",
+        "w-full justify-between rounded-lg px-2.5 py-2 text-xs font-medium ring-1",
         value
-          ? "bg-amber-400/15 text-amber-400 ring-amber-400/30"
-          : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)]",
+          ? "mari-chrome-accent-surface mari-accent-animated"
+          : "mari-editor-field text-[var(--marinara-editor-muted)]",
       )}
-    >
-      {label}
-      {value ? <ToggleRight size="1.125rem" /> : <ToggleLeft size="1.125rem" />}
-    </button>
+      labelClassName="text-xs"
+      labelPosition="start"
+    />
   );
 }
 
@@ -132,7 +134,7 @@ export function NumberField({
         min={min}
         max={max}
         selectOnFocus
-        className="w-full rounded-lg bg-[var(--secondary)] px-2 py-1.5 text-xs ring-1 ring-transparent focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+        className="mari-editor-field w-full px-2 py-1.5 text-xs"
       />
     </div>
   );
@@ -168,7 +170,7 @@ export function ExpandableTextarea({
       placeholder={placeholder}
       title={title ?? "Edit"}
       showMacroReference={showMacroReference}
-      className="w-full resize-y rounded-lg bg-[var(--secondary)] p-2.5 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+      className="mari-editor-field w-full resize-y p-2.5 text-sm"
     />
   );
 }

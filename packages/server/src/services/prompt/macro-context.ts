@@ -31,6 +31,8 @@ export interface BuildPromptMacroContextInput {
   lastInput?: string;
   chatId?: string;
   model?: string;
+  lastGenerationType?: string;
+  idleDuration?: string;
 }
 
 export interface CharacterMacroData {
@@ -43,6 +45,13 @@ export interface CharacterMacroData {
 export type PromptMacroMessage = {
   content: string;
   characterId?: string | null;
+};
+
+export type PromptMacroActivityMessage = {
+  id?: string | null;
+  role?: string | null;
+  createdAt?: string | Date | null;
+  updatedAt?: string | Date | null;
 };
 
 export interface MacroResolutionTransaction {
@@ -71,6 +80,87 @@ export function resolveMacrosWithVariableSnapshot(
   };
 
   return { content, commit, rollback };
+}
+
+function timestampToMillis(value: string | Date | null | undefined): number | null {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : null;
+  }
+  if (typeof value !== "string" || !value.trim()) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+
+function formatDurationPart(value: number, unit: string): string {
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
+}
+
+export function formatPromptIdleDuration(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  if (totalSeconds < 60) return formatDurationPart(totalSeconds, "second");
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 60) return formatDurationPart(totalMinutes, "minute");
+
+  const totalHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (totalHours < 24) {
+    return minutes > 0
+      ? `${formatDurationPart(totalHours, "hour")} ${formatDurationPart(minutes, "minute")}`
+      : formatDurationPart(totalHours, "hour");
+  }
+
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  return hours > 0
+    ? `${formatDurationPart(days, "day")} ${formatDurationPart(hours, "hour")}`
+    : formatDurationPart(days, "day");
+}
+
+export function resolvePromptIdleDuration(
+  messages: readonly PromptMacroActivityMessage[],
+  options: { excludeMessageId?: string | null; now?: Date } = {},
+): string {
+  const excludeMessageId = options.excludeMessageId?.trim() || null;
+  let latestTimestamp: number | null = null;
+
+  for (const message of messages) {
+    if (excludeMessageId && message.id === excludeMessageId) continue;
+    const timestamp = timestampToMillis(message.createdAt) ?? timestampToMillis(message.updatedAt);
+    if (timestamp === null) continue;
+    if (latestTimestamp === null || timestamp > latestTimestamp) latestTimestamp = timestamp;
+  }
+
+  if (latestTimestamp === null) return formatPromptIdleDuration(0);
+  return formatPromptIdleDuration((options.now ?? new Date()).getTime() - latestTimestamp);
+}
+
+export function resolvePromptLastGenerationType(input: {
+  autonomous?: unknown;
+  attachments?: unknown;
+  generationGuide?: unknown;
+  generationGuideSource?: unknown;
+  impersonate?: unknown;
+  regenerateMessageId?: unknown;
+  turnGameBots?: unknown;
+  userMessage?: unknown;
+}): string {
+  if (input.impersonate === true) return "impersonate";
+  if (typeof input.regenerateMessageId === "string" && input.regenerateMessageId.trim()) return "regenerate";
+  if (input.turnGameBots === true) return "turn_game";
+  if (input.autonomous === true) return "autonomous";
+  if (typeof input.generationGuide === "string" && input.generationGuide.trim()) {
+    const source =
+      typeof input.generationGuideSource === "string" && input.generationGuideSource.trim()
+        ? input.generationGuideSource.trim()
+        : "guided";
+    return source === "narrator" ? "guided" : source;
+  }
+
+  const hasUserMessage = typeof input.userMessage === "string" && input.userMessage.trim().length > 0;
+  const hasAttachments = Array.isArray(input.attachments) && input.attachments.length > 0;
+  return hasUserMessage || hasAttachments ? "normal" : "continue";
 }
 
 export type PromptDepthEntry = {
@@ -154,6 +244,8 @@ export async function buildPromptMacroContext(input: BuildPromptMacroContextInpu
     lastInput: input.lastInput,
     chatId: input.chatId,
     model: input.model,
+    lastGenerationType: input.lastGenerationType,
+    idleDuration: input.idleDuration,
     characterFields: {
       ...(characterMacroData.primaryFields ?? {}),
       ...(input.groupScenarioOverrideText ? { scenario: input.groupScenarioOverrideText } : {}),

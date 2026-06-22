@@ -27,6 +27,10 @@ export interface MacroContext {
   chatId?: string;
   /** Model name (for {{model}}) */
   model?: string;
+  /** Generation trigger/type label (for {{lastGenerationType}}) */
+  lastGenerationType?: string;
+  /** Human-readable time since the last chat activity before this generation (for {{idle_duration}}) */
+  idleDuration?: string;
   /** Agent data keyed by agent type (for {{agent::TYPE}}) */
   agentData?: Record<string, string>;
   /** Current character card fields used by macros like {{description}} */
@@ -134,6 +138,8 @@ export const SUPPORTED_MACROS: readonly SupportedMacroDefinition[] = [
   { category: "Context", syntax: "{{input}}", description: "Most recent user message" },
   { category: "Context", syntax: "{{model}}", description: "Current model name" },
   { category: "Context", syntax: "{{chatId}}", description: "Current chat ID" },
+  { category: "Context", syntax: "{{lastGenerationType}}", description: "Current generation type label" },
+  { category: "Context", syntax: "{{idle_duration}}", description: "Time since the last chat activity" },
   { category: "Context", syntax: "{{agent::TYPE}}", description: "Cached output for an agent or tracker type" },
   { category: "Time", syntax: "{{date}}", description: "Current real date in YYYY-MM-DD format" },
   { category: "Time", syntax: "{{time}}", description: "Current real time in HH:MM format" },
@@ -214,6 +220,8 @@ function macroContextForCharacterProfile(profile: CharacterMacroProfile, base?: 
     lastInput: base?.lastInput,
     chatId: base?.chatId,
     model: base?.model,
+    lastGenerationType: base?.lastGenerationType,
+    idleDuration: base?.idleDuration,
     agentData: base?.agentData,
     personaFields: base?.personaFields,
     characterFields: {
@@ -741,6 +749,8 @@ function pickWeightedRandomChoice(choices: string[]): string {
  *  - {{input}} — last user message
  *  - {{model}} — current model name
  *  - {{chatId}} — current chat ID
+ *  - {{lastGenerationType}} — current generation type label
+ *  - {{idle_duration}} — time since the last chat activity
  *  - {{// comment}} — removed (author comments)
  *  - {{trim}} — remove surrounding whitespace
  *  - {{trimStart}} / {{trimEnd}} — directional trim markers
@@ -801,6 +811,8 @@ export function resolveMacros(template: string, ctx: MacroContext, options: Reso
   result = result.replace(/\{\{input\}\}/gi, ctx.lastInput ?? "");
   result = result.replace(/\{\{model\}\}/gi, ctx.model ?? "");
   result = result.replace(/\{\{chatId\}\}/gi, ctx.chatId ?? "");
+  result = result.replace(/\{\{lastGenerationType\}\}/gi, ctx.lastGenerationType ?? "");
+  result = result.replace(/\{\{idle_duration\}\}/gi, ctx.idleDuration ?? "");
 
   // ── Agent data ──
   result = result.replace(/\{\{agent::([\w-]+)\}\}/gi, (_, type) => {

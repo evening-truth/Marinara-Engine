@@ -8,6 +8,7 @@ import { api } from "../../lib/api-client";
 import { showConfirmDialog } from "../../lib/app-dialogs";
 import { cn } from "../../lib/utils";
 import { HelpTooltip } from "../ui/HelpTooltip";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 
 const AGENT_TYPE = "director";
 const SECRET_PLOT_HELP =
@@ -312,18 +313,17 @@ export function SecretPlotPanel({
                       className="w-full resize-y rounded-md border border-[var(--input)] bg-[var(--secondary)]/45 px-2 py-1.5 font-mono text-[0.625rem] leading-relaxed text-[var(--foreground)] outline-none transition-colors focus:border-[var(--ring)] focus:ring-1 focus:ring-[var(--ring)]"
                     />
                   </label>
-                  <label className="flex min-h-7 items-center justify-between gap-2 rounded-md border border-[var(--border)]/70 bg-[var(--secondary)]/35 px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                    <span>Completed</span>
-                    <input
-                      type="checkbox"
-                      checked={draft.arcCompleted}
-                      onChange={(event) => {
-                        setSaved(false);
-                        setDraft((current) => (current ? { ...current, arcCompleted: event.target.checked } : current));
-                      }}
-                      className="h-3 w-3 rounded border-[var(--input)] accent-[var(--primary)]"
-                    />
-                  </label>
+                  <SettingsSwitch
+                    label="Completed"
+                    checked={draft.arcCompleted}
+                    onChange={(checked) => {
+                      setSaved(false);
+                      setDraft((current) => (current ? { ...current, arcCompleted: checked } : current));
+                    }}
+                    labelPosition="start"
+                    className="min-h-7 justify-between rounded-md border border-[var(--border)]/70 bg-[var(--secondary)]/35 px-2 py-1 text-[0.625rem] text-[var(--muted-foreground)]"
+                    labelClassName="text-[0.625rem]"
+                  />
                 </div>
               )}
             </>

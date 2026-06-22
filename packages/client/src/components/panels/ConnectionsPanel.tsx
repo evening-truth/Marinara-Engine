@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Panel: API Connections (polished, with folders)
 // ──────────────────────────────────────────────
-import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent, type TouchEvent } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 import {
   useConnections,
@@ -19,6 +19,7 @@ import {
   useMoveConnection,
 } from "../../hooks/use-connection-folders";
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { useAgentConfigs, useCreateAgent, useUpdateAgent } from "../../hooks/use-agents";
 import { useChatStore } from "../../stores/chat.store";
 import { useUIStore } from "../../stores/ui.store";
@@ -543,6 +544,8 @@ function ConnectionRow({
   isDragging,
   onDragStart,
   onDragEnd,
+  onTouchStart,
+  suppressClickRef,
   onImagePick,
 }: {
   conn: ConnectionRowData;
@@ -553,6 +556,8 @@ function ConnectionRow({
   isDragging: boolean;
   onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragEnd: () => void;
+  onTouchStart?: (event: TouchEvent<HTMLDivElement>) => void;
+  suppressClickRef?: { current: boolean };
   onImagePick: () => void;
 }) {
   const duplicateConnection = useDuplicateConnection();
@@ -574,10 +579,14 @@ function ConnectionRow({
 
   return (
     <div
-      onClick={onClickRow}
+      onClick={() => {
+        if (suppressClickRef?.current) return;
+        onClickRow();
+      }}
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onTouchStart={onTouchStart}
       className={cn(
         "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
         isSelected && `ring-1 ${colors.ring} bg-[var(--sidebar-accent)]/50`,
@@ -589,6 +598,7 @@ function ConnectionRow({
         type="button"
         onClick={(event) => {
           event.stopPropagation();
+          if (suppressClickRef?.current) return;
           onImagePick();
         }}
 	        className={cn(
@@ -870,6 +880,7 @@ export function ConnectionsPanel() {
   const [exportingSelected, setExportingSelected] = useState(false);
   const connectionImageInputRef = useRef<HTMLInputElement>(null);
   const imageTargetConnectionIdRef = useRef<string | null>(null);
+  const suppressConnectionClickRef = useRef(false);
 
   const connectionsList = useMemo(() => (connections as ConnectionRowData[] | undefined) ?? [], [connections]);
   const filteredConnections = useMemo(() => {
@@ -959,13 +970,51 @@ export function ConnectionsPanel() {
     setSelectedConnectionIds(new Set());
   }, []);
 
-  const handleDropConnectionsToFolder = (connectionIds: string[], folderId: string | null) => {
+  const handleDropConnectionsToFolder = useCallback((connectionIds: string[], folderId: string | null) => {
     const ids = Array.from(new Set(connectionIds.filter(Boolean)));
     for (const connectionId of ids) {
       moveConnectionMut.mutate({ connectionId, folderId });
     }
     setDraggedConnectionId(null);
-  };
+  }, [moveConnectionMut]);
+
+  const finishConnectionTouchDrag = useCallback(
+    (connectionId: string, x: number, y: number) => {
+      const target = document.elementFromPoint(x, y);
+      const folderElement = target?.closest("[data-connection-folder-id]") as HTMLElement | null;
+      const rootElement = target?.closest("[data-connection-folder-root]") as HTMLElement | null;
+      const folderId = folderElement?.dataset.connectionFolderId ?? null;
+      if (folderId || rootElement) {
+        handleDropConnectionsToFolder(getDraggedConnectionIds(connectionId), folderId);
+      } else {
+        setDraggedConnectionId(null);
+      }
+      window.setTimeout(() => {
+        suppressConnectionClickRef.current = false;
+      }, 0);
+    },
+    [getDraggedConnectionIds, handleDropConnectionsToFolder],
+  );
+
+  const cancelConnectionTouchDrag = useCallback((_connectionId: string, wasActive: boolean) => {
+    setDraggedConnectionId(null);
+    if (wasActive) {
+      window.setTimeout(() => {
+        suppressConnectionClickRef.current = false;
+      }, 0);
+    } else {
+      suppressConnectionClickRef.current = false;
+    }
+  }, []);
+
+  const { startTouchDrag: startConnectionTouchDrag } = useTouchFolderDrag({
+    onActivate: (connectionId) => {
+      suppressConnectionClickRef.current = true;
+      setDraggedConnectionId(connectionId);
+    },
+    onDrop: finishConnectionTouchDrag,
+    onCancel: cancelConnectionTouchDrag,
+  });
 
   const handlePickConnectionImage = useCallback((connectionId: string) => {
     imageTargetConnectionIdRef.current = connectionId;
@@ -1103,13 +1152,15 @@ export function ConnectionsPanel() {
           event.dataTransfer.setData("text/plain", conn.id);
         }}
         onDragEnd={() => setDraggedConnectionId(null)}
+        onTouchStart={(event) => startConnectionTouchDrag(event, conn.id)}
+        suppressClickRef={suppressConnectionClickRef}
         onImagePick={() => handlePickConnectionImage(conn.id)}
       />
     );
   };
 
   return (
-    <div className="flex min-h-full flex-col gap-2 p-3">
+    <div data-connection-folder-root className="flex min-h-full flex-col gap-2 p-3">
       <input
         ref={connectionImageInputRef}
         type="file"
@@ -1320,6 +1371,7 @@ export function ConnectionsPanel() {
 
       {selectionMode && (
         <SelectionActionBar
+          placement="panel"
           selectedCount={selectedConnectionIds.size}
           onExport={() => void handleExportSelected()}
           onDelete={handleDeleteSelected}

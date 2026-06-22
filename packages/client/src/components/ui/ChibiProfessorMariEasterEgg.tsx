@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { X } from "lucide-react";
 import { toast } from "sonner";
 import { useUIStore } from "../../stores/ui.store";
 
@@ -28,18 +27,9 @@ function rememberChibiProfessorMari() {
 function showChibiProfessorMariToast() {
   rememberChibiProfessorMari();
   toast.custom(
-    (toastId) => (
-      <div className="relative flex max-w-[360px] gap-3 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 pr-9 text-[var(--foreground)] shadow-lg ring-1 ring-[var(--border)]/70">
-        <button
-          type="button"
-          aria-label="Dismiss Professor Mari toast"
-          title="Dismiss"
-          onClick={() => toast.dismiss(toastId)}
-          className="absolute right-2 top-2 rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
-        >
-          <X size="0.8125rem" />
-        </button>
-        <div className="flex h-24 w-20 shrink-0 items-end justify-center overflow-hidden rounded-lg bg-[var(--accent)]/45">
+    () => (
+      <div className="flex max-w-[360px] gap-3 pr-3 text-[var(--foreground)]">
+        <div className="flex h-24 w-20 shrink-0 items-end justify-center overflow-hidden rounded-md border border-[var(--border)] bg-[var(--accent)]/45">
           <img
             src={CHIBI_PROFESSOR_MARI_IMAGE}
             alt="Chibi Professor Mari"
@@ -59,16 +49,7 @@ function showChibiProfessorMariToast() {
         </div>
       </div>
     ),
-    {
-      duration: CHIBI_PROFESSOR_MARI_TOAST_DURATION_MS,
-      style: {
-        background: "transparent",
-        border: "0",
-        boxShadow: "none",
-        color: "var(--foreground)",
-        padding: 0,
-      },
-    },
+    { duration: CHIBI_PROFESSOR_MARI_TOAST_DURATION_MS },
   );
 }
 

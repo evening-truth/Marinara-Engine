@@ -531,6 +531,10 @@ export interface MessageExtra {
   generationInfo: GenerationInfo | null;
   /** User-uploaded or generated attachments associated with this message. */
   attachments?: MessageAttachment[] | null;
+  /** Persisted translated text for this message, if the user generated one. */
+  translation?: string | null;
+  /** User hid the persisted translation from display without deleting it. */
+  translationHidden?: boolean | null;
   /** Conversation-mode reactions on this message (emoji/custom-emoji + who reacted). */
   reactions?: MessageReaction[] | null;
   /** When true, this message marks the "new start" of the conversation — all earlier messages are excluded from context */

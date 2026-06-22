@@ -57,7 +57,8 @@ import { DIALOGUE_QUOTE_PATTERN_SOURCE, HTML_SAFE_DIALOGUE_QUOTE_PATTERN_SOURCE 
 import DOMPurify from "dompurify";
 import type { CharacterMap, ExpressionAvatarResolver, MessageSelectionToggle, PersonaInfo } from "./chat-area.types";
 import { GenerationReplayDetailsModal, hasGenerationReplayDetails } from "./GenerationReplayDetailsModal";
-import { ImagePromptPanel } from "./ImagePromptPanel";
+import type { ChatImage } from "../../hooks/use-gallery";
+import { ChatImageLightbox } from "./ChatImageLightbox";
 import { SwipeJumpControl } from "./SwipeJumpControl";
 import {
   NEUTRAL_PANEL_HEADER,
@@ -77,6 +78,107 @@ const MESSAGE_CHROME_MARKER_TEXT_CLASS = "text-[var(--marinara-chat-chrome-highl
 const MESSAGE_CHROME_RING_CLASS = "ring-[var(--marinara-chat-chrome-focus-ring)]";
 const ROLEPLAY_USER_BUBBLE_PANEL_STRENGTH = 100;
 const ROLEPLAY_ASSISTANT_BUBBLE_PANEL_STRENGTH = 96;
+
+type MessageImageAttachmentLike = {
+  data?: unknown;
+  filename?: unknown;
+  filePath?: unknown;
+  galleryId?: unknown;
+  height?: unknown;
+  model?: unknown;
+  name?: unknown;
+  prompt?: unknown;
+  provider?: unknown;
+  url?: unknown;
+  width?: unknown;
+};
+
+interface ChatMessageImageLightboxState {
+  image: ChatImage;
+  alt: string;
+  pinEnabled: boolean;
+  downloadEnabled: boolean;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readPositiveNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function filenameFromUrl(url: string): string | null {
+  if (url.startsWith("data:")) return null;
+  const filename = url.split("?")[0]?.split("/").filter(Boolean).pop();
+  if (!filename) return null;
+  try {
+    return decodeURIComponent(filename);
+  } catch {
+    return filename;
+  }
+}
+
+function buildChatMessageImage({
+  id,
+  chatId,
+  url,
+  prompt,
+  filePath,
+  provider,
+  model,
+  width,
+  height,
+  createdAt,
+}: {
+  id: string;
+  chatId: string;
+  url: string;
+  prompt?: string | null;
+  filePath?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  width?: number | null;
+  height?: number | null;
+  createdAt: string;
+}): ChatImage {
+  return {
+    id,
+    chatId,
+    filePath: filePath || filenameFromUrl(url) || `${id}.png`,
+    prompt: prompt ?? "",
+    provider: provider ?? "",
+    model: model ?? "",
+    width: width ?? null,
+    height: height ?? null,
+    createdAt,
+    url,
+  };
+}
+
+function buildAttachmentChatImage(
+  attachment: MessageImageAttachmentLike,
+  index: number,
+  message: Pick<Message, "chatId" | "createdAt" | "id">,
+): ChatImage | null {
+  const url = readString(attachment.url) ?? readString(attachment.data);
+  if (!url) return null;
+
+  const id = readString(attachment.galleryId) ?? `${message.id}:attachment:${index}`;
+  const filename = readString(attachment.filename) ?? readString(attachment.name);
+  return buildChatMessageImage({
+    id,
+    chatId: message.chatId,
+    url,
+    prompt: readString(attachment.prompt),
+    filePath: readString(attachment.filePath) ?? filename,
+    provider: readString(attachment.provider),
+    model: readString(attachment.model),
+    width: readPositiveNumber(attachment.width),
+    height: readPositiveNumber(attachment.height),
+    createdAt: message.createdAt,
+  });
+}
 
 function getRoleplayPanelBubbleBackground(opacity: number, maxPanelStrength: number) {
   const panelStrength = Math.max(0, Math.min(100, opacity * maxPanelStrength));
@@ -871,19 +973,45 @@ export const ChatMessage = memo(function ChatMessage({
   const [manuallyExpandedHidden, setManuallyExpandedHidden] = useState(false);
   const [restoringProseGuardianOriginal, setRestoringProseGuardianOriginal] = useState(false);
   const collapseHiddenMessages = useUIStore((s) => s.summaryPopoverSettings.collapseHiddenMessages);
-  const [avatarLightbox, setAvatarLightbox] = useState<string | null>(null);
-  const [avatarLightboxPrompt, setAvatarLightboxPrompt] = useState<string | null>(null);
+  const [imageLightbox, setImageLightbox] = useState<ChatMessageImageLightboxState | null>(null);
   const scrollRestoreRef = useRef<{ el: HTMLElement; top: number } | null>(null);
   const msgRef = useRef<HTMLDivElement>(null);
   const editSwipeIndexRef = useRef<number | null>(null);
   const lastQuickTapRef = useRef<{ time: number; x: number; y: number } | null>(null);
-  const openImageLightbox = useCallback((url: string, prompt?: unknown) => {
-    setAvatarLightbox(url);
-    setAvatarLightboxPrompt(typeof prompt === "string" ? prompt.trim() : null);
-  }, []);
+  const openImageLightbox = useCallback(
+    (url: string, prompt?: unknown) => {
+      if (!url) return;
+      setImageLightbox({
+        image: buildChatMessageImage({
+          id: `${message.id}:image:${url}`,
+          chatId: message.chatId,
+          url,
+          prompt: readString(prompt),
+          createdAt: message.createdAt,
+        }),
+        alt: "Image",
+        pinEnabled: false,
+        downloadEnabled: false,
+      });
+    },
+    [message.chatId, message.createdAt, message.id],
+  );
+  const openAttachmentImageLightbox = useCallback(
+    (attachment: MessageImageAttachmentLike, index: number) => {
+      const image = buildAttachmentChatImage(attachment, index, message);
+      if (!image) return;
+      const alt = (readString(attachment.filename) ?? readString(attachment.name) ?? image.prompt) || "Gallery image";
+      setImageLightbox({
+        image,
+        alt,
+        pinEnabled: true,
+        downloadEnabled: true,
+      });
+    },
+    [message],
+  );
   const closeImageLightbox = useCallback(() => {
-    setAvatarLightbox(null);
-    setAvatarLightboxPrompt(null);
+    setImageLightbox(null);
   }, []);
 
   // Translation
@@ -2068,7 +2196,7 @@ export const ChatMessage = memo(function ChatMessage({
                     <div key={i} className="group/att relative inline-block">
                       <button
                         type="button"
-                        onClick={() => openImageLightbox(att.url || att.data, att.prompt)}
+                        onClick={() => openAttachmentImageLightbox(att, i)}
                         className="block"
                         title="Open image"
                         aria-label={`Open ${att.filename || att.name || "image"}`}
@@ -2302,37 +2430,14 @@ export const ChatMessage = memo(function ChatMessage({
           />
         )}
 
-        {/* Avatar lightbox */}
-        {avatarLightbox && (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
-            onClick={closeImageLightbox}
-          >
-            <div
-              className="flex max-h-[90vh] w-[min(90vw,64rem)] max-w-[90vw] flex-col items-center gap-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <img
-                src={avatarLightbox}
-                alt={displayName}
-                decoding="async"
-                className={
-                  avatarLightboxPrompt?.trim()
-                    ? "max-h-[calc(90vh-9rem)] max-w-full rounded-lg object-contain shadow-2xl"
-                    : "max-h-[85vh] max-w-full rounded-lg object-contain shadow-2xl"
-                }
-              />
-              <ImagePromptPanel prompt={avatarLightboxPrompt} className="w-full max-w-3xl" />
-            </div>
-            <button
-              type="button"
-              onClick={closeImageLightbox}
-              aria-label="Close image"
-              className="absolute right-3 top-3 rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-            >
-              <X size="1rem" />
-            </button>
-          </div>
+        {imageLightbox && (
+          <ChatImageLightbox
+            image={imageLightbox.image}
+            alt={imageLightbox.alt}
+            pinEnabled={imageLightbox.pinEnabled}
+            downloadEnabled={imageLightbox.downloadEnabled}
+            onClose={closeImageLightbox}
+          />
         )}
       </>
     );
@@ -2524,7 +2629,7 @@ export const ChatMessage = memo(function ChatMessage({
                   <div key={i} className="group/att relative inline-block">
                     <button
                       type="button"
-                      onClick={() => openImageLightbox(att.url || att.data, att.prompt)}
+                      onClick={() => openAttachmentImageLightbox(att, i)}
                       className="block"
                       title="Open image"
                       aria-label={`Open ${att.filename || att.name || "image"}`}
@@ -2756,37 +2861,14 @@ export const ChatMessage = memo(function ChatMessage({
         />
       )}
 
-      {/* Avatar lightbox */}
-      {avatarLightbox && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80"
-          onClick={closeImageLightbox}
-        >
-          <div
-            className="flex max-h-[90vh] w-[min(90vw,64rem)] max-w-[90vw] flex-col items-center gap-2"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <img
-              src={avatarLightbox}
-              alt={displayName}
-              decoding="async"
-              className={
-                avatarLightboxPrompt?.trim()
-                  ? "max-h-[calc(90vh-9rem)] max-w-full rounded-lg object-contain shadow-2xl"
-                  : "max-h-[85vh] max-w-full rounded-lg object-contain shadow-2xl"
-              }
-            />
-            <ImagePromptPanel prompt={avatarLightboxPrompt} className="w-full max-w-3xl" />
-          </div>
-          <button
-            type="button"
-            onClick={closeImageLightbox}
-            aria-label="Close image"
-            className="absolute right-3 top-3 rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-          >
-            <X size="1rem" />
-          </button>
-        </div>
+      {imageLightbox && (
+        <ChatImageLightbox
+          image={imageLightbox.image}
+          alt={imageLightbox.alt}
+          pinEnabled={imageLightbox.pinEnabled}
+          downloadEnabled={imageLightbox.downloadEnabled}
+          onClose={closeImageLightbox}
+        />
       )}
     </div>
   );

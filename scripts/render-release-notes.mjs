@@ -6,7 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..");
 
 const ANDROID_APK_NOTICE = `> [!IMPORTANT]
-> **Android APK notice:** The APK is not a standalone Marinara Engine app yet. It is a WebView shell for the local Marinara server, so Termux must be installed and \`./start-termux.sh\` must be running on the same Android device before you open the APK. Follow the [Android (Termux) installation guide](https://github.com/Pasta-Devs/Marinara-Engine/blob/main/docs/installation/android-termux.md) first; the APK is only an optional home-screen shell.
+> **Android APK notice:** The APK is a Termux bootstrap + WebView shell, not a native Android server build. It opens an already-running local Marinara server, and on first launch it can help install/start Marinara through Termux after Android prompts the user to install Termux, grant Termux command permission, and enable Termux external commands. Follow the [Android wrapper guide](https://github.com/Pasta-Devs/Marinara-Engine/blob/main/android/README.md) if Android blocks the bootstrap handoff.
 
 `;
 

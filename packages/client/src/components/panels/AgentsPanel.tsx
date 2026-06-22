@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Panel: Agents
 // ──────────────────────────────────────────────
-import { useCallback, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ChangeEvent, type ReactNode, type TouchEvent } from "react";
 import {
   Sparkles,
   Copy,
@@ -65,6 +65,7 @@ import {
   useUpdateLibraryFolder,
 } from "../../hooks/use-library-folders";
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
 
 type JsonRecord = Record<string, unknown>;
@@ -75,12 +76,6 @@ const AGENT_GRADIENT_BUTTON = "mari-panel-gradient-button mari-panel-gradient--a
 
 function isJsonRecord(value: unknown): value is JsonRecord {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function parseBooleanValue(value: unknown, fallback = true) {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value === "true" || value === "1";
-  return fallback;
 }
 
 function parseAgentSettings(value: unknown): JsonRecord {
@@ -111,7 +106,7 @@ function serializeAgentConfig(agent: AgentConfigRow): AgentTransferConfig {
     name: agent.name,
     description: agent.description,
     phase: normalizeAgentPhaseForType(agent.type, agent.phase),
-    enabled: parseBooleanValue(agent.enabled),
+    enabled: true,
     connectionId: null,
     imagePath: null,
     promptTemplate: agent.promptTemplate,
@@ -134,7 +129,7 @@ function createBuiltInAgentConfigRow(
     name: agent.name,
     description: config?.description ?? agent.description,
     phase: normalizeAgentPhaseForType(agent.id, config?.phase ?? agent.phase),
-    enabled: config?.enabled ?? String(agent.enabledByDefault),
+    enabled: "true",
     connectionId: config?.connectionId ?? null,
     imagePath: config?.imagePath ?? null,
     promptTemplate: config?.promptTemplate ?? "",
@@ -160,7 +155,7 @@ function createDuplicateAgentInput(agent: AgentConfigRow) {
     name: `${getAgentLibraryDisplayName(agent)} (Copy)`,
     description: agent.description,
     phase: normalizeAgentPhaseForType(agent.type, agent.phase),
-    enabled: parseBooleanValue(agent.enabled),
+    enabled: true,
     connectionId: agent.connectionId,
     imagePath: agent.imagePath,
     promptTemplate: agent.promptTemplate,
@@ -197,7 +192,7 @@ function normalizeAgentImportEntry(entry: unknown, resolveTextFile?: (path: unkn
     name,
     description,
     phase,
-    enabled: parseBooleanValue(source.enabled),
+    enabled: true,
     connectionId: null,
     imagePath: null,
     promptTemplate:
@@ -232,6 +227,7 @@ export function AgentsPanel() {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editFolderName, setEditFolderName] = useState("");
   const [draggedAgentId, setDraggedAgentId] = useState<string | null>(null);
+  const suppressAgentClickRef = useRef(false);
   const handleFolderRenameGesture = useFolderRenameGesture();
 
   const agentConfigRows = useMemo(() => (agentConfigs ?? []) as AgentConfigRow[], [agentConfigs]);
@@ -394,6 +390,44 @@ export function AgentsPanel() {
     },
     [draggedAgentId, moveAgentItem],
   );
+
+  const finishAgentTouchDrag = useCallback(
+    (agentId: string, x: number, y: number) => {
+      const target = document.elementFromPoint(x, y);
+      const folderElement = target?.closest("[data-agent-folder-id]") as HTMLElement | null;
+      const rootElement = target?.closest("[data-agent-folder-root]") as HTMLElement | null;
+      if (folderElement?.dataset.agentFolderId) {
+        moveAgentItem.mutate({ itemIds: getDraggedAgentIds(agentId), folderId: folderElement.dataset.agentFolderId });
+      } else if (rootElement) {
+        moveAgentItem.mutate({ itemIds: getDraggedAgentIds(agentId), folderId: null });
+      }
+      setDraggedAgentId(null);
+      window.setTimeout(() => {
+        suppressAgentClickRef.current = false;
+      }, 0);
+    },
+    [getDraggedAgentIds, moveAgentItem],
+  );
+
+  const cancelAgentTouchDrag = useCallback((_agentId: string, wasActive: boolean) => {
+    setDraggedAgentId(null);
+    if (wasActive) {
+      window.setTimeout(() => {
+        suppressAgentClickRef.current = false;
+      }, 0);
+    } else {
+      suppressAgentClickRef.current = false;
+    }
+  }, []);
+
+  const { startTouchDrag: startAgentTouchDrag } = useTouchFolderDrag({
+    onActivate: (agentId) => {
+      suppressAgentClickRef.current = true;
+      setDraggedAgentId(agentId);
+    },
+    onDrop: finishAgentTouchDrag,
+    onCancel: cancelAgentTouchDrag,
+  });
 
   const handleExportSelectedAgents = useCallback(async () => {
     if (selectedAgents.length === 0) {
@@ -581,6 +615,8 @@ export function AgentsPanel() {
           event.dataTransfer.setData("text/plain", agent.id);
         },
         onDragEnd: () => setDraggedAgentId(null),
+        onTouchStart: (event) => startAgentTouchDrag(event, agent.id),
+        suppressClickRef: suppressAgentClickRef,
         onDelete: async () => {
           const deleteMessage = custom
             ? `Delete "${agent.name}"?`
@@ -607,6 +643,7 @@ export function AgentsPanel() {
       openAgentDetail,
       selectedAgentIds,
       selectionMode,
+      startAgentTouchDrag,
       toggleAgentSelection,
     ],
   );
@@ -665,6 +702,7 @@ export function AgentsPanel() {
         const payload = event.dataTransfer.getData("application/x-marinara-agent-ids");
         handleAgentDrop(null, payload ? (JSON.parse(payload) as string[]) : undefined);
       }}
+      data-agent-folder-root
       className="flex min-h-full flex-col gap-2 p-3"
     >
       <input
@@ -926,6 +964,8 @@ export function AgentsPanel() {
                     event.dataTransfer.setData("text/plain", agent.id);
                   },
                   onDragEnd: () => setDraggedAgentId(null),
+                  onTouchStart: (event) => startAgentTouchDrag(event, agent.id),
+                  suppressClickRef: suppressAgentClickRef,
                   onDelete: async () => {
                     const deleteMessage =
                       `Delete "${agent.name}"? ` + "This basic agent will be hidden from the library and pickers.";
@@ -976,6 +1016,8 @@ export function AgentsPanel() {
                   event.dataTransfer.setData("text/plain", agent.id);
                 },
                 onDragEnd: () => setDraggedAgentId(null),
+                onTouchStart: (event) => startAgentTouchDrag(event, agent.id),
+                suppressClickRef: suppressAgentClickRef,
                 onDelete: async () => {
                   if (
                     await showConfirmDialog({
@@ -996,6 +1038,7 @@ export function AgentsPanel() {
 
       {selectionMode && (
         <SelectionActionBar
+          placement="panel"
           selectedCount={selectedAgents.length}
           onExport={() => void handleExportSelectedAgents()}
           onDelete={handleDeleteSelectedAgents}
@@ -1024,6 +1067,8 @@ function renderAgentCard({
   isDragging = false,
   onDragStart,
   onDragEnd,
+  onTouchStart,
+  suppressClickRef,
 }: {
   id: string;
   type: string;
@@ -1042,6 +1087,8 @@ function renderAgentCard({
   isDragging?: boolean;
   onDragStart?: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragEnd?: () => void;
+  onTouchStart?: (event: TouchEvent<HTMLDivElement>) => void;
+  suppressClickRef?: { current: boolean };
 }) {
   const iconContent = imagePath ? (
     <img src={imagePath} alt="" className="h-full w-full object-cover" draggable={false} />
@@ -1061,7 +1108,9 @@ function renderAgentCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onTouchStart={onTouchStart}
       onClick={() => {
+        if (suppressClickRef?.current) return;
         if (selectionMode && onToggleSelected) onToggleSelected();
       }}
       className={cn(
@@ -1088,6 +1137,7 @@ function renderAgentCard({
         type="button"
         onClick={(event) => {
           event.stopPropagation();
+          if (suppressClickRef?.current) return;
           if (selectionMode && onToggleSelected) {
             onToggleSelected();
             return;
@@ -1112,6 +1162,7 @@ function renderAgentCard({
         className={cn("min-w-0 flex-1 text-left", !selectionMode && (onDelete ? "pr-16" : "pr-10"))}
         onClick={(event) => {
           event.stopPropagation();
+          if (suppressClickRef?.current) return;
           if (selectionMode && onToggleSelected) {
             onToggleSelected();
             return;

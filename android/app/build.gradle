@@ -25,6 +25,7 @@ android {
         versionCode 19
         versionName "2.0.0"
         buildConfigField "String", "MARINARA_SERVER_URL", "\"http://127.0.0.1:${marinaraPort}\""
+        buildConfigField "String", "MARINARA_RELEASE_TAG", "\"v2.0.0\""
     }
 
     signingConfigs {

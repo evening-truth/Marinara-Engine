@@ -106,10 +106,11 @@ export async function generateRunPodComfyUI(
   const referenceImages = collectRunPodReferenceImages(request, defaults);
   for (let i = 0; i < referenceImages.length; i++) {
     const referenceImage = referenceImages[i]!;
+    const referenceImageBase64 = normalizeRunPodReferenceImageBase64(referenceImage);
     const numbered = `%reference_image_${String(i + 1).padStart(2, "0")}%`;
-    wfStr = wfStr.replaceAll(numbered, escapeJsonStr(referenceImage));
+    wfStr = wfStr.replaceAll(numbered, escapeJsonStr(referenceImageBase64));
     if (i === 0) {
-      wfStr = wfStr.replace(/%reference_image%/g, escapeJsonStr(referenceImage));
+      wfStr = wfStr.replace(/%reference_image%/g, escapeJsonStr(referenceImageBase64));
     }
   }
 
@@ -176,6 +177,23 @@ function collectRunPodReferenceImages(request: ImageGenRequest, defaults: ComfyU
     .slice(0, RUNPOD_COMFYUI_MAX_REFERENCE_IMAGES);
   if (references.length > 0) return references;
   return defaults.uploadPlaceholderOnMissingReference ? [RUNPOD_COMFYUI_PLACEHOLDER_REFERENCE_BASE64] : [];
+}
+
+function normalizeRunPodReferenceImageBase64(reference: string): string {
+  const dataUrlMatch = reference.trim().match(/^data:image\/(?:png|jpe?g|webp|gif);base64,([\s\S]+)$/i);
+  const rawBase64 = dataUrlMatch ? dataUrlMatch[1]! : reference;
+  const compact = rawBase64.replace(/\s+/g, "");
+  const unpadded = compact.replace(/=+$/, "");
+  if (!unpadded || /[^A-Za-z0-9+/]/.test(unpadded)) {
+    throw new Error("RunPod ComfyUI reference image was not valid base64 image data");
+  }
+
+  const remainder = unpadded.length % 4;
+  if (remainder === 1) {
+    throw new Error("RunPod ComfyUI reference image was not valid base64 image data");
+  }
+
+  return `${unpadded}${"=".repeat(remainder === 0 ? 0 : 4 - remainder)}`;
 }
 
 /**

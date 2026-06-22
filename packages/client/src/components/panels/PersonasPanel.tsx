@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { confirmNonEmptyFolderDelete, showConfirmDialog } from "../../lib/app-dialogs";
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { cn, getAvatarCropStyle, parseAvatarCropJson } from "../../lib/utils";
 import { api } from "../../lib/api-client";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
@@ -127,7 +128,6 @@ export function PersonasPanel() {
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [draggedPersonaId, setDraggedPersonaId] = useState<string | null>(null);
-  const personaTouchDragRef = useRef<{ id: string; timer: number | null; active: boolean } | null>(null);
   const suppressPersonaClickRef = useRef(false);
   const handleFolderRenameGesture = useFolderRenameGesture();
 
@@ -316,40 +316,15 @@ export function PersonasPanel() {
     [draggedPersonaId, movePersonasToFolder],
   );
 
-  const startPersonaTouchDrag = useCallback((event: React.TouchEvent, personaId: string) => {
-    const timer = window.setTimeout(() => {
-      personaTouchDragRef.current = { id: personaId, timer: null, active: true };
-      suppressPersonaClickRef.current = true;
-      setDraggedPersonaId(personaId);
-    }, 450);
-    personaTouchDragRef.current = { id: personaId, timer, active: false };
-    event.currentTarget.addEventListener(
-      "touchcancel",
-      () => {
-        const current = personaTouchDragRef.current;
-        if (current?.timer) window.clearTimeout(current.timer);
-        personaTouchDragRef.current = null;
-        setDraggedPersonaId(null);
-      },
-      { once: true },
-    );
-  }, []);
-
   const finishPersonaTouchDrag = useCallback(
-    (event: React.TouchEvent) => {
-      const current = personaTouchDragRef.current;
-      if (!current) return;
-      if (current.timer) window.clearTimeout(current.timer);
-      personaTouchDragRef.current = null;
-      if (!current.active) return;
-      const touch = event.changedTouches[0];
-      const target = touch ? document.elementFromPoint(touch.clientX, touch.clientY) : null;
+    (personaId: string, x: number, y: number) => {
+      const target = document.elementFromPoint(x, y);
       const folderElement = target?.closest("[data-persona-folder-id]") as HTMLElement | null;
       const rootElement = target?.closest("[data-persona-folder-root]") as HTMLElement | null;
       if (folderElement?.dataset.personaFolderId) {
-        void movePersonasToFolder(getDraggedPersonaIds(current.id), folderElement.dataset.personaFolderId);
+        void movePersonasToFolder(getDraggedPersonaIds(personaId), folderElement.dataset.personaFolderId);
       } else if (rootElement) {
-        void movePersonasToFolder(getDraggedPersonaIds(current.id), null);
+        void movePersonasToFolder(getDraggedPersonaIds(personaId), null);
       }
       setDraggedPersonaId(null);
       window.setTimeout(() => {
@@ -358,6 +333,26 @@ export function PersonasPanel() {
     },
     [getDraggedPersonaIds, movePersonasToFolder],
   );
+
+  const cancelPersonaTouchDrag = useCallback((_personaId: string, wasActive: boolean) => {
+    setDraggedPersonaId(null);
+    if (wasActive) {
+      window.setTimeout(() => {
+        suppressPersonaClickRef.current = false;
+      }, 0);
+    } else {
+      suppressPersonaClickRef.current = false;
+    }
+  }, []);
+
+  const { startTouchDrag: startPersonaTouchDrag } = useTouchFolderDrag({
+    onActivate: (personaId) => {
+      suppressPersonaClickRef.current = true;
+      setDraggedPersonaId(personaId);
+    },
+    onDrop: finishPersonaTouchDrag,
+    onCancel: cancelPersonaTouchDrag,
+  });
 
   const filteredList = useMemo(() => {
     let arr = rawList;
@@ -783,7 +778,6 @@ export function PersonasPanel() {
                             }}
                             onDragEnd={() => setDraggedPersonaId(null)}
                             onTouchStart={(event) => startPersonaTouchDrag(event, pid)}
-                            onTouchEnd={finishPersonaTouchDrag}
                             role="button"
                             tabIndex={0}
 	                            className={cn(
@@ -812,7 +806,7 @@ export function PersonasPanel() {
                                 <Check size="0.75rem" />
                               </button>
                             )}
-                            <div className="relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 text-white">
+                            <div className="mari-avatar-placeholder mari-avatar-placeholder--persona relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg">
                               {p.avatarPath ? (
                                 <img
                                   src={p.avatarPath}
@@ -938,7 +932,6 @@ export function PersonasPanel() {
               }}
               onDragEnd={() => setDraggedPersonaId(null)}
               onTouchStart={(event) => startPersonaTouchDrag(event, persona.id)}
-              onTouchEnd={finishPersonaTouchDrag}
             >
               {selectionMode && (
                 <button
@@ -961,7 +954,7 @@ export function PersonasPanel() {
               {/* Avatar */}
               <button
                 onClick={(e) => handleAvatarClick(e, persona.id)}
-                className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 text-white shadow-sm group/avatar"
+                className="mari-avatar-placeholder mari-avatar-placeholder--persona relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm group/avatar"
                 title="Change avatar"
               >
                 {/* Inner clip wrapper — needed because new-format avatarCrop renders the
@@ -1068,6 +1061,7 @@ export function PersonasPanel() {
 
       {selectionMode && (
         <SelectionActionBar
+          placement="panel"
           selectedCount={selectedPersonaIds.size}
           onExport={() => void handleExportSelected()}
           onDelete={handleDeleteSelected}

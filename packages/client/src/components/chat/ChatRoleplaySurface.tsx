@@ -69,6 +69,37 @@ import type {
 } from "./chat-area.types";
 
 type ChatData = ComponentProps<typeof ChatCommonOverlays>["chat"];
+type LorebookEntryStatus = "normal" | "constant" | "selective";
+
+const ACTIVE_CONTEXT_STATUS_STYLE: Record<
+  LorebookEntryStatus,
+  { label: string; dot: string; row: string; badge: string }
+> = {
+  normal: {
+    label: "NORMAL",
+    dot: "bg-emerald-400",
+    row: "border-emerald-400/20 bg-emerald-400/10",
+    badge: "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/20",
+  },
+  constant: {
+    label: "CONST",
+    dot: "bg-yellow-300",
+    row: "border-yellow-300/25 bg-yellow-300/10",
+    badge: "bg-yellow-300/15 text-yellow-200 ring-1 ring-yellow-300/20",
+  },
+  selective: {
+    label: "SELECT",
+    dot: "bg-red-400",
+    row: "border-red-400/25 bg-red-400/10",
+    badge: "bg-red-400/15 text-red-200 ring-1 ring-red-400/20",
+  },
+};
+
+function getActiveContextEntryStatus(entry: { constant?: boolean; selective?: boolean }): LorebookEntryStatus {
+  if (entry.constant) return "constant";
+  if (entry.selective) return "selective";
+  return "normal";
+}
 
 const RoleplayHUD = lazy(async () => {
   const module = await import("./RoleplayHUD");
@@ -457,18 +488,23 @@ function ActiveContextLinksButton({
               </button>
               {entries.length > 0 && (
                 <div className="ml-6 space-y-1 border-l border-foreground/10 pl-2">
-                  {entries.map((entry) => (
-                    <div key={entry.id} className={entryClassName} title={entry.content || entry.name}>
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
-                      <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                      {entry.constant && (
-                        <span className="shrink-0 rounded bg-amber-400/15 px-1 py-0.5 text-[0.5rem] font-semibold text-amber-300">
-                          CONST
+                  {entries.map((entry) => {
+                    const statusStyle = ACTIVE_CONTEXT_STATUS_STYLE[getActiveContextEntryStatus(entry)];
+                    return (
+                      <div
+                        key={entry.id}
+                        className={cn(entryClassName, "border", statusStyle.row)}
+                        title={entry.content || entry.name}
+                      >
+                        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusStyle.dot)} />
+                        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                        <span className={cn("shrink-0 rounded px-1 py-0.5 text-[0.5rem] font-semibold", statusStyle.badge)}>
+                          {statusStyle.label}
                         </span>
-                      )}
-                      <span className="shrink-0 text-foreground/40">#{entry.order}</span>
-                    </div>
-                  ))}
+                        <span className="shrink-0 text-foreground/40">#{entry.order}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               {skippedEntries.length > 0 && (

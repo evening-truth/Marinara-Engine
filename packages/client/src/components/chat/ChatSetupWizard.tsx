@@ -127,6 +127,11 @@ const CONVERSATION_STEPS: WizardStep[] = [
     body: "Name the conversation and choose the connection characters should use.",
   },
   {
+    key: "prompt",
+    title: "Prompt Preset",
+    body: "Choose which preset supplies the Conversation mode prompt.",
+  },
+  {
     key: "participants",
     title: "Persona & Characters",
     body: "Choose your persona and the characters in this private DM or group chat.",
@@ -609,6 +614,9 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   const currentStep = CONVERSATION_STEPS[step]!;
   const isLast = step === CONVERSATION_STEPS.length - 1;
   const { data: connections } = useConnections();
+  const { data: presets } = usePresets();
+  const { data: defaultPreset } = useDefaultPreset();
+  const { data: presetFull, isLoading: presetFullLoading } = usePresetFull(chat.promptPresetId ?? null);
   const { data: allCharacters } = useCharacters();
   const { data: allPersonas } = usePersonas();
   const updateChat = useUpdateChat();
@@ -617,6 +625,8 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   const [scheduleState, setScheduleState] = useState<"idle" | "generating" | "done">("idle");
   const [autonomousEnabled, setAutonomousEnabled] = useState(true);
   const [generateSchedule, setGenerateSchedule] = useState(false);
+  const [showChoiceModal, setShowChoiceModal] = useState(false);
+  const [promptPresetTouched, setPromptPresetTouched] = useState(false);
 
   // Track whether the user has manually edited the chat name.
   // If not, auto-rename to match the selected character name(s).
@@ -746,6 +756,20 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
     [chat.id, updateChat],
   );
 
+  const setPreset = useCallback(
+    (presetId: string | null) => {
+      setPromptPresetTouched(true);
+      updateChat.mutate({ id: chat.id, promptPresetId: presetId });
+    },
+    [chat.id, updateChat],
+  );
+
+  useEffect(() => {
+    if (!promptPresetTouched && !chat.promptPresetId && defaultPreset?.id) {
+      updateChat.mutate({ id: chat.id, promptPresetId: defaultPreset.id });
+    }
+  }, [chat.id, chat.promptPresetId, defaultPreset?.id, promptPresetTouched, updateChat]);
+
   const setPersona = useCallback(
     (personaId: string | null) => {
       updateChat.mutate({ id: chat.id, personaId });
@@ -767,8 +791,12 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
     setStep((value) => Math.max(0, value - 1));
   }, []);
   const goNext = useCallback(() => {
+    if (currentStep.key === "prompt" && chat.promptPresetId && presetFull?.choiceBlocks?.length) {
+      setShowChoiceModal(true);
+      return;
+    }
     setStep((value) => Math.min(CONVERSATION_STEPS.length - 1, value + 1));
-  }, []);
+  }, [chat.promptPresetId, currentStep.key, presetFull?.choiceBlocks?.length]);
 
   const handleStartChatting = useCallback(async () => {
     if (!hasConnection || !hasCharacters) return;
@@ -870,6 +898,27 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
           onChange={setGenerationParameters}
         />
       </div>
+    </div>
+  );
+
+  const renderPromptStep = () => (
+    <div className="space-y-2">
+      <label className={WIZARD_FIELD_LABEL}>Conversation Prompt</label>
+      <select
+        value={chat.promptPresetId ?? ""}
+        onChange={(event) => setPreset(event.target.value || null)}
+        className={WIZARD_INPUT_CLASS}
+      >
+        <option value="">None</option>
+        {((presets ?? []) as Array<{ id: string; name: string; isDefault?: boolean | string }>).map((preset) => (
+          <option key={preset.id} value={preset.id}>
+            {preset.name}
+          </option>
+        ))}
+      </select>
+      <p className="text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+        This selects the Conversation mode prompt stored in the preset. Chat Settings can still override it per chat.
+      </p>
     </div>
   );
 
@@ -1137,9 +1186,12 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   const content =
     currentStep.key === "connection"
       ? renderConnectionStep()
+      : currentStep.key === "prompt"
+        ? renderPromptStep()
       : currentStep.key === "participants"
         ? renderParticipantsStep()
         : renderAutomationStep();
+  const nextDisabled = currentStep.key === "prompt" && !!chat.promptPresetId && presetFullLoading;
 
   const busyContent =
     scheduleState === "generating" ? (
@@ -1159,23 +1211,34 @@ function ConversationQuickSetup({ chat, onFinish }: ChatSetupWizardProps) {
   return (
     <>
       <WizardBackdrop onClose={onFinish} />
-      <SetupWizardShell
-        title="New Conversation"
-        steps={CONVERSATION_STEPS}
-        step={step}
-        currentStep={currentStep}
-        animationKey={`conversation-${currentStep.key}`}
-        onClose={onFinish}
-        onBack={step > 0 ? goBack : undefined}
-        onSkip={onFinish}
-        onPrimary={isLast ? handleStartChatting : goNext}
-        primaryLabel={isLast ? "Start Chatting" : "Next"}
-        primaryIcon={isLast ? <MessageCircle size="0.75rem" /> : <ChevronRight size="0.75rem" />}
-        primaryDisabled={isLast && (!hasConnection || !hasCharacters)}
-        busyContent={busyContent}
-      >
-        {content}
-      </SetupWizardShell>
+      <ChoiceSelectionModal
+        open={showChoiceModal}
+        onClose={() => {
+          setShowChoiceModal(false);
+          setStep((value) => Math.min(CONVERSATION_STEPS.length - 1, value + 1));
+        }}
+        presetId={chat.promptPresetId ?? null}
+        chatId={chat.id}
+      />
+      {!showChoiceModal && (
+        <SetupWizardShell
+          title="New Conversation"
+          steps={CONVERSATION_STEPS}
+          step={step}
+          currentStep={currentStep}
+          animationKey={`conversation-${currentStep.key}`}
+          onClose={onFinish}
+          onBack={step > 0 ? goBack : undefined}
+          onSkip={onFinish}
+          onPrimary={isLast ? handleStartChatting : goNext}
+          primaryLabel={isLast ? "Start Chatting" : "Next"}
+          primaryIcon={isLast ? <MessageCircle size="0.75rem" /> : <ChevronRight size="0.75rem" />}
+          primaryDisabled={nextDisabled || (isLast && (!hasConnection || !hasCharacters))}
+          busyContent={busyContent}
+        >
+          {content}
+        </SetupWizardShell>
+      )}
     </>
   );
 }

@@ -552,16 +552,8 @@ export function SpotifyMiniPlayer({
   const showDjMariToast = useCallback(() => {
     dismissDjMariToast();
     djMariToastRef.current = toast.custom(
-      (id) => (
-        <div className="relative flex max-w-[22rem] items-center gap-3 rounded-xl border border-primary/35 bg-card/95 p-3 pr-9 text-card-foreground shadow-2xl backdrop-blur-xl">
-          <button
-            type="button"
-            onClick={() => toast.dismiss(id)}
-            className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Dismiss"
-          >
-            <X size="0.875rem" />
-          </button>
+      () => (
+        <div className="flex max-w-[22rem] items-center gap-3 pr-3 text-[var(--foreground)]">
           <img
             src={DOTTOR_SUPPORT_GIF}
             alt=""

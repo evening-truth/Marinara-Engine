@@ -46,6 +46,7 @@ import {
   normalizeGameHudWidgets,
 } from "./GameWidgetSetupEditor";
 import { useConnections } from "../../hooks/use-connections";
+import { useDefaultPreset, usePresets } from "../../hooks/use-presets";
 import { usePersonas } from "../../hooks/use-characters";
 import { useSidecarStore } from "../../stores/sidecar.store";
 import { useLorebooks } from "../../hooks/use-lorebooks";
@@ -373,6 +374,8 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
     normalizeGameHudWidgets([createDefaultGameHudWidget("progress_bar", [])]),
   );
   const [gameSpecialInstructions, setGameSpecialInstructions] = useState("");
+  const [promptPresetId, setPromptPresetId] = useState<string | null>(null);
+  const [promptPresetTouched, setPromptPresetTouched] = useState(false);
   const [customGamePromptEnabled, setCustomGamePromptEnabled] = useState(false);
   const [gameSystemPromptDraft, setGameSystemPromptDraft] = useState(DEFAULT_GAME_SYSTEM_PROMPT);
   const [language, setLanguage] = useState("English");
@@ -408,6 +411,8 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
   const sceneModelValue = useLocalScene && sidecarAvailable ? "local" : sceneConnectionId;
 
   const { data: connectionsList } = useConnections();
+  const { data: promptPresetsList } = usePresets();
+  const { data: defaultPreset } = useDefaultPreset();
   const { data: personasList } = usePersonas();
   const { data: lorebooksList } = useLorebooks();
   const spotifyPlaylistsQuery = useQuery({
@@ -447,6 +452,14 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
     [selectedGmConnection?.defaultParameters],
   );
   const imageConnections = useMemo(() => connections.filter((c) => c.provider === "image_generation"), [connections]);
+  const promptPresets = useMemo(
+    () => (promptPresetsList as Array<{ id: string; name: string; isDefault?: boolean | string }>) ?? [],
+    [promptPresetsList],
+  );
+  const selectedPromptPresetName = useMemo(
+    () => promptPresets.find((preset) => preset.id === promptPresetId)?.name ?? null,
+    [promptPresetId, promptPresets],
+  );
   const personas = useMemo(
     () =>
       (personasList as Array<{
@@ -574,6 +587,17 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
     setGenerationParameters(gmParameterDefaults);
   }, [gmParameterDefaults]);
 
+  useEffect(() => {
+    if (!promptPresetTouched && !promptPresetId && defaultPreset?.id) {
+      setPromptPresetId(defaultPreset.id);
+    }
+  }, [defaultPreset?.id, promptPresetId, promptPresetTouched]);
+
+  const handlePromptPresetChange = useCallback((presetId: string | null) => {
+    setPromptPresetTouched(true);
+    setPromptPresetId(presetId);
+  }, []);
+
   const canStart = !!gmConnectionId;
   const normalizedLanguage = normalizeGameLanguage(language);
 
@@ -641,6 +665,7 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
         enableLorebookKeeper: enableLorebookKeeper || undefined,
         language: normalizedLanguage || undefined,
         generationParameters: customizeParameters ? generationParameters : undefined,
+        promptPresetId,
         gameSystemPrompt: customGameSystemPrompt,
         gameSpecialInstructions: trimmedGameSpecialInstructions || null,
       },
@@ -1824,6 +1849,28 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
             <div>
               <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
                 <Feather size={12} />
+                Game Prompt Preset
+              </label>
+              <select
+                value={promptPresetId ?? ""}
+                onChange={(event) => handlePromptPresetChange(event.target.value || null)}
+                className={GAME_SETUP_INPUT_CLASS}
+              >
+                <option value="">None</option>
+                {promptPresets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[0.575rem] leading-relaxed text-[var(--muted-foreground)]">
+                Uses the Game mode prompt from the selected preset unless the custom GM prompt below is enabled.
+              </p>
+            </div>
+
+            <div>
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
+                <Feather size={12} />
                 Extra Instructions
               </label>
               <textarea
@@ -1853,13 +1900,17 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-[var(--foreground)]">GM Prompt</p>
                     <p className="text-[0.55rem] text-[var(--muted-foreground)]">
-                      {customGamePromptEnabled ? "Custom prompt will replace the default" : "Using default game prompt"}
+                      {customGamePromptEnabled
+                        ? "Custom prompt will override the selected preset"
+                        : selectedPromptPresetName
+                          ? `Using ${selectedPromptPresetName}`
+                          : "Using default game prompt"}
                     </p>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="rounded-full bg-[var(--background)] px-2 py-0.5 text-[0.5625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-                    {customGamePromptEnabled ? "Custom" : "Default"}
+                    {customGamePromptEnabled ? "Custom" : selectedPromptPresetName ? "Preset" : "Default"}
                   </span>
                   <div
                     className={cn(

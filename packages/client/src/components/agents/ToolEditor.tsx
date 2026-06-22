@@ -32,6 +32,7 @@ import {
 import { cn } from "../../lib/utils";
 import { downloadJsonFile, sanitizeExportFilenamePart } from "../../lib/download-json";
 import { HelpTooltip } from "../ui/HelpTooltip";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 import { createFolderEntry } from "@marinara-engine/shared";
 
 const EXEC_TYPES = [
@@ -284,7 +285,7 @@ export function ToolEditor() {
   const execMeta = EXEC_TYPES.find((e) => e.value === localExecType) ?? EXEC_TYPES[0];
 
   return (
-    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
+    <div className="mari-editor-shell mari-editor-legacy-bridge flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
       <div className="mari-editor-header">
         <button
@@ -463,20 +464,18 @@ export function ToolEditor() {
                         <option value="array">array</option>
                         <option value="object">object</option>
                       </select>
-                      <label className="flex items-center gap-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                        <input
-                          type="checkbox"
-                          checked={param.required}
-                          onChange={(e) => {
-                            const next = [...localParams];
-                            next[idx] = { ...next[idx], required: e.target.checked };
-                            setLocalParams(next);
-                            markDirty();
-                          }}
-                          className="rounded"
-                        />
-                        Required
-                      </label>
+                      <SettingsSwitch
+                        label="Required"
+                        checked={param.required}
+                        onChange={(checked) => {
+                          const next = [...localParams];
+                          next[idx] = { ...next[idx], required: checked };
+                          setLocalParams(next);
+                          markDirty();
+                        }}
+                        className="p-0 text-[0.625rem] text-[var(--muted-foreground)] hover:bg-transparent"
+                        labelClassName="text-[0.625rem]"
+                      />
                     </div>
                     <input
                       value={param.description}
@@ -566,26 +565,25 @@ export function ToolEditor() {
             icon={<KeyRound size="0.875rem" className="text-[var(--primary)]" />}
             help="Adds a separate server-provided context object to webhook and script executions. The AI does not see these fields as tool parameters."
           >
-            <label className="flex items-start gap-3 rounded-xl bg-[var(--card)] p-3 text-sm ring-1 ring-[var(--border)]">
-              <input
-                type="checkbox"
-                checked={localIncludeHiddenContext}
-                onChange={(e) => {
-                  setLocalIncludeHiddenContext(e.target.checked);
-                  markDirty();
-                }}
-                className="mt-0.5 rounded"
-              />
-              <span className="min-w-0">
-                <span className="block font-medium text-[var(--foreground)]">Include hidden chat context</span>
-                <span className="mt-1 block text-xs text-[var(--muted-foreground)]">
+            <SettingsSwitch
+              label={<span className="block font-medium text-[var(--foreground)]">Include hidden chat context</span>}
+              description={
+                <span>
                   Webhooks receive <code className="rounded bg-[var(--secondary)] px-1">context</code> beside{" "}
                   <code className="rounded bg-[var(--secondary)] px-1">arguments</code>; scripts receive a{" "}
                   <code className="rounded bg-[var(--secondary)] px-1">context</code> variable. Includes chat ID, mode,
                   persona, character IDs/names, chat variables, recent message IDs, and game state.
                 </span>
-              </span>
-            </label>
+              }
+              checked={localIncludeHiddenContext}
+              onChange={(checked) => {
+                setLocalIncludeHiddenContext(checked);
+                markDirty();
+              }}
+              labelPosition="start"
+              className="items-start justify-between rounded-xl bg-[var(--card)] p-3 text-sm ring-1 ring-[var(--border)]"
+              labelClassName="text-sm"
+            />
           </FieldGroup>
 
           {/* ── Execution Config ── */}
@@ -680,7 +678,7 @@ function FieldGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="mari-editor-panel space-y-2 p-3">
       <div className="flex items-center gap-1.5">
         {icon}
         <h3 className="text-xs font-semibold text-[var(--foreground)]">{label}</h3>

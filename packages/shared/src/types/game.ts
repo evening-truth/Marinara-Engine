@@ -204,6 +204,8 @@ export interface GameSetupConfig {
   language?: string;
   /** Optional generation parameter overrides applied from the moment the game is created. */
   generationParameters?: Partial<GenerationParameters>;
+  /** Prompt preset whose Game prompt should drive the GM instruction block. */
+  promptPresetId?: string | null;
   /** Game-mode GM instruction override. Empty/null uses the built-in default prompt. */
   gameSystemPrompt?: string | null;
   /** Additional game-mode generation instructions appended to the GM format reminder. */

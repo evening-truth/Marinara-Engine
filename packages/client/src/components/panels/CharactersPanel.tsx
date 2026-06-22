@@ -37,6 +37,7 @@ import {
 import { getCharacterTitle } from "../../lib/character-display";
 import { useUIStore, type CharacterLibrarySort } from "../../stores/ui.store";
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
+import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
@@ -141,7 +142,6 @@ export function CharactersPanel() {
   const panelScrollRef = useRef<HTMLDivElement | null>(null);
   const pendingPanelScrollTopRef = useRef(0);
   const panelScrollFrameRef = useRef<number | null>(null);
-  const characterTouchDragRef = useRef<{ id: string; timer: number | null; active: boolean } | null>(null);
   const suppressCharacterClickRef = useRef(false);
   const handleFolderRenameGesture = useFolderRenameGesture();
   const [includedTags, setIncludedTags] = useState<Set<string>>(new Set());
@@ -532,40 +532,15 @@ export function CharactersPanel() {
     [draggedCharacterId, moveCharactersToFolder],
   );
 
-  const startCharacterTouchDrag = useCallback((event: React.TouchEvent, charId: string) => {
-    const timer = window.setTimeout(() => {
-      characterTouchDragRef.current = { id: charId, timer: null, active: true };
-      suppressCharacterClickRef.current = true;
-      setDraggedCharacterId(charId);
-    }, 450);
-    characterTouchDragRef.current = { id: charId, timer, active: false };
-    event.currentTarget.addEventListener(
-      "touchcancel",
-      () => {
-        const current = characterTouchDragRef.current;
-        if (current?.timer) window.clearTimeout(current.timer);
-        characterTouchDragRef.current = null;
-        setDraggedCharacterId(null);
-      },
-      { once: true },
-    );
-  }, []);
-
   const finishCharacterTouchDrag = useCallback(
-    (event: React.TouchEvent) => {
-      const current = characterTouchDragRef.current;
-      if (!current) return;
-      if (current.timer) window.clearTimeout(current.timer);
-      characterTouchDragRef.current = null;
-      if (!current.active) return;
-      const touch = event.changedTouches[0];
-      const target = touch ? document.elementFromPoint(touch.clientX, touch.clientY) : null;
+    (characterId: string, x: number, y: number) => {
+      const target = document.elementFromPoint(x, y);
       const folderElement = target?.closest("[data-character-folder-id]") as HTMLElement | null;
       const rootElement = target?.closest("[data-character-folder-root]") as HTMLElement | null;
       if (folderElement?.dataset.characterFolderId) {
-        void moveCharactersToFolder(getDraggedCharacterIds(current.id), folderElement.dataset.characterFolderId);
+        void moveCharactersToFolder(getDraggedCharacterIds(characterId), folderElement.dataset.characterFolderId);
       } else if (rootElement) {
-        void moveCharactersToFolder(getDraggedCharacterIds(current.id), null);
+        void moveCharactersToFolder(getDraggedCharacterIds(characterId), null);
       }
       setDraggedCharacterId(null);
       window.setTimeout(() => {
@@ -574,6 +549,26 @@ export function CharactersPanel() {
     },
     [getDraggedCharacterIds, moveCharactersToFolder],
   );
+
+  const cancelCharacterTouchDrag = useCallback((_characterId: string, wasActive: boolean) => {
+    setDraggedCharacterId(null);
+    if (wasActive) {
+      window.setTimeout(() => {
+        suppressCharacterClickRef.current = false;
+      }, 0);
+    } else {
+      suppressCharacterClickRef.current = false;
+    }
+  }, []);
+
+  const { startTouchDrag: startCharacterTouchDrag } = useTouchFolderDrag({
+    onActivate: (characterId) => {
+      suppressCharacterClickRef.current = true;
+      setDraggedCharacterId(characterId);
+    },
+    onDrop: finishCharacterTouchDrag,
+    onCancel: cancelCharacterTouchDrag,
+  });
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -967,7 +962,6 @@ export function CharactersPanel() {
                       }}
                       onDragEnd={() => setDraggedCharacterId(null)}
                       onTouchStart={(event) => startCharacterTouchDrag(event, memberId)}
-                      onTouchEnd={finishCharacterTouchDrag}
                       role="button"
                       tabIndex={0}
                       className={cn(
@@ -996,7 +990,7 @@ export function CharactersPanel() {
                           <Check size="0.75rem" />
                         </button>
                       )}
-                      <div className="mari-accent-gradient-fill relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--primary-foreground)]">
+                      <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
                         <div className="absolute inset-0 overflow-hidden rounded-lg">
                           {member.avatarPath ? (
                             <img
@@ -1187,7 +1181,6 @@ export function CharactersPanel() {
               }}
               onDragEnd={() => setDraggedCharacterId(null)}
               onTouchStart={(event) => startCharacterTouchDrag(event, char.id)}
-              onTouchEnd={finishCharacterTouchDrag}
               className={cn(
                 "group relative flex items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)] cursor-pointer",
                 selectionMode &&
@@ -1215,7 +1208,7 @@ export function CharactersPanel() {
                 </button>
               )}
               {/* Avatar */}
-              <div className="mari-accent-gradient-fill relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[var(--primary-foreground)] shadow-sm">
+              <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm">
                 {avatarUrl ? (
                   <div className="absolute inset-0 overflow-hidden rounded-xl">
                     <img
@@ -1343,6 +1336,7 @@ export function CharactersPanel() {
 
       {selectionMode && (
         <SelectionActionBar
+          placement="panel"
           selectedCount={selectedCharacterIds.size}
           onExport={() => void handleExportSelected()}
           onDelete={handleDeleteSelected}

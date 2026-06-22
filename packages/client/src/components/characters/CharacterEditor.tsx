@@ -86,6 +86,7 @@ import { SpriteWandCleanupEditor } from "../ui/SpriteWandCleanupEditor";
 import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatDialog";
 import { EditorTabRail } from "../ui/EditorTabRail";
 import { EditorSectionAnchor, EditorSectionJumps } from "../ui/EditorSectionJumps";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 import type { CharacterCardVersion, CharacterData, RPGStatsConfig } from "@marinara-engine/shared";
 import { parseTrackerCardColorConfig, serializeTrackerCardColorConfig } from "../../lib/tracker-card-colors";
 import { useQuoteFormatter } from "../../hooks/use-quote-formatter";
@@ -776,7 +777,7 @@ export function CharacterEditor() {
   );
 
   return (
-    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
+    <div className="mari-editor-shell mari-editor-legacy-bridge flex flex-1 flex-col overflow-hidden">
       <ExportFormatDialog
         open={exportDialogOpen}
         title="Export Character"
@@ -820,7 +821,10 @@ export function CharacterEditor() {
 
           {/* Avatar */}
           <div
-            className="mari-editor-avatar-tile group relative"
+            className={cn(
+              "mari-editor-avatar-tile group relative",
+              !avatarPreview && "mari-avatar-placeholder mari-avatar-placeholder--character",
+            )}
             onClick={() => fileInputRef.current?.click()}
           >
             {avatarPreview ? (
@@ -1083,25 +1087,23 @@ function CharacterDescriptionTab({
   updateField: <K extends keyof CharacterData>(key: K, value: CharacterData[K]) => void;
 }) {
   return (
-    <div className="space-y-6">
-      <div>
-        <SectionHeader
-          title="Description"
-          subtitle="The character's general description. This is sent in every prompt as part of the character's identity."
-          helpText={CHARACTER_DESCRIPTION_HELP}
-        />
-        <MacroTextarea
-          value={formData.description}
-          onChange={(value) => updateField("description", value)}
-          placeholder="Describe who this character is, their role, and their key traits…"
-          rows={12}
-          title="Description"
-          className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-4 text-sm leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
-        />
-        <p className="mt-1.5 text-right text-[0.625rem] text-[var(--muted-foreground)]">
-          {formData.description.length} characters
-        </p>
-      </div>
+    <div className="mari-editor-panel space-y-3 p-3">
+      <SectionHeader
+        title="Description"
+        subtitle="The character's general description. This is sent in every prompt as part of the character's identity."
+        helpText={CHARACTER_DESCRIPTION_HELP}
+      />
+      <MacroTextarea
+        value={formData.description}
+        onChange={(value) => updateField("description", value)}
+        placeholder="Describe who this character is, their role, and their key traits…"
+        rows={12}
+        title="Description"
+        className="w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-4 text-sm leading-relaxed outline-none transition-colors placeholder:text-[var(--muted-foreground)]/40 focus:border-[var(--primary)]/40 focus:ring-1 focus:ring-[var(--primary)]/20"
+      />
+      <p className="mt-1.5 text-right text-[0.625rem] text-[var(--muted-foreground)]">
+        {formData.description.length} characters
+      </p>
     </div>
   );
 }
@@ -1124,7 +1126,7 @@ function TextareaTab({
   rows?: number;
 }) {
   return (
-    <div>
+    <div className="mari-editor-panel space-y-3 p-3">
       <SectionHeader title={title} subtitle={subtitle} helpText={helpText} />
       <MacroTextarea
         value={value}
@@ -1264,7 +1266,7 @@ function MetadataTab({
             <button
               type="button"
               onClick={removeAllTags}
-              className="rounded-lg px-2 py-1 text-[0.625rem] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--destructive)]/10 hover:text-[var(--destructive)]"
+              className="mari-chrome-control mari-chrome-control--compact mari-chrome-control--danger"
             >
               Remove All
             </button>
@@ -1274,14 +1276,15 @@ function MetadataTab({
           {formData.tags.map((tag) => (
             <span
               key={tag}
-              className="flex items-center gap-1 rounded-full bg-[var(--primary)]/10 px-2.5 py-1 text-[0.6875rem] font-medium text-[var(--primary)]"
+              className="mari-chrome-control mari-chrome-control--compact group/tag"
             >
               <Tag size="0.625rem" />
               {tag}
               <button
                 type="button"
                 onClick={() => removeTag(tag)}
-                className="ml-0.5 rounded-full transition-colors hover:text-[var(--destructive)]"
+                className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-[var(--destructive)]/20 hover:text-[var(--destructive)]"
+                title={`Remove tag "${tag}"`}
               >
                 <X size="0.625rem" />
               </button>
@@ -1304,7 +1307,7 @@ function MetadataTab({
           <button
             type="button"
             onClick={addTag}
-            className="rounded-xl bg-[var(--primary)]/15 px-3 py-1.5 text-xs font-medium text-[var(--primary)] transition-all hover:bg-[var(--primary)]/25"
+            className="mari-chrome-control mari-chrome-control--compact mari-chrome-control--selected px-3 py-1.5"
           >
             Add
           </button>
@@ -2758,21 +2761,15 @@ function StatsTab({
         helpText={CHARACTER_STATS_HELP}
       />
 
-      {/* Enable toggle */}
-      <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <input
-          type="checkbox"
-          checked={stats.enabled}
-          onChange={(e) => update({ enabled: e.target.checked })}
-          className="h-4 w-4 rounded accent-[var(--primary)]"
-        />
-        <div>
-          <p className="text-sm font-medium">Enable RPG Stats</p>
-          <p className="text-[0.6875rem] text-[var(--muted-foreground)]">
-            Stats will be injected into the prompt and tracked by the Character Tracker agent.
-          </p>
-        </div>
-      </label>
+      <SettingsSwitch
+        label={<span className="font-medium">Enable RPG Stats</span>}
+        description="Stats will be injected into the prompt and tracked by the Character Tracker agent."
+        checked={stats.enabled}
+        onChange={(checked) => update({ enabled: checked })}
+        labelPosition="start"
+        className="justify-between rounded-xl border border-[var(--border)] bg-[var(--card)] p-4"
+        labelClassName="text-sm"
+      />
 
       {stats.enabled && (
         <>

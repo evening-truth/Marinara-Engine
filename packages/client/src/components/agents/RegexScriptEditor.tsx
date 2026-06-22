@@ -22,8 +22,6 @@ import {
   Info,
   Regex,
   Play,
-  ToggleLeft,
-  ToggleRight,
   Plus,
   Minus,
   Users,
@@ -33,6 +31,7 @@ import { cn } from "../../lib/utils";
 import { downloadJsonFile, sanitizeExportFilenamePart } from "../../lib/download-json";
 import { HelpTooltip } from "../ui/HelpTooltip";
 import { DraftNumberInput } from "../ui/DraftNumberInput";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 import { applyRegexReplacement, resolveMacros, type MacroContext, type RegexPlacement } from "@marinara-engine/shared";
 
 // ═══════════════════════════════════════════════
@@ -48,6 +47,10 @@ const PLACEMENT_META: Record<RegexPlacement, { label: string; description: strin
     description: "Applied to your messages before they are sent.",
   },
 };
+
+const REGEX_FIELD_ICON_CLASS = "mari-chrome-accent-icon mari-accent-animated";
+const REGEX_ACTIVE_OPTION_CLASS =
+  "mari-chrome-accent-surface mari-accent-animated ring-[var(--marinara-chat-chrome-button-border-active)]";
 
 function createLiveTestMacroContext(input: string): MacroContext {
   return {
@@ -352,18 +355,6 @@ export function RegexScriptEditor() {
     markDirty();
   };
 
-  const toggleCharacterScope = () => {
-    // Scope and prompt-only are independent: a scoped script can transform the
-    // prompt (prompt-only) OR displayed messages (gated by the chat's scoped mode).
-    setLocalCharacterScopeEnabled((prev) => !prev);
-    markDirty();
-  };
-
-  const togglePromptOnly = () => {
-    setLocalPromptOnly((prev) => !prev);
-    markDirty();
-  };
-
   const toggleTargetCharacter = (characterId: string) => {
     setLocalTargetCharacterIds((prev) =>
       prev.includes(characterId) ? prev.filter((id) => id !== characterId) : [...prev, characterId],
@@ -408,7 +399,7 @@ export function RegexScriptEditor() {
     localCharacterScopeEnabled && localTargetCharacterIds.length === 0 ? "Choose at least one character." : null;
 
   return (
-    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
+    <div className="mari-editor-shell mari-editor-legacy-bridge flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
       <div className="mari-editor-header">
         <button
@@ -452,22 +443,16 @@ export function RegexScriptEditor() {
           >
             <Save size="0.8125rem" /> <span className="max-md:hidden">Save</span>
           </button>
-          {/* Enable/Disable toggle */}
-          <button
-            onClick={() => {
-              setLocalEnabled((e) => !e);
+          <SettingsSwitch
+            ariaLabel={localEnabled ? "Disable regex script" : "Enable regex script"}
+            title={localEnabled ? "Enabled" : "Disabled"}
+            checked={localEnabled}
+            onChange={(checked) => {
+              setLocalEnabled(checked);
               markDirty();
             }}
-            className="mari-editor-action inline-flex"
-            title={localEnabled ? "Enabled" : "Disabled"}
-            aria-label={localEnabled ? "Disable regex script" : "Enable regex script"}
-          >
-            {localEnabled ? (
-              <ToggleRight size="1.125rem" className="text-emerald-400" />
-            ) : (
-              <ToggleLeft size="1.125rem" className="text-[var(--muted-foreground)]" />
-            )}
-          </button>
+            className="mari-editor-action inline-flex p-1.5 hover:bg-[var(--accent)]"
+          />
           <button
             onClick={handleExport}
             className="mari-editor-action inline-flex"
@@ -536,7 +521,7 @@ export function RegexScriptEditor() {
           {/* ── Find Regex ── */}
           <FieldGroup
             label="Find Pattern (Regex)"
-            icon={<Regex size="0.875rem" className="text-orange-400" />}
+            icon={<Regex size="0.875rem" className={REGEX_FIELD_ICON_CLASS} />}
             help="The regular expression pattern to search for. Written without delimiters. Macros resolve with sample values in Live Test and chat values at runtime."
           >
             <div className="relative">
@@ -559,7 +544,7 @@ export function RegexScriptEditor() {
           {/* ── Replace String ── */}
           <FieldGroup
             label="Replace With"
-            icon={<Info size="0.875rem" className="text-orange-400" />}
+            icon={<Info size="0.875rem" className={REGEX_FIELD_ICON_CLASS} />}
             help={
               "The replacement string. Supports capture groups ($1, $2), named groups ($<name>), and case transforms like \\u$1, \\U$1\\E, \\l$1, and \\L$1\\E. Leave empty to delete matched text."
             }
@@ -578,7 +563,7 @@ export function RegexScriptEditor() {
           {/* ── Flags ── */}
           <FieldGroup
             label="Regex Flags"
-            icon={<Info size="0.875rem" className="text-orange-400" />}
+            icon={<Info size="0.875rem" className={REGEX_FIELD_ICON_CLASS} />}
             help="Standard regex flags: g (global), i (case-insensitive), m (multiline), s (dotAll), u (unicode)."
           >
             <div className="flex items-center gap-2">
@@ -594,7 +579,7 @@ export function RegexScriptEditor() {
                     className={cn(
                       "flex h-8 w-8 items-center justify-center rounded-lg font-mono text-sm font-bold ring-1 transition-all",
                       active
-                        ? "bg-orange-400/15 text-orange-400 ring-orange-400/50"
+                        ? REGEX_ACTIVE_OPTION_CLASS
                         : "text-[var(--muted-foreground)] ring-[var(--border)] hover:bg-[var(--accent)]",
                     )}
                   >
@@ -608,7 +593,7 @@ export function RegexScriptEditor() {
           {/* ── Placement ── */}
           <FieldGroup
             label="Apply To"
-            icon={<Play size="0.875rem" className="text-orange-400" />}
+            icon={<Play size="0.875rem" className={REGEX_FIELD_ICON_CLASS} />}
             help="Where this regex is applied. AI Output transforms incoming responses; User Input transforms your messages before sending."
           >
             <div className="grid grid-cols-2 gap-2">
@@ -622,7 +607,7 @@ export function RegexScriptEditor() {
                       className={cn(
                         "flex flex-col items-center gap-1 rounded-xl p-3 text-xs ring-1 transition-all",
                         active
-                          ? "bg-orange-400/10 ring-orange-400/50 text-orange-400"
+                          ? REGEX_ACTIVE_OPTION_CLASS
                           : "ring-[var(--border)] text-[var(--muted-foreground)] hover:bg-[var(--accent)]",
                       )}
                     >
@@ -635,22 +620,18 @@ export function RegexScriptEditor() {
             </div>
             <div className="rounded-xl bg-[var(--secondary)]/60 p-3 ring-1 ring-[var(--border)]">
               <div className="flex items-start gap-2.5">
-                <button
-                  type="button"
-                  aria-label="Toggle character target scope"
-                  aria-pressed={localCharacterScopeEnabled}
-                  onClick={toggleCharacterScope}
-                  className="mt-0.5 shrink-0"
-                >
-                  {localCharacterScopeEnabled ? (
-                    <ToggleRight size="1.125rem" className="text-orange-400" />
-                  ) : (
-                    <ToggleLeft size="1.125rem" className="text-[var(--muted-foreground)]" />
-                  )}
-                </button>
+                <SettingsSwitch
+                  ariaLabel="Toggle character target scope"
+                  checked={localCharacterScopeEnabled}
+                  onChange={(checked) => {
+                    setLocalCharacterScopeEnabled(checked);
+                    markDirty();
+                  }}
+                  className="mt-0.5 shrink-0 p-0 hover:bg-transparent"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 text-xs font-medium">
-                    <Users size="0.75rem" className="text-orange-400" />
+                    <Users size="0.75rem" className={REGEX_FIELD_ICON_CLASS} />
                     Specific Characters
                     <HelpTooltip text="Limit this script to the selected characters. Prompt-only scripts then run only for those characters' prompts; display scripts apply per the chat's Scoped Regex mode." />
                   </div>
@@ -676,7 +657,7 @@ export function RegexScriptEditor() {
                             className={cn(
                               "flex min-w-0 items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[0.6875rem] ring-1 transition-all",
                               selected
-                                ? "bg-orange-400/10 text-orange-400 ring-orange-400/50"
+                                ? REGEX_ACTIVE_OPTION_CLASS
                                 : "text-[var(--muted-foreground)] ring-[var(--border)] hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
                             )}
                           >
@@ -704,7 +685,7 @@ export function RegexScriptEditor() {
           {/* ── Trim Strings ── */}
           <FieldGroup
             label="Trim Strings"
-            icon={<Minus size="0.875rem" className="text-orange-400" />}
+            icon={<Minus size="0.875rem" className={REGEX_FIELD_ICON_CLASS} />}
             help="Additional strings to remove from the result after the regex replacement. One per row."
           >
             <div className="flex flex-col gap-1.5">
@@ -747,25 +728,21 @@ export function RegexScriptEditor() {
           {/* ── Advanced Options ── */}
           <FieldGroup
             label="Advanced Options"
-            icon={<Info size="0.875rem" className="text-orange-400" />}
+            icon={<Info size="0.875rem" className={REGEX_FIELD_ICON_CLASS} />}
             help="Fine-tune when and how the regex runs."
           >
             <div className="space-y-3">
               {/* Prompt Only */}
               <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  aria-label="Toggle Prompt Only"
-                  aria-pressed={localPromptOnly}
-                  onClick={togglePromptOnly}
-                  className="shrink-0 cursor-pointer"
-                >
-                  {localPromptOnly ? (
-                    <ToggleRight size="1.125rem" className="text-orange-400" />
-                  ) : (
-                    <ToggleLeft size="1.125rem" className="text-[var(--muted-foreground)]" />
-                  )}
-                </button>
+                <SettingsSwitch
+                  ariaLabel="Toggle Prompt Only"
+                  checked={localPromptOnly}
+                  onChange={(checked) => {
+                    setLocalPromptOnly(checked);
+                    markDirty();
+                  }}
+                  className="shrink-0 p-0 hover:bg-transparent"
+                />
                 <div>
                   <div className="text-xs font-medium">Prompt Only</div>
                   <div className="text-[0.625rem] text-[var(--muted-foreground)]">
@@ -829,7 +806,7 @@ export function RegexScriptEditor() {
           {/* ── Live Test ── */}
           <FieldGroup
             label="Live Test"
-            icon={<Play size="0.875rem" className="text-orange-400" />}
+            icon={<Play size="0.875rem" className={REGEX_FIELD_ICON_CLASS} />}
             help="Test your regex pattern against sample text. Macros use sample User and Character values here."
           >
             <div className="space-y-2">
@@ -914,7 +891,7 @@ function FieldGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="mari-editor-panel space-y-2 p-3">
       <div className="flex items-center gap-2">
         {icon}
         <span className="text-sm font-semibold">{label}</span>

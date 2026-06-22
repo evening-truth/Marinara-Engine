@@ -19,10 +19,11 @@ import {
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { ChevronDown, Copy, Folder, GripVertical, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, Folder, GripVertical, Trash2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { confirmNonEmptyFolderDelete } from "../../lib/app-dialogs";
 import { useUpdateLorebookFolder, useDeleteLorebookFolder, useCloneLorebookFolder } from "../../hooks/use-lorebooks";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 import { canReparentFolder, collectFolderSubtreeIds, type LorebookFolder } from "@marinara-engine/shared";
 
 interface Props {
@@ -90,11 +91,9 @@ export function LorebookFolderRow({
     setLocalParentId(folder.parentFolderId);
   }, [folder]);
 
-  const handleEnableToggle = useCallback(
-    (e: ReactMouseEvent) => {
-      e.stopPropagation();
+  const handleEnabledChange = useCallback(
+    (next: boolean) => {
       const previous = localEnabled;
-      const next = !previous;
       // Optimistic flip — but if the PATCH fails, restore the previous value
       // so the row doesn't lie about the server state. This matters most for
       // `enabled`: the activation gate runs server-side, so a failed flip
@@ -186,10 +185,10 @@ export function LorebookFolderRow({
   return (
     <div
       className={cn(
-        "rounded-xl bg-[var(--secondary)]/60 ring-1 ring-[var(--border)] transition-all",
-        !isCollapsed && "ring-amber-400/30",
+        "mari-editor-panel mari-editor-panel--soft transition-all",
+        !isCollapsed && "border-[var(--marinara-editor-border-strong)]",
         isDragging && "opacity-40",
-        isNestTarget && "ring-2 ring-amber-400",
+        isNestTarget && "border-[var(--marinara-editor-accent)] shadow-[0_0_0_1px_var(--marinara-editor-accent)]",
       )}
       ref={rowRef}
       draggable={draggable && isDragReady}
@@ -245,29 +244,31 @@ export function LorebookFolderRow({
           />
         </button>
 
-        {/* Enable toggle */}
-        <button
-          type="button"
-          aria-label={localEnabled ? "Disable folder" : "Enable folder"}
-          title={
-            localEnabled
-              ? "Folder enabled — entries inside activate normally"
-              : "Folder disabled — entries inside will not activate, regardless of their own toggle"
-          }
-          onClick={handleEnableToggle}
+        <div
           className="shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          {localEnabled ? (
-            <ToggleRight size="1.125rem" className="text-amber-400" />
-          ) : (
-            <ToggleLeft size="1.125rem" className="text-[var(--muted-foreground)]" />
-          )}
-        </button>
+          <SettingsSwitch
+            ariaLabel={localEnabled ? "Disable folder" : "Enable folder"}
+            title={
+              localEnabled
+                ? "Folder enabled — entries inside activate normally"
+                : "Folder disabled — entries inside will not activate, regardless of their own toggle"
+            }
+            checked={localEnabled}
+            onChange={handleEnabledChange}
+            className="p-0 hover:bg-transparent"
+          />
+        </div>
 
         {/* Folder icon + name */}
         <Folder
           size="0.875rem"
-          className={cn("shrink-0", localEnabled ? "text-amber-400" : "text-[var(--muted-foreground)]")}
+          className={cn(
+            "shrink-0",
+            localEnabled ? "mari-chrome-accent-icon mari-accent-animated" : "text-[var(--muted-foreground)]",
+          )}
         />
         <input
           value={localName}
@@ -292,7 +293,7 @@ export function LorebookFolderRow({
             onClick={(e) => e.stopPropagation()}
             title="Nest this folder under another folder"
             aria-label="Parent folder"
-            className="shrink-0 max-w-[7rem] truncate rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.625rem] text-[var(--muted-foreground)] outline-none ring-1 ring-transparent transition-colors hover:ring-[var(--border)] focus:ring-[var(--ring)]"
+            className="mari-editor-field shrink-0 max-w-[7rem] truncate px-1.5 py-0.5 text-[0.625rem] text-[var(--marinara-editor-muted)]"
           >
             <option value="">(top level)</option>
             {parentOptions.map((candidate) => (
@@ -305,7 +306,7 @@ export function LorebookFolderRow({
 
         {/* Entry count badge */}
         <span
-          className="shrink-0 rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[0.625rem] font-medium text-[var(--muted-foreground)]"
+          className="mari-editor-chip shrink-0 px-2 py-0.5 text-[0.625rem]"
           title={`${entryCount} entr${entryCount === 1 ? "y" : "ies"} in this folder`}
         >
           {entryCount}

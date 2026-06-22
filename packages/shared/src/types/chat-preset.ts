@@ -5,7 +5,7 @@
 // when creating new chats. One "active" preset per chat mode determines
 // the starting state for any newly created chat in that mode.
 //
-// What presets DO carry: connection, prompt preset for non-conversation chats, and most metadata
+// What presets DO carry: connection, prompt preset selection, and most metadata
 // (agents, tools, lorebook settings, translation, advanced parameters,
 // context limit, memory recall, discord mirror, etc.).
 //
@@ -111,5 +111,5 @@ export const CHAT_PRESET_EXCLUDED_METADATA_KEYS: readonly string[] = [
   "lastMapPosition",
 ] as const;
 
-/** Top-level chat keys that CAN be saved into a preset. promptPresetId is ignored for conversation-mode presets. */
+/** Top-level chat keys that CAN be saved into a preset. */
 export const CHAT_PRESET_INCLUDED_CHAT_KEYS: readonly string[] = ["connectionId", "promptPresetId"] as const;

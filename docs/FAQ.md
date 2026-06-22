@@ -66,18 +66,20 @@ Spotify's OAuth rules only allow `https://` or `http://127.0.0.1` redirect URIs,
 <summary><strong>Is the Android APK a standalone app?</strong></summary>
 <br>
 
-No. The Android APK is a WebView shell, not a standalone Marinara Engine server build.
+Not exactly. The Android APK is a Termux bootstrap + WebView shell, not a native Android server build.
 
-The APK only opens `http://127.0.0.1:<PORT>` on the same Android device. That means Marinara Engine must already be installed and running in Termux before the APK can load anything.
+The APK opens `http://127.0.0.1:<PORT>` on the same Android device. If the Termux server is already running, it loads immediately. If not, the APK can help launch setup through Termux.
 
-Use this flow:
+Fast path:
 
-1. Install Termux from F-Droid.
-2. Follow the [Android (Termux) Installation Guide](installation/android-termux.md).
-3. Start Marinara Engine with `./start-termux.sh`.
-4. Open the APK if you want a dedicated home-screen shell.
+1. Install the APK from GitHub Releases.
+2. Open it and tap **Start setup in Termux**.
+3. Install Termux from F-Droid if prompted.
+4. Grant **Run commands in Termux environment** if Android asks.
+5. If Termux blocks external commands, paste the copied `allow-external-apps` command into Termux once.
+6. Wait for Termux to install/build/start Marinara Engine, then return to the APK.
 
-If you downloaded only the APK from a GitHub Release and skipped Termux, the app will not start by itself.
+Manual fallback: follow the [Android (Termux) Installation Guide](installation/android-termux.md), run `./start-termux.sh`, then open the APK as a dedicated home-screen shell.
 
 </details>
 

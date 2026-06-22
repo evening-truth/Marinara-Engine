@@ -460,7 +460,6 @@ async function expandAgentData(config: MarkerConfig, ctx: MarkerContext): Promis
   const agentsStorage = createAgentsStorage(ctx.db);
   const agentConfig = await agentsStorage.getByType(agentType);
   if (!agentConfig) return { content: "" };
-  if (agentConfig.enabled !== "true") return { content: "" };
 
   const latestRuns = await ctx.db
     .select()

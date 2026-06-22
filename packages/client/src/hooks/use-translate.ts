@@ -15,9 +15,12 @@ export function useTranslate() {
   const translate = useCallback(async (messageId: string, text: string, chatId?: string) => {
     const store = useTranslationStore.getState();
 
-    // Toggle off if already translated (visual-only — keeps persisted translation)
+    // Toggle off if already translated. Keep the saved translation, but persist the hidden display state.
     if (store.translations[messageId]) {
       store.removeTranslation(messageId);
+      if (chatId) {
+        api.patch(`/chats/${chatId}/messages/${messageId}/extra`, { translationHidden: true }).catch(() => {});
+      }
       return;
     }
 
@@ -38,7 +41,10 @@ export function useTranslate() {
       // Persist to message extra so translation survives refresh/chat switch
       if (chatId) {
         api
-          .patch(`/chats/${chatId}/messages/${messageId}/extra`, { translation: result.translatedText })
+          .patch(`/chats/${chatId}/messages/${messageId}/extra`, {
+            translation: result.translatedText,
+            translationHidden: false,
+          })
           .catch(() => {});
       }
     } catch (err) {

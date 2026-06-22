@@ -13,31 +13,16 @@ import {
   type ChatImage,
 } from "../../hooks/use-gallery";
 import { useGalleryStore } from "../../stores/gallery.store";
-import { ImagePromptPanel } from "./ImagePromptPanel";
 import { toast } from "sonner";
 import { ImageUploadDropzone } from "../ui/ImageUploadDropzone";
 import { buildCardAssetMarkdown, dispatchCardAssetInsert } from "../../lib/card-asset-links";
+import { ChatImageLightbox, getChatImageDownloadName } from "./ChatImageLightbox";
 
 interface ChatGalleryProps {
   chatId: string;
   mode?: string;
   /** Manually trigger the Illustrator agent */
   onIllustrate?: () => void | Promise<void>;
-}
-
-function formatImageMeta(image: ChatImage) {
-  const details: string[] = [];
-  if (image.model) details.push(image.model);
-  if (image.provider) details.push(image.provider.replace(/_/g, " "));
-  if (image.width && image.height) details.push(`${image.width} x ${image.height}`);
-  return details.join(" | ");
-}
-
-function getImageDownloadName(image: ChatImage) {
-  const fromPath = image.filePath.split(/[\\/]/).pop();
-  if (fromPath) return fromPath;
-  const fromUrl = image.url.split("?")[0]?.split("/").pop();
-  return fromUrl || `gallery-${image.id}.png`;
 }
 
 function formatAssetKind(asset: ChatAssetBrowserItem) {
@@ -66,8 +51,6 @@ export function ChatGallery({ chatId, mode, onIllustrate }: ChatGalleryProps) {
   const setChatIllustrating = useGalleryStore((s) => s.setChatIllustrating);
   const canBrowseAssets = mode === "roleplay";
   const { data: assetItems, isLoading: assetsLoading } = useChatAssetBrowser(chatId, canBrowseAssets && assetBrowserOpen);
-  const lightboxPrompt = lightbox?.prompt.trim() ?? "";
-  const lightboxMeta = lightbox ? formatImageMeta(lightbox) : "";
   const portalRoot = typeof document !== "undefined" ? document.body : null;
   const filteredAssets = useMemo(() => {
     const query = assetSearch.trim().toLowerCase();
@@ -213,7 +196,7 @@ export function ChatGallery({ chatId, mode, onIllustrate }: ChatGalleryProps) {
                       </button>
                       <a
                         href={img.url}
-                        download={getImageDownloadName(img)}
+                        download={getChatImageDownloadName(img)}
                         aria-label="Download gallery image"
                         className="pointer-events-auto rounded-md bg-white/20 p-1.5 text-white transition-colors hover:bg-white/30"
                         title="Download image"
@@ -351,65 +334,7 @@ export function ChatGallery({ chatId, mode, onIllustrate }: ChatGalleryProps) {
         )}
 
       {/* Lightbox */}
-      {portalRoot &&
-        lightbox &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 max-md:pt-[env(safe-area-inset-top)]"
-            onClick={() => setLightbox(null)}
-          >
-            <div
-              className="flex max-h-[90vh] w-[min(90vw,64rem)] max-w-[90vw] flex-col items-center gap-2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="relative flex min-h-0 max-w-full justify-center">
-                <img
-                  src={lightbox.url}
-                  alt={lightbox.prompt || "Gallery image"}
-                  decoding="async"
-                  className={
-                    lightboxPrompt || lightboxMeta
-                      ? "max-h-[calc(90vh-10rem)] max-w-full rounded-lg object-contain shadow-2xl"
-                      : "max-h-[85vh] max-w-full rounded-lg object-contain shadow-2xl"
-                  }
-                />
-                {/* Controls */}
-                <div className="absolute right-2 top-2 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      pinImage(lightbox);
-                      setLightbox(null);
-                    }}
-                    aria-label="Pin image to chat"
-                    className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-                    title="Pin to chat"
-                  >
-                    <Pin size="0.875rem" />
-                  </button>
-                  <a
-                    href={lightbox.url}
-                    download={getImageDownloadName(lightbox)}
-                    aria-label="Download image"
-                    className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-                  >
-                    <Download size="0.875rem" />
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => setLightbox(null)}
-                    aria-label="Close image"
-                    className="rounded-lg bg-black/60 p-2 text-white transition-colors hover:bg-black/80"
-                  >
-                    <X size="0.875rem" />
-                  </button>
-                </div>
-              </div>
-              <ImagePromptPanel prompt={lightboxPrompt} meta={lightboxMeta} className="w-full max-w-3xl" />
-            </div>
-          </div>,
-          portalRoot,
-        )}
+      {lightbox && <ChatImageLightbox image={lightbox} onClose={() => setLightbox(null)} />}
     </>
   );
 }

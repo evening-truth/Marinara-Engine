@@ -7,7 +7,7 @@
 // ──────────────────────────────────────────────
 import { useCallback, useMemo, useState, type ChangeEvent } from "react";
 import { toast } from "sonner";
-import { Download, Pencil, Plus, Regex, ToggleLeft, ToggleRight, Trash2, Upload } from "lucide-react";
+import { Download, Pencil, Plus, Regex, Trash2, Upload } from "lucide-react";
 import {
   useRegexScripts,
   useCreateRegexScript,
@@ -20,6 +20,7 @@ import { showConfirmDialog } from "../../lib/app-dialogs";
 import { downloadJsonFile } from "../../lib/download-json";
 import { getFolderImportEntries } from "@marinara-engine/shared";
 import { cn } from "../../lib/utils";
+import { SettingsSwitch } from "../panels/settings/SettingControls";
 
 // ── IO helpers (mirror the regex export/import format used by the Presets panel) ──
 function parseBooleanValue(value: unknown, fallback = true) {
@@ -310,18 +311,13 @@ export function CharacterRegexSection({
                         </span>
                       </div>
                     </button>
-                    <button
-                      type="button"
-                      className="mari-chrome-accent-text-muted mari-accent-animated mt-0.5 shrink-0 transition-colors hover:text-[var(--marinara-chat-chrome-button-text-hover)]"
+                    <SettingsSwitch
+                      ariaLabel={enabled ? "Disable regex" : "Enable regex"}
                       title={enabled ? "Disable regex" : "Enable regex"}
-                      onClick={() => updateRegex.mutate({ id: script.id, enabled: !enabled })}
-                    >
-                      {enabled ? (
-                        <ToggleRight size="0.875rem" className="mari-chrome-accent-icon mari-accent-animated" />
-                      ) : (
-                        <ToggleLeft size="0.875rem" className="text-[var(--muted-foreground)]" />
-                      )}
-                    </button>
+                      checked={enabled}
+                      onChange={(checked) => updateRegex.mutate({ id: script.id, enabled: checked })}
+                      className="mt-0.5 shrink-0 p-0 hover:bg-transparent"
+                    />
                     <button
                       type="button"
                       className="mari-chrome-accent-text-muted mari-accent-animated mt-0.5 shrink-0 transition-colors hover:text-[var(--marinara-chat-chrome-button-text-hover)]"

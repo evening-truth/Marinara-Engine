@@ -180,6 +180,10 @@ export interface AssemblerInput {
   groupScenarioOverrideText?: string | null;
   /** Per-generation agent data keyed by agent type. Used when an agent section must consume fresh output. */
   runtimeAgentData?: Record<string, string | RuntimeAgentData>;
+  /** Current generation type label for {{lastGenerationType}}. */
+  lastGenerationType?: string;
+  /** Human-readable idle duration for {{idle_duration}}. */
+  idleDuration?: string;
   /** Preserve character-scoped macros for a later known-speaker finalization pass. */
   deferCharacterMacros?: boolean;
 }
@@ -269,6 +273,8 @@ export async function assemblePrompt(input: AssemblerInput): Promise<AssemblerOu
     groupScenarioOverrideText: input.groupScenarioOverrideText,
     lastInput: [...input.chatMessages].reverse().find((message) => message.role === "user")?.content,
     chatId: input.chatId,
+    lastGenerationType: input.lastGenerationType,
+    idleDuration: input.idleDuration,
   });
 
   // Resolve macros inside variable values themselves (e.g. {{user}} in a choice value)

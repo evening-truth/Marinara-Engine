@@ -5,6 +5,9 @@ import {
   supportsXhighReasoningEffort,
   resolveMacros,
   stripMacroComments,
+  DEFAULT_CONVERSATION_PROMPT,
+  wrapConversationInstructions,
+  unwrapConversationInstructions,
   type LorebookEntryTimingState,
 } from "@marinara-engine/shared";
 import { randomUUID } from "crypto";
@@ -26,6 +29,8 @@ import {
   collectCharacterDepthPromptEntries,
   resolveCharacterMacroData,
   resolveMacrosWithVariableSnapshot,
+  resolvePromptIdleDuration,
+  resolvePromptLastGenerationType,
   resolvePromptMessageMacros,
   type AssemblerInput,
 } from "../../services/prompt/index.js";
@@ -82,6 +87,11 @@ type DryRunPromptMessage = {
 
 function cardPromptText(value: unknown): string {
   return typeof value === "string" ? stripMacroComments(value).trim() : "";
+}
+
+function presetStringField(preset: Record<string, unknown> | null | undefined, field: string): string {
+  const value = preset?.[field];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function resolveDryRunLorebookGenerationTriggers(
@@ -600,6 +610,16 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       },
       chatMode,
     );
+    const promptLastGenerationType = resolvePromptLastGenerationType({
+      autonomous: body.autonomous,
+      impersonate,
+      generationGuide: body.generationGuide,
+      generationGuideSource: body.generationGuideSource,
+      regenerateMessageId,
+      turnGameBots: body.turnGameBots,
+      userMessage,
+      attachments: body.attachments,
+    });
     const lorebookScopeExclusions = resolveGameLorebookScopeExclusions(chatMode, chatMeta);
     const lorebookTokenBudget = resolveDryRunLorebookTokenBudget(chatMeta);
     if (!impersonate && userMessage.trim()) {
@@ -618,6 +638,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         } as any,
       ];
     }
+    const promptIdleDuration = resolvePromptIdleDuration(chatMessages, { excludeMessageId: "__dryrun_user__" });
 
     const isGoogleProvider = conn.provider === "google" || conn.provider === "google_vertex";
     const excludePastReasoning = chatMeta.excludePastReasoning !== false;
@@ -764,6 +785,9 @@ export async function registerDryRunRoute(app: FastifyInstance) {
           : null,
       lastInput: [...mappedMessages].reverse().find((message) => message.role === "user")?.content,
       chatId,
+      model: conn.model,
+      lastGenerationType: promptLastGenerationType,
+      idleDuration: promptIdleDuration,
     });
     const historyMacroProfilesById = (await resolveCharacterMacroData(app.db, allCharacterIds)).profilesById;
     const resolveHistoryMessageMacros = <T extends { content: string; characterId?: string | null }>(
@@ -1144,7 +1168,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
           continue;
         }
       }
-    } else if (effectivePresetId && effectivePreset) {
+    } else if (effectivePresetId && effectivePreset && chatMode !== "conversation" && chatMode !== "game") {
       const preset = effectivePreset;
       wrapFormat = (preset.wrapFormat as "xml" | "markdown" | "none") || "xml";
       const [sections, groups, choiceBlocks] = await Promise.all([
@@ -1210,6 +1234,8 @@ export async function registerDryRunRoute(app: FastifyInstance) {
           typeof chatMeta.groupScenarioText === "string" && (chatMeta.groupScenarioText as string).trim()
             ? (chatMeta.groupScenarioText as string).trim()
             : null,
+        lastGenerationType: promptLastGenerationType,
+        idleDuration: promptIdleDuration,
       };
 
       const assembled = await assemblePrompt(assemblerInput);
@@ -1246,6 +1272,33 @@ export async function registerDryRunRoute(app: FastifyInstance) {
         ...(m.images ? { images: m.images } : {}),
         ...(m.files ? { files: m.files } : {}),
       }));
+    }
+
+    if (chatMode === "conversation") {
+      const customPrompt =
+        typeof chatMeta.customSystemPrompt === "string" && chatMeta.customSystemPrompt.trim()
+          ? (chatMeta.customSystemPrompt as string)
+          : null;
+      const selectedConversationPrompt = presetStringField(
+        effectivePreset as Record<string, unknown> | null,
+        "conversationPrompt",
+      );
+      const characterNamesById = await resolveCharacterNameMap(promptCharacterIds, (id) => chars.getById(id));
+      const charNameList =
+        promptCharacterIds
+          .map((id) => characterNamesById.get(id))
+          .filter((name): name is string => Boolean(name))
+          .join(", ") || "Character";
+      const conversationPromptTemplate = customPrompt ?? (selectedConversationPrompt || DEFAULT_CONVERSATION_PROMPT);
+      const renderedConversationPrompt = resolvePromptMacros(
+        conversationPromptTemplate
+          .replace(/\{\{charName\}\}/g, charNameList)
+          .replace(/\{\{userName\}\}/g, personaName),
+      );
+      finalMessages = [
+        { role: "system", content: wrapConversationInstructions(unwrapConversationInstructions(renderedConversationPrompt)) },
+        ...finalMessages,
+      ];
     }
 
     // Optional injection: extension-provided preset text (read-only, explicit opt-in via presetText)

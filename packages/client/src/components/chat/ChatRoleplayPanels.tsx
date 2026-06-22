@@ -5,26 +5,58 @@ import { type BudgetSkippedLorebookEntry, useActiveLorebookEntries } from "../..
 import { cn } from "../../lib/utils";
 import { ROLEPLAY_POPOVER_SUBTITLE, ROLEPLAY_POPOVER_TITLE } from "./roleplay-popover-styles";
 
+type LorebookEntryStatus = "normal" | "constant" | "selective";
+
+const LOREBOOK_ENTRY_STATUS_STYLE: Record<
+  LorebookEntryStatus,
+  { label: string; dot: string; row: string; badge: string }
+> = {
+  normal: {
+    label: "NORMAL",
+    dot: "bg-emerald-400",
+    row: "border border-emerald-400/20 bg-emerald-400/10 hover:bg-emerald-400/15",
+    badge: "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/20",
+  },
+  constant: {
+    label: "CONST",
+    dot: "bg-yellow-300",
+    row: "border border-yellow-300/25 bg-yellow-300/10 hover:bg-yellow-300/15",
+    badge: "bg-yellow-300/15 text-yellow-200 ring-1 ring-yellow-300/20",
+  },
+  selective: {
+    label: "SELECT",
+    dot: "bg-red-400",
+    row: "border border-red-400/25 bg-red-400/10 hover:bg-red-400/15",
+    badge: "bg-red-400/15 text-red-200 ring-1 ring-red-400/20",
+  },
+};
+
+function getLorebookEntryStatus(entry: { constant?: boolean; selective?: boolean }): LorebookEntryStatus {
+  if (entry.constant) return "constant";
+  if (entry.selective) return "selective";
+  return "normal";
+}
+
 function ActiveLorebookEntryRow({
   entry,
 }: {
-  entry: { name: string; keys: string[]; content: string; constant: boolean; order: number };
+  entry: { name: string; keys: string[]; content: string; constant: boolean; selective: boolean; order: number };
 }) {
   const [expanded, setExpanded] = useState(false);
+  const status = getLorebookEntryStatus(entry);
+  const statusStyle = LOREBOOK_ENTRY_STATUS_STYLE[status];
 
   return (
     <div
-      className="cursor-pointer rounded-lg bg-[var(--secondary)] p-2 text-xs transition-colors hover:bg-[var(--accent)]"
+      className={cn("cursor-pointer rounded-lg p-2 text-xs transition-colors", statusStyle.row)}
       onClick={() => setExpanded((prev) => !prev)}
     >
       <div className="flex items-center gap-2">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusStyle.dot)} />
         <span className="truncate font-medium text-[var(--foreground)]/80">{entry.name}</span>
-        {entry.constant && (
-          <span className="shrink-0 rounded bg-amber-400/15 px-1 py-0.5 text-[0.5rem] font-medium text-amber-400">
-            CONST
-          </span>
-        )}
+        <span className={cn("shrink-0 rounded px-1 py-0.5 text-[0.5rem] font-semibold", statusStyle.badge)}>
+          {statusStyle.label}
+        </span>
         <span className="ml-auto shrink-0 text-[0.625rem] text-[var(--muted-foreground)]">#{entry.order}</span>
       </div>
       {entry.keys.length > 0 && (

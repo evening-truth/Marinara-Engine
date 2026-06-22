@@ -29,7 +29,11 @@ import { createGameStateStorage } from "../services/storage/game-state.storage.j
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
 import { processLorebooks } from "../services/lorebook/index.js";
 import { resolveGameLorebookScopeExclusions } from "../services/lorebook/game-lorebook-scope.js";
-import { buildPromptMacroContext, resolveMacrosWithVariableSnapshot } from "../services/prompt/index.js";
+import {
+  buildPromptMacroContext,
+  resolveMacrosWithVariableSnapshot,
+  resolvePromptIdleDuration,
+} from "../services/prompt/index.js";
 import { parseGameStateRow, resolveVisibleGameStateAnchor } from "./generate/generate-route-utils.js";
 import {
   syncCharacterBookFromLorebook,
@@ -748,6 +752,8 @@ export async function lorebooksRoutes(app: FastifyInstance) {
           variables: {},
           lastInput,
           chatId,
+          lastGenerationType: "lorebook_scan",
+          idleDuration: resolvePromptIdleDuration(scanSourceMessages),
         });
         return {
           resolveContent: (value: string) => resolveMacrosWithVariableSnapshot(value, macroContext),
@@ -806,6 +812,7 @@ export async function lorebooksRoutes(app: FastifyInstance) {
         lorebookId: (e as Record<string, unknown>).lorebookId,
         order: (e as Record<string, unknown>).order,
         constant: (e as Record<string, unknown>).constant,
+        selective: (e as Record<string, unknown>).selective === true,
       })),
       totalTokens: result.totalTokensEstimate,
       totalEntries: result.totalEntries,

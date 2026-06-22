@@ -103,7 +103,7 @@ export function sanitizePresetSettings(
   if (!input) return {};
   const out: ChatPresetSettings = {};
   if ("connectionId" in input) out.connectionId = input.connectionId ?? null;
-  if (mode !== "conversation" && "promptPresetId" in input) out.promptPresetId = input.promptPresetId ?? null;
+  if ("promptPresetId" in input) out.promptPresetId = input.promptPresetId ?? null;
   if (input.metadata) out.metadata = sanitizePresetMetadata(input.metadata as Record<string, unknown>);
   return out;
 }
@@ -302,7 +302,7 @@ export function createChatPresetsStorage(db: DB) {
         .update(chats)
         .set({
           connectionId: preset.settings.connectionId ?? null,
-          promptPresetId: chatRow.mode === "conversation" ? null : (preset.settings.promptPresetId ?? null),
+          promptPresetId: preset.settings.promptPresetId ?? null,
           metadata: JSON.stringify(newMetadata),
           updatedAt: ts,
         })

@@ -528,15 +528,30 @@ function openAIReferenceImages(request: ImageGenRequest): string[] {
     .slice(0, 16);
 }
 
+function normalizeBase64ImagePayload(value: string, label = "Reference image"): string {
+  const compact = value.replace(/\s+/g, "");
+  const unpadded = compact.replace(/=+$/, "");
+  if (!unpadded || /[^A-Za-z0-9+/]/.test(unpadded)) {
+    throw new Error(`${label} was not valid base64 image data`);
+  }
+
+  const remainder = unpadded.length % 4;
+  if (remainder === 1) {
+    throw new Error(`${label} was not valid base64 image data`);
+  }
+
+  return `${unpadded}${"=".repeat(remainder === 0 ? 0 : 4 - remainder)}`;
+}
+
 function decodeReferenceImage(reference: string): { base64: string; mimeType: string; ext: string } {
   const dataUrlMatch = reference.trim().match(/^data:(image\/(?:png|jpe?g|webp|gif));base64,([\s\S]+)$/i);
   if (dataUrlMatch) {
     const mimeType = dataUrlMatch[1]!.toLowerCase().replace("image/jpg", "image/jpeg");
-    const base64 = dataUrlMatch[2]!.replace(/\s+/g, "");
+    const base64 = normalizeBase64ImagePayload(dataUrlMatch[2]!);
     return { base64, mimeType, ext: imageExtensionFromMimeType(mimeType) };
   }
 
-  const base64 = reference.replace(/\s+/g, "");
+  const base64 = normalizeBase64ImagePayload(reference);
   const mimeType = detectImageMimeType(base64);
   return { base64, mimeType, ext: imageExtensionFromMimeType(mimeType) };
 }
@@ -1894,11 +1909,12 @@ async function generateComfyUI(baseUrl: string, request: ImageGenRequest): Promi
   const references = collectComfyReferenceImages(request, defaults);
   for (let i = 0; i < references.length; i++) {
     const reference = references[i]!;
+    const referenceBase64 = decodeReferenceImage(reference).base64;
     const imagePlaceholder = numberedComfyReferencePlaceholder("reference_image", i);
     const namePlaceholder = numberedComfyReferencePlaceholder("reference_image_name", i);
 
-    replacements[imagePlaceholder] = reference;
-    if (i === 0) replacements["%reference_image%"] = reference;
+    replacements[imagePlaceholder] = referenceBase64;
+    if (i === 0) replacements["%reference_image%"] = referenceBase64;
 
     if (workflowJson.includes(namePlaceholder) || (i === 0 && workflowJson.includes("%reference_image_name%"))) {
       const uploadedName = await uploadComfyReferenceImage(base, reference, request.signal);

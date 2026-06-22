@@ -130,7 +130,7 @@ function CharacterLibraryDetailCard({
   return (
     <div className="space-y-4">
       <div className="overflow-hidden rounded-[1.5rem] border border-[var(--border)]/50 bg-[var(--background)]/70 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.95)] sm:rounded-[2rem]">
-        <div className="mari-accent-soft-fill relative aspect-square overflow-hidden">
+        <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative aspect-square overflow-hidden">
           {character.avatarPath ? (
             <img
               src={character.avatarPath}
@@ -462,7 +462,7 @@ export function CharacterLibraryView() {
 
           {!isLoading && sortedCharacters.length === 0 && (
             <div className="flex min-h-[18rem] flex-col items-center justify-center gap-3 rounded-[2rem] border border-dashed border-[var(--border)]/60 bg-[var(--card)]/50 p-6 text-center">
-              <div className="mari-accent-soft-fill flex h-14 w-14 items-center justify-center rounded-3xl text-[var(--primary)]">
+              <div className="mari-avatar-placeholder mari-avatar-placeholder--character flex h-14 w-14 items-center justify-center rounded-3xl">
                 <User size="1.5rem" />
               </div>
               <div>
@@ -498,7 +498,7 @@ export function CharacterLibraryView() {
                           : "border-[var(--border)]/50",
                       )}
                     >
-                      <div className="mari-accent-soft-fill relative h-24 w-24 shrink-0 overflow-hidden sm:h-auto sm:w-full sm:aspect-square">
+                      <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative h-24 w-24 shrink-0 overflow-hidden sm:h-auto sm:w-full sm:aspect-square">
                         {char.avatarPath ? (
                           <img
                             src={char.avatarPath}
@@ -586,7 +586,7 @@ export function CharacterLibraryView() {
               <CharacterLibraryDetailCard character={selectedCharacter} onEdit={openCharacterDetailFromLibrary} />
             ) : (
               <div className="flex min-h-[18rem] flex-col items-center justify-center gap-3 rounded-[2rem] border border-dashed border-[var(--border)]/60 bg-[var(--background)]/65 p-6 text-center">
-                <div className="mari-accent-soft-fill flex h-14 w-14 items-center justify-center rounded-3xl text-[var(--primary)]">
+                <div className="mari-avatar-placeholder mari-avatar-placeholder--character flex h-14 w-14 items-center justify-center rounded-3xl">
                   <User size="1.5rem" />
                 </div>
                 <div>

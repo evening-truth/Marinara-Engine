@@ -893,6 +893,7 @@ export function AppShell() {
               data-component="RightPanelMobile"
               aria-label="Settings and tools panel"
               className="mari-right-panel !fixed inset-y-0 right-0 z-50 h-screen max-h-screen !w-full overflow-hidden bg-[var(--background)]/80 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-[max(env(safe-area-inset-top),0.5rem)] shadow-2xl backdrop-blur-xl supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:max-h-[100dvh]"
+              style={{ "--mari-right-panel-width": "100vw" } as CSSProperties}
             >
               <Suspense fallback={<SidePanelFallback />}>
                 <RightPanel />
@@ -909,7 +910,12 @@ export function AppShell() {
             rightPanelDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
             rightPanelOpen && "mari-shell-panel-edge mari-shell-panel-edge--left relative",
           )}
-          style={{ width: rightPanelOpen ? liveRightPanelWidth : 0 }}
+          style={
+            {
+              width: rightPanelOpen ? liveRightPanelWidth : 0,
+              "--mari-right-panel-width": `${liveRightPanelWidth}px`,
+            } as CSSProperties
+          }
         >
           {rightPanelOpen && (
             <div className="h-full" style={{ width: liveRightPanelWidth }}>

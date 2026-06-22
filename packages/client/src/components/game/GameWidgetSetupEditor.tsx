@@ -93,6 +93,16 @@ function parseNumber(value: unknown, fallback: number, min?: number) {
   return typeof min === "number" ? Math.max(min, numeric) : numeric;
 }
 
+function nextStatBlockName(stats: readonly { name?: unknown }[]) {
+  const used = new Set(stats.map((stat) => String(stat.name ?? "").trim().toLowerCase()).filter(Boolean));
+  let index = stats.length + 1;
+  let candidate = `Stat ${index}`;
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `Stat ${++index}`;
+  }
+  return candidate;
+}
+
 function buildInventoryGridContentsFromText(
   value: string,
   previousContents: NonNullable<HudWidgetConfig["contents"]>,
@@ -506,7 +516,7 @@ function WidgetConfigFields({
         ))}
         <button
           type="button"
-          onClick={() => onConfigChange({ stats: [...stats, { name: "", value: "" }] })}
+          onClick={() => onConfigChange({ stats: [...stats, { name: nextStatBlockName(stats), value: "" }] })}
           disabled={disabled}
           className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] disabled:opacity-50"
         >

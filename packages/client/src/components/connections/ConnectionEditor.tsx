@@ -204,6 +204,7 @@ export function ConnectionEditor() {
   // Model search
   const [modelSearch, setModelSearch] = useState("");
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modelSearchInputRef = useRef<HTMLInputElement>(null);
   const comfyWorkflowTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -367,6 +368,30 @@ export function ConnectionEditor() {
     setRemoteModels([]);
     setFetchError(null);
   }, [localProvider]);
+
+  useEffect(() => {
+    if (!showModelDropdown) return;
+
+    const closeDropdown = () => {
+      setShowModelDropdown(false);
+      setModelSearch("");
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && modelDropdownRef.current?.contains(target)) return;
+      closeDropdown();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeDropdown();
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showModelDropdown]);
 
   const handleClose = useCallback(() => {
     if (dirty) {
@@ -754,7 +779,7 @@ export function ConnectionEditor() {
   }
 
   return (
-    <div className="mari-editor-shell flex flex-1 flex-col overflow-hidden">
+    <div className="mari-editor-shell mari-editor-legacy-bridge flex flex-1 flex-col overflow-hidden">
       {/* ── Header ── */}
       <div className="mari-editor-header">
         <button onClick={handleClose} className="mari-editor-action inline-flex shrink-0">
@@ -1208,7 +1233,7 @@ export function ConnectionEditor() {
             help="The specific AI model to use. You can pick from the list or type a custom model ID directly."
           >
             {/* Standard model dropdown + manual input (used for all providers including image_generation) */}
-            <div className={cn("relative", showModelDropdown && "z-50")}>
+            <div ref={modelDropdownRef} className={cn("relative", showModelDropdown && "z-50")}>
               <div
                 onClick={() => setShowModelDropdown(!showModelDropdown)}
                 className={cn(
@@ -1246,160 +1271,137 @@ export function ConnectionEditor() {
               </div>
 
               {showModelDropdown && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => {
-                      setShowModelDropdown(false);
-                      setModelSearch("");
-                    }}
-                    onWheel={(e) => {
-                      // Let scroll pass through to parent
-                      e.currentTarget.style.pointerEvents = "none";
-                      requestAnimationFrame(() => {
-                        (e.currentTarget as HTMLElement).style.pointerEvents = "";
-                      });
-                    }}
-                    onTouchMove={(e) => {
-                      // Let touch-scroll pass through to parent
-                      e.currentTarget.style.pointerEvents = "none";
-                      requestAnimationFrame(() => {
-                        (e.currentTarget as HTMLElement).style.pointerEvents = "";
-                      });
-                    }}
-                  />
-                  <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-2xl">
-                    {/* Fetch from API button */}
-                    <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] p-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleFetchModels();
-                        }}
-                        disabled={fetchModels.isPending}
-                        className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-sky-400/10 px-3 py-2 text-xs font-medium text-sky-400 transition-all hover:bg-sky-400/20 active:scale-[0.98] disabled:opacity-50"
-                      >
-                        {fetchModels.isPending ? (
-                          <Loader2 size="0.75rem" className="animate-spin" />
-                        ) : (
-                          <Globe size="0.75rem" />
-                        )}
-                        {fetchModels.isPending ? "Fetching…" : "Fetch Models from API"}
-                      </button>
-                      {fetchError && <p className="mt-1.5 text-[0.625rem] text-[var(--destructive)]">{fetchError}</p>}
-                      {remoteModels.length > 0 && !fetchError && (
-                        <p className="mt-1 text-[0.625rem] text-emerald-400">
-                          {remoteModels.length} model{remoteModels.length !== 1 ? "s" : ""} available from API
-                        </p>
+                <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-80 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-2xl">
+                  {/* Fetch from API button */}
+                  <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] p-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFetchModels();
+                      }}
+                      disabled={fetchModels.isPending}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-sky-400/10 px-3 py-2 text-xs font-medium text-sky-400 transition-all hover:bg-sky-400/20 active:scale-[0.98] disabled:opacity-50"
+                    >
+                      {fetchModels.isPending ? (
+                        <Loader2 size="0.75rem" className="animate-spin" />
+                      ) : (
+                        <Globe size="0.75rem" />
                       )}
-                    </div>
-
-                    {localProvider === "custom" ? (
-                      <div className="p-3">
-                        <p className="mb-2 text-[0.625rem] text-[var(--muted-foreground)]">
-                          Custom endpoints: type the model ID or fetch from API above.
-                        </p>
-                        <input
-                          value={localModel}
-                          onChange={(e) => {
-                            setLocalModel(e.target.value);
-                            markDirty();
-                          }}
-                          className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
-                          placeholder="model-name-or-path"
-                        />
-                        {/* Show fetched models for custom provider */}
-                        {remoteModels.length > 0 && (
-                          <div className="mt-2 max-h-48 overflow-y-auto">
-                            {remoteModels
-                              .filter((m) => {
-                                const q = (modelSearch || localModel).trim().toLowerCase();
-                                if (!q) return true;
-                                return m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q);
-                              })
-                              .map((m) => (
-                                <button
-                                  key={m.id}
-                                  onClick={() => selectModel({ ...m, isRemote: true })}
-                                  className={cn(
-                                    "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--accent)]",
-                                    localModel === m.id && "bg-sky-400/5",
-                                  )}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm font-medium">{m.name}</span>
-                                      {localModel === m.id && <Check size="0.75rem" className="text-sky-400" />}
-                                    </div>
-                                    <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
-                                  </div>
-                                  <span className="shrink-0 rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
-                                    API
-                                  </span>
-                                </button>
-                              ))}
-                          </div>
-                        )}
-                        <button
-                          onClick={() => {
-                            setShowModelDropdown(false);
-                            setModelSearch("");
-                          }}
-                          className="mt-2 w-full rounded-lg bg-sky-400/10 px-3 py-1.5 text-xs font-medium text-sky-400 hover:bg-sky-400/20"
-                        >
-                          Done
-                        </button>
-                      </div>
-                    ) : filteredModels.length === 0 ? (
-                      <div className="p-4 text-center text-xs text-[var(--muted-foreground)]">
-                        No models found. Try a different search or type the model ID below.
-                        <input
-                          value={localModel}
-                          onChange={(e) => {
-                            setLocalModel(e.target.value);
-                            markDirty();
-                          }}
-                          className="mt-2 w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
-                          placeholder="Custom model ID…"
-                        />
-                      </div>
-                    ) : (
-                      filteredModels.map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => selectModel(m)}
-                          className={cn(
-                            "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--accent)]",
-                            localModel === m.id && "bg-sky-400/5",
-                          )}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">{m.name}</span>
-                              {m.isRemote && (
-                                <span className="rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
-                                  API
-                                </span>
-                              )}
-                              {localModel === m.id && <Check size="0.75rem" className="text-sky-400" />}
-                            </div>
-                            <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            {m.context > 0 && (
-                              <div className="text-[0.625rem] font-medium text-sky-400">{formatContext(m.context)}</div>
-                            )}
-                            {m.maxOutput > 0 && (
-                              <div className="text-[0.5625rem] text-[var(--muted-foreground)]">
-                                {formatContext(m.maxOutput)} out
-                              </div>
-                            )}
-                          </div>
-                        </button>
-                      ))
+                      {fetchModels.isPending ? "Fetching…" : "Fetch Models from API"}
+                    </button>
+                    {fetchError && <p className="mt-1.5 text-[0.625rem] text-[var(--destructive)]">{fetchError}</p>}
+                    {remoteModels.length > 0 && !fetchError && (
+                      <p className="mt-1 text-[0.625rem] text-emerald-400">
+                        {remoteModels.length} model{remoteModels.length !== 1 ? "s" : ""} available from API
+                      </p>
                     )}
                   </div>
-                </>
+
+                  {localProvider === "custom" ? (
+                    <div className="p-3">
+                      <p className="mb-2 text-[0.625rem] text-[var(--muted-foreground)]">
+                        Custom endpoints: type the model ID or fetch from API above.
+                      </p>
+                      <input
+                        value={localModel}
+                        onChange={(e) => {
+                          setLocalModel(e.target.value);
+                          markDirty();
+                        }}
+                        className="w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
+                        placeholder="model-name-or-path"
+                      />
+                      {/* Show fetched models for custom provider */}
+                      {remoteModels.length > 0 && (
+                        <div className="mt-2 max-h-48 overflow-y-auto">
+                          {remoteModels
+                            .filter((m) => {
+                              const q = (modelSearch || localModel).trim().toLowerCase();
+                              if (!q) return true;
+                              return m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q);
+                            })
+                            .map((m) => (
+                              <button
+                                key={m.id}
+                                onClick={() => selectModel({ ...m, isRemote: true })}
+                                className={cn(
+                                  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--accent)]",
+                                  localModel === m.id && "bg-sky-400/5",
+                                )}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium">{m.name}</span>
+                                    {localModel === m.id && <Check size="0.75rem" className="text-sky-400" />}
+                                  </div>
+                                  <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
+                                </div>
+                                <span className="shrink-0 rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
+                                  API
+                                </span>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => {
+                          setShowModelDropdown(false);
+                          setModelSearch("");
+                        }}
+                        className="mt-2 w-full rounded-lg bg-sky-400/10 px-3 py-1.5 text-xs font-medium text-sky-400 hover:bg-sky-400/20"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  ) : filteredModels.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-[var(--muted-foreground)]">
+                      No models found. Try a different search or type the model ID below.
+                      <input
+                        value={localModel}
+                        onChange={(e) => {
+                          setLocalModel(e.target.value);
+                          markDirty();
+                        }}
+                        className="mt-2 w-full rounded-lg bg-[var(--secondary)] px-3 py-2 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
+                        placeholder="Custom model ID…"
+                      />
+                    </div>
+                  ) : (
+                    filteredModels.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => selectModel(m)}
+                        className={cn(
+                          "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--accent)]",
+                          localModel === m.id && "bg-sky-400/5",
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">{m.name}</span>
+                            {m.isRemote && (
+                              <span className="rounded-md bg-sky-400/10 px-1.5 py-0.5 text-[0.5625rem] font-medium text-sky-400">
+                                API
+                              </span>
+                            )}
+                            {localModel === m.id && <Check size="0.75rem" className="text-sky-400" />}
+                          </div>
+                          <span className="text-[0.625rem] text-[var(--muted-foreground)]">{m.id}</span>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          {m.context > 0 && (
+                            <div className="text-[0.625rem] font-medium text-sky-400">{formatContext(m.context)}</div>
+                          )}
+                          {m.maxOutput > 0 && (
+                            <div className="text-[0.5625rem] text-[var(--muted-foreground)]">
+                              {formatContext(m.maxOutput)} out
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
             </div>
 
@@ -1575,7 +1577,7 @@ export function ConnectionEditor() {
           {localProvider !== "image_generation" && !isLocalAuthProvider && (
             <FieldGroup
               label="Max Output Tokens Override"
-              icon={<Zap size="0.875rem" className="text-amber-400" />}
+              icon={<Zap size="0.875rem" className="text-[var(--marinara-chat-chrome-button-text-active)]" />}
               help="Hard cap on max_tokens for the API response (limiting output size). Use this for providers that enforce a lower limit than what the engine calculates (e.g. DeepSeek caps at 8192). Leave empty to let the engine decide."
             >
               <div className="flex items-center gap-3">
@@ -1635,7 +1637,7 @@ export function ConnectionEditor() {
           {canTreatAsLocalEndpoint && (
             <FieldGroup
               label="Local / Custom Endpoint"
-              icon={<Server size="0.875rem" className="text-emerald-400" />}
+              icon={<Server size="0.875rem" className="text-[var(--marinara-chat-chrome-button-text-active)]" />}
               help="Use this for self-hosted or proxied OpenAI-compatible endpoints, especially custom domains that point at a LAN model server. Professor Mari will use a JSON tool protocol fallback for workspace tools instead of relying only on native tool calls."
             >
               <SettingsSwitch
@@ -1721,7 +1723,7 @@ export function ConnectionEditor() {
           {(localProvider === "anthropic" || localProvider === "openrouter") && (
             <FieldGroup
               label="Prompt Caching"
-              icon={<Zap size="0.875rem" className="text-amber-400" />}
+              icon={<Zap size="0.875rem" className="text-[var(--marinara-chat-chrome-button-text-active)]" />}
               help={
                 localProvider === "anthropic"
                   ? "Enables Anthropic prompt caching, which caches your system prompt and conversation history between requests. Reduces latency and costs for multi-turn conversations. Cache lasts 5 minutes and is refreshed on each use."
@@ -1802,12 +1804,29 @@ export function ConnectionEditor() {
               icon={<Zap size="0.875rem" className="text-amber-400" />}
               help="When enabled, asks the Claude Agent SDK to use its faster routing tier — quicker responses but the SDK may use a smaller model behind the scenes (Sonnet/Haiku) even if you've selected Opus. Currently a no-op on every modern Claude model: Opus 4.7 has no faster variant to route to, and Anthropic dropped support for downgrading on the rest. The toggle is here for the day Anthropic re-enables it. Leave off."
             >
-              <label className="flex items-start gap-3 rounded-xl bg-[var(--secondary)] px-3 py-2.5 ring-1 ring-[var(--border)]">
-                <input
-                  type="checkbox"
-                  checked={localClaudeFastMode}
-                  onChange={async (e) => {
-                    const next = e.target.checked;
+              <SettingsSwitch
+                label={<span className="font-medium text-[var(--foreground)]">Use Claude Code fast-mode routing</span>}
+                description={
+                  <>
+                    <span className="mt-0.5 block text-[var(--muted-foreground)]">
+                      <strong className="text-amber-400">99% of users should leave this off.</strong> Fast mode is
+                      effectively a dead feature today — Claude/Anthropic removed support for downgrading current models,
+                      and Opus 4.7 has no faster variant to route to. Turning it on does nothing useful for roleplay
+                      quality and may add overhead. The toggle exists only so we don&apos;t have to ship a new release if
+                      Anthropic re-enables it. Leave off until that happens.
+                    </span>
+                    <span className="mt-1.5 flex items-start gap-1 text-[var(--muted-foreground)]">
+                      <AlertCircle size="0.625rem" className="mt-px shrink-0 text-amber-400" />
+                      <span>
+                        <strong className="text-amber-400">Doesn&apos;t work on Claude Opus 4.7 yet.</strong> There is no
+                        faster Opus 4.7 variant for the SDK to route to, so this toggle is a no-op when Opus 4.7 is the
+                        selected model.
+                      </span>
+                    </span>
+                  </>
+                }
+                checked={localClaudeFastMode}
+                onChange={async (next) => {
                     if (next) {
                       const confirmed = await showConfirmDialog({
                         title: "YOU DON'T WANT THIS SETTING ON!",
@@ -1821,28 +1840,11 @@ export function ConnectionEditor() {
                     }
                     setLocalClaudeFastMode(next);
                     markDirty();
-                  }}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--primary)]"
-                />
-                <div className="min-w-0 flex-1 text-[0.6875rem] leading-relaxed">
-                  <div className="font-medium text-[var(--foreground)]">Use Claude Code fast-mode routing</div>
-                  <p className="mt-0.5 text-[var(--muted-foreground)]">
-                    <strong className="text-amber-400">99% of users should leave this off.</strong> Fast mode is
-                    effectively a dead feature today — Claude/Anthropic removed support for downgrading current models,
-                    and Opus 4.7 has no faster variant to route to. Turning it on does nothing useful for roleplay
-                    quality and may add overhead. The toggle exists only so we don&apos;t have to ship a new release if
-                    Anthropic re-enables it. Leave off until that happens.
-                  </p>
-                  <p className="mt-1.5 flex items-start gap-1 text-[var(--muted-foreground)]">
-                    <AlertCircle size="0.625rem" className="mt-px shrink-0 text-amber-400" />
-                    <span>
-                      <strong className="text-amber-400">Doesn&apos;t work on Claude Opus 4.7 yet.</strong> There is no
-                      faster Opus 4.7 variant for the SDK to route to, so this toggle is a no-op when Opus 4.7 is the
-                      selected model.
-                    </span>
-                  </p>
-                </div>
-              </label>
+                }}
+                labelPosition="start"
+                className="items-start justify-between rounded-xl bg-[var(--secondary)] px-3 py-2.5 ring-1 ring-[var(--border)]"
+                labelClassName="min-w-0 flex-1 text-[0.6875rem] leading-relaxed"
+              />
             </FieldGroup>
           )}
 
@@ -2178,7 +2180,7 @@ function FieldGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="mari-editor-panel space-y-2 p-3">
       <div className="flex items-center gap-1.5">
         {icon}
         <h3 className="text-xs font-semibold text-[var(--foreground)]">{label}</h3>

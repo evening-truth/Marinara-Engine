@@ -214,6 +214,8 @@ const CREATE_TABLES: string[] = [
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    conversation_prompt TEXT NOT NULL DEFAULT '',
+    game_prompt TEXT NOT NULL DEFAULT '',
     section_order TEXT NOT NULL DEFAULT '[]',
     group_order TEXT NOT NULL DEFAULT '[]',
     variable_groups TEXT NOT NULL DEFAULT '[]',
@@ -562,6 +564,16 @@ interface ColumnMigration {
 }
 
 const COLUMN_MIGRATIONS: ColumnMigration[] = [
+  {
+    table: "prompt_presets",
+    column: "conversation_prompt",
+    definition: "TEXT NOT NULL DEFAULT ''",
+  },
+  {
+    table: "prompt_presets",
+    column: "game_prompt",
+    definition: "TEXT NOT NULL DEFAULT ''",
+  },
   {
     table: "api_connections",
     column: "image_path",

@@ -7953,6 +7953,7 @@ export function GameSurface({
                   setupConfig: config,
                   chatId: activeChatId,
                   connectionId: conns.gmConnectionId,
+                  promptPresetId: config.promptPresetId ?? undefined,
                 },
                 {
                   onSuccess: (res) => {
@@ -7961,6 +7962,7 @@ export function GameSurface({
                         chatId: res.sessionChat.id,
                         connectionId: conns.gmConnectionId,
                         preferences,
+                        promptPresetId: config.promptPresetId ?? null,
                       },
                       { onError: handleJsonRepairError },
                     );
@@ -7969,7 +7971,12 @@ export function GameSurface({
               );
             } else {
               gameSetup.mutate(
-                { chatId: activeChatId, connectionId: conns.gmConnectionId, preferences },
+                {
+                  chatId: activeChatId,
+                  connectionId: conns.gmConnectionId,
+                  preferences,
+                  promptPresetId: config.promptPresetId ?? null,
+                },
                 { onError: handleJsonRepairError },
               );
             }
@@ -8372,7 +8379,7 @@ export function GameSurface({
               <div
                 data-tour="game-controls"
                 data-tracker-panel-anchor="roleplay-hud"
-                className={cn("pointer-events-none absolute right-3 z-30", topOverlayOffsetClass)}
+                className={cn("pointer-events-none absolute right-3 z-50", topOverlayOffsetClass)}
               >
                 {/* Desktop controls */}
                 <div className={cn("pointer-events-auto hidden items-center md:flex", CHAT_TOOLBAR_ICON_GAP_CLASS)}>

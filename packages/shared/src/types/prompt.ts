@@ -50,6 +50,10 @@ export interface PromptPreset {
   id: string;
   name: string;
   description: string;
+  /** Conversation-mode system prompt template. Empty means use the built-in fallback. */
+  conversationPrompt: string;
+  /** Game-mode GM prompt template. Empty means use the built-in fallback. */
+  gamePrompt: string;
   /** Ordered list of section IDs defining the prompt structure */
   sectionOrder: string[];
   /** Ordered list of group IDs */

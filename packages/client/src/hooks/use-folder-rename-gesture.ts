@@ -17,6 +17,10 @@ interface PendingFolderRenameGesture {
   timeout: ReturnType<typeof window.setTimeout>;
 }
 
+function prefersImmediateFolderTap() {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
 export function useFolderRenameGesture() {
   const pendingGesturesRef = useRef(new Map<string, PendingFolderRenameGesture>());
 
@@ -37,6 +41,11 @@ export function useFolderRenameGesture() {
       { onSingleClick, onRename, delayMs = 360 }: FolderRenameGestureOptions,
     ) => {
       event.stopPropagation();
+
+      if (prefersImmediateFolderTap()) {
+        onSingleClick();
+        return;
+      }
 
       const now = Date.now();
       const pending = pendingGesturesRef.current.get(key);

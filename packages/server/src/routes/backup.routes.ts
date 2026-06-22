@@ -2244,7 +2244,7 @@ export async function backupRoutes(app: FastifyInstance) {
                   name: a.name,
                   description: a.description ?? "",
                   phase: a.phase,
-                  enabled: a.enabled === "true" || a.enabled === true,
+                  enabled: true,
                   connectionId: a.connectionId ?? null,
                   imagePath: a.imagePath ?? null,
                   promptTemplate: a.promptTemplate ?? "",

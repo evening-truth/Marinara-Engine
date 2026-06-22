@@ -48,9 +48,18 @@ See the [LAN / mobile access FAQ](FAQ.md#how-do-i-access-marinara-engine-from-my
 
 ## Android APK Stuck on Connecting or Waiting for Server
 
-The APK is not a standalone Marinara Engine app. It is a WebView shell that opens the local Termux server on the same Android device.
+The APK is a Termux bootstrap + WebView shell. It opens the local Termux server on the same Android device and can help launch setup, but Termux still owns the actual Linux/Node runtime.
 
 If the APK stays on the connection screen:
+
+1. Tap **Start setup in Termux**.
+2. If Termux is missing, install Termux from F-Droid and return to the APK.
+3. If Android asks for **Run commands in Termux environment**, grant it.
+4. If Termux blocks external commands, paste the copied `allow-external-apps` command into Termux once, then tap **Start setup in Termux** again.
+5. Wait for the launcher to finish and start the server.
+6. Return to the APK.
+
+Manual fallback:
 
 1. Open Termux.
 2. Go to the Marinara Engine folder.

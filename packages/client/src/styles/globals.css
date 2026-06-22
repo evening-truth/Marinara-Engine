@@ -826,6 +826,30 @@
   --mari-panel-gradient-text: #07130f;
 }
 
+.mari-avatar-placeholder {
+  background: linear-gradient(
+    135deg,
+    var(--mari-avatar-placeholder-start),
+    var(--mari-avatar-placeholder-end)
+  );
+  color: var(--mari-avatar-placeholder-text);
+  box-shadow:
+    0 0.25rem 0.75rem color-mix(in srgb, var(--mari-avatar-placeholder-end) 18%, transparent),
+    inset 0 1px color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+.mari-avatar-placeholder--character {
+  --mari-avatar-placeholder-start: #f472b6;
+  --mari-avatar-placeholder-end: #f43f5e;
+  --mari-avatar-placeholder-text: #fff7fb;
+}
+
+.mari-avatar-placeholder--persona {
+  --mari-avatar-placeholder-start: #34d399;
+  --mari-avatar-placeholder-end: #14b8a6;
+  --mari-avatar-placeholder-text: #ecfdf5;
+}
+
 .mari-topbar-button {
   color: var(--marinara-chat-chrome-button-text);
   transition:
@@ -1328,6 +1352,18 @@
   cursor: var(--cursor-pink), pointer;
 }
 
+.mari-editor-avatar-tile.mari-avatar-placeholder {
+  background: linear-gradient(
+    135deg,
+    var(--mari-avatar-placeholder-start),
+    var(--mari-avatar-placeholder-end)
+  );
+  color: var(--mari-avatar-placeholder-text);
+  box-shadow:
+    0 0.25rem 0.75rem color-mix(in srgb, var(--mari-avatar-placeholder-end) 18%, transparent),
+    inset 0 1px color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
 .mari-editor-icon-tile.mari-panel-gradient-surface {
   border-color: color-mix(in srgb, var(--mari-panel-gradient-start) 34%, transparent);
   background: linear-gradient(135deg, var(--mari-panel-gradient-start), var(--mari-panel-gradient-end));
@@ -1499,6 +1535,226 @@
 .mari-editor-section-jump:focus-visible {
   outline: none;
   box-shadow: 0 0 0 0.125rem var(--marinara-editor-focus-ring);
+}
+
+.mari-editor-panel {
+  border: 1px solid var(--marinara-editor-border);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--marinara-editor-surface-bg) 74%, var(--background) 26%);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+
+.mari-editor-panel--soft {
+  background: color-mix(in srgb, var(--marinara-editor-control-bg) 78%, transparent);
+}
+
+.mari-editor-toolbar {
+  border: 1px solid var(--marinara-editor-border);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--marinara-editor-control-bg) 84%, transparent);
+  box-shadow: inset 0 1px color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.mari-editor-field {
+  border: 1px solid var(--marinara-editor-border);
+  border-radius: 0.625rem;
+  background: var(--marinara-editor-control-bg);
+  color: var(--marinara-editor-text);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.mari-editor-field:hover {
+  border-color: var(--marinara-editor-border-strong);
+}
+
+.mari-editor-field:focus,
+.mari-editor-field:focus-within,
+.mari-editor-field:focus-visible {
+  border-color: var(--marinara-editor-border-strong);
+  outline: none;
+  box-shadow: 0 0 0 0.125rem var(--marinara-editor-focus-ring);
+}
+
+.mari-editor-field::placeholder {
+  color: var(--marinara-editor-muted);
+}
+
+.mari-editor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--marinara-editor-border);
+  border-radius: 9999px;
+  background: var(--marinara-editor-control-bg);
+  color: var(--marinara-editor-muted);
+  font-weight: 600;
+}
+
+.mari-editor-chip--accent {
+  border-color: var(--marinara-editor-border-strong);
+  background: color-mix(in srgb, var(--marinara-editor-accent) 13%, transparent);
+  color: var(--marinara-editor-text);
+}
+
+.mari-editor-chip--warning {
+  border-color: color-mix(in srgb, var(--warning) 32%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: color-mix(in srgb, var(--warning) 78%, var(--marinara-editor-text) 22%);
+}
+
+.mari-editor-empty {
+  border: 1px dashed var(--marinara-editor-border);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--marinara-editor-control-bg) 54%, transparent);
+}
+
+.mari-editor-legacy-bridge
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(.mari-editor-title-input):not(
+    .mari-editor-subtitle-input
+  ),
+.mari-editor-legacy-bridge textarea,
+.mari-editor-legacy-bridge select {
+  border: 1px solid var(--marinara-editor-border);
+  border-radius: 0.625rem;
+  background: var(--marinara-editor-control-bg);
+  color: var(--marinara-editor-text);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.mari-editor-legacy-bridge
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(.mari-editor-title-input):not(
+    .mari-editor-subtitle-input
+  ):focus,
+.mari-editor-legacy-bridge textarea:focus,
+.mari-editor-legacy-bridge select:focus {
+  border-color: var(--marinara-editor-border-strong);
+  outline: none;
+  box-shadow: 0 0 0 0.125rem var(--marinara-editor-focus-ring);
+}
+
+.mari-editor-legacy-bridge input::placeholder,
+.mari-editor-legacy-bridge textarea::placeholder {
+  color: var(--marinara-editor-muted);
+}
+
+.mari-editor-legacy-bridge [class~="bg-[var(--secondary)]"],
+.mari-editor-legacy-bridge [class~="bg-[var(--secondary)]/70"],
+.mari-editor-legacy-bridge [class~="bg-[var(--secondary)]/60"],
+.mari-editor-legacy-bridge [class~="bg-[var(--secondary)]/50"],
+.mari-editor-legacy-bridge [class~="bg-[var(--secondary)]/40"],
+.mari-editor-legacy-bridge [class~="bg-[var(--secondary)]/30"],
+.mari-editor-legacy-bridge [class~="bg-[var(--card)]"] {
+  background: var(--marinara-editor-control-bg);
+}
+
+.mari-editor-legacy-bridge [class~="bg-[var(--card)]/95"],
+.mari-editor-legacy-bridge [class~="bg-[var(--card)]/90"],
+.mari-editor-legacy-bridge [class~="bg-[var(--card)]/40"] {
+  background: color-mix(in srgb, var(--marinara-editor-surface-bg) 88%, transparent);
+}
+
+.mari-editor-legacy-bridge [class~="border-[var(--border)]"] {
+  border-color: var(--marinara-editor-border);
+}
+
+.mari-editor-legacy-bridge [class~="ring-[var(--border)]"] {
+  --tw-ring-color: var(--marinara-editor-border);
+}
+
+.mari-editor-legacy-bridge [class~="text-[var(--primary)]"],
+.mari-editor-legacy-bridge [class~="text-sky-400"],
+.mari-editor-legacy-bridge [class~="text-sky-300"],
+.mari-editor-legacy-bridge [class~="text-sky-400/80"] {
+  color: var(--marinara-editor-accent);
+}
+
+.mari-editor-legacy-bridge [class~="bg-[var(--primary)]/10"],
+.mari-editor-legacy-bridge [class~="bg-[var(--primary)]/15"],
+.mari-editor-legacy-bridge [class~="bg-[var(--primary)]/25"],
+.mari-editor-legacy-bridge [class~="bg-sky-400/5"],
+.mari-editor-legacy-bridge [class~="bg-sky-400/10"],
+.mari-editor-legacy-bridge [class~="bg-sky-400/15"],
+.mari-editor-legacy-bridge [class~="bg-sky-400/20"] {
+  background: color-mix(in srgb, var(--marinara-editor-accent) 13%, transparent);
+}
+
+.mari-editor-legacy-bridge [class~="ring-[var(--primary)]/30"],
+.mari-editor-legacy-bridge [class~="ring-sky-400/20"],
+.mari-editor-legacy-bridge [class~="ring-sky-400/30"],
+.mari-editor-legacy-bridge [class~="ring-sky-400/50"] {
+  --tw-ring-color: var(--marinara-editor-border-strong);
+}
+
+.mari-editor-legacy-bridge [class~="text-amber-300"],
+.mari-editor-legacy-bridge [class~="text-amber-300/80"],
+.mari-editor-legacy-bridge [class~="text-amber-400"],
+.mari-editor-legacy-bridge [class~="text-amber-400/80"],
+.mari-editor-legacy-bridge [class~="text-amber-500"] {
+  color: var(--warning);
+}
+
+.mari-editor-legacy-bridge [class~="bg-amber-400/5"],
+.mari-editor-legacy-bridge [class~="bg-amber-400/10"],
+.mari-editor-legacy-bridge [class~="bg-amber-400/15"],
+.mari-editor-legacy-bridge [class~="bg-amber-400/20"],
+.mari-editor-legacy-bridge [class~="bg-amber-500/10"],
+.mari-editor-legacy-bridge [class~="bg-amber-500/15"],
+.mari-editor-legacy-bridge [class~="bg-amber-500/20"],
+.mari-editor-legacy-bridge [class~="bg-amber-500/30"] {
+  background: color-mix(in srgb, var(--warning) 13%, transparent);
+}
+
+.mari-editor-legacy-bridge [class~="border-amber-400/20"],
+.mari-editor-legacy-bridge [class~="border-amber-500/30"] {
+  border-color: color-mix(in srgb, var(--warning) 34%, transparent);
+}
+
+.mari-editor-legacy-bridge [class~="ring-amber-400/20"],
+.mari-editor-legacy-bridge [class~="ring-amber-400/30"] {
+  --tw-ring-color: color-mix(in srgb, var(--warning) 34%, transparent);
+}
+
+.mari-editor-legacy-bridge [class~="hover:bg-[var(--secondary)]"]:hover,
+.mari-editor-legacy-bridge [class~="hover:bg-[var(--accent)]"]:hover {
+  background: var(--marinara-editor-control-bg-hover);
+}
+
+.mari-editor-legacy-bridge [class~="hover:text-[var(--primary)]"]:hover,
+.mari-editor-legacy-bridge [class~="hover:text-sky-300"]:hover,
+.mari-editor-legacy-bridge [class~="hover:text-sky-400"]:hover {
+  color: var(--marinara-editor-accent);
+}
+
+.mari-editor-legacy-bridge [class~="hover:bg-[var(--primary)]/25"]:hover,
+.mari-editor-legacy-bridge [class~="hover:bg-sky-400/10"]:hover,
+.mari-editor-legacy-bridge [class~="hover:bg-sky-400/20"]:hover {
+  background: color-mix(in srgb, var(--marinara-editor-accent) 18%, transparent);
+}
+
+.mari-editor-legacy-bridge [class~="hover:bg-amber-400/10"]:hover,
+.mari-editor-legacy-bridge [class~="hover:bg-amber-400/20"]:hover,
+.mari-editor-legacy-bridge [class~="hover:bg-amber-500/25"]:hover,
+.mari-editor-legacy-bridge [class~="hover:bg-amber-500/30"]:hover {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.mari-editor-legacy-bridge [class~="focus:border-[var(--primary)]/40"]:focus,
+.mari-editor-legacy-bridge [class~="focus:border-emerald-400/40"]:focus {
+  border-color: var(--marinara-editor-border-strong);
+}
+
+.mari-editor-legacy-bridge [class~="focus:ring-[var(--primary)]/20"]:focus,
+.mari-editor-legacy-bridge [class~="focus:ring-sky-400/50"]:focus,
+.mari-editor-legacy-bridge [class~="focus:ring-emerald-400/20"]:focus {
+  --tw-ring-color: var(--marinara-editor-focus-ring);
 }
 
 [data-marinara-chat-chrome-accent-mode="gradient"] .mari-editor-action--primary,

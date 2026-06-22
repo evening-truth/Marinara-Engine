@@ -137,6 +137,8 @@ export const updatePromptGroupSchema = z.object({
 export const createPromptPresetSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().default(""),
+  conversationPrompt: z.string().default(""),
+  gamePrompt: z.string().default(""),
   variableGroups: z.array(promptVariableGroupSchema).default([]),
   variableValues: z.record(z.string()).default({}),
   parameters: generationParametersSchema.default({}),
@@ -148,6 +150,8 @@ export const createPromptPresetSchema = z.object({
 export const updatePromptPresetSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().optional(),
+  conversationPrompt: z.string().optional(),
+  gamePrompt: z.string().optional(),
   sectionOrder: z.array(z.string()).optional(),
   groupOrder: z.array(z.string()).optional(),
   variableGroups: z.array(promptVariableGroupSchema).optional(),

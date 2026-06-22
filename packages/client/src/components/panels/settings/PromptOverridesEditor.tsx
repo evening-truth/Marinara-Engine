@@ -134,15 +134,13 @@ export function PromptOverridesEditor({
             <span className="flex items-center gap-1.5">
               <FileText size="0.75rem" className="text-[var(--muted-foreground)]" />
               <span className="text-xs font-medium text-[var(--foreground)]">{title}</span>
+              <HelpTooltip text={help} />
             </span>
             <span className="mt-1 block text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
               {description}
             </span>
           </span>
         </button>
-        <span className="mt-0.5 shrink-0">
-          <HelpTooltip text={help} />
-        </span>
       </div>
 
       {hasOpened && (

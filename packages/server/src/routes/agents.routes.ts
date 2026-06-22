@@ -122,7 +122,7 @@ export async function agentsRoutes(app: FastifyInstance) {
       name: builtIn.name,
       description: builtIn.description,
       phase: normalizeAgentPhaseForType(builtIn.id, builtIn.phase),
-      enabled: builtIn.enabledByDefault,
+      enabled: true,
       connectionId: null,
       imagePath: null,
       promptTemplate: "",
@@ -279,7 +279,7 @@ export async function agentsRoutes(app: FastifyInstance) {
     }
   });
 
-  /** Toggle a built-in agent by type. Creates config if first toggle. */
+  /** Legacy endpoint retained for compatibility. Agent activation is chat-scoped. */
   app.put<{ Params: { agentType: string } }>("/toggle/:agentType", async (req, reply) => {
     const { agentType } = req.params;
     const builtIn = BUILT_IN_AGENTS.find((a) => a.id === agentType);
@@ -289,17 +289,16 @@ export async function agentsRoutes(app: FastifyInstance) {
 
     const existing = await storage.getByType(agentType);
     if (existing) {
-      const currentEnabled = existing.enabled === "true";
-      return storage.update(existing.id, { enabled: !currentEnabled });
+      return storage.update(existing.id, { enabled: true });
     }
 
-    // First toggle — create with opposite of default
+    // First toggle — create a normal config; chats decide whether it runs.
     return storage.create({
       type: builtIn.id,
       name: builtIn.name,
       description: builtIn.description,
       phase: normalizeAgentPhaseForType(builtIn.id, builtIn.phase),
-      enabled: !builtIn.enabledByDefault,
+      enabled: true,
       connectionId: null,
       imagePath: null,
       promptTemplate: "",

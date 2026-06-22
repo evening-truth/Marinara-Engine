@@ -558,6 +558,8 @@ async function importPreset(data: unknown, db: DB) {
     {
       name: String(p.name ?? "Imported Preset"),
       description: String(p.description ?? ""),
+      conversationPrompt: String(p.conversationPrompt ?? p.conversation_prompt ?? ""),
+      gamePrompt: String(p.gamePrompt ?? p.game_prompt ?? ""),
       variableGroups: safeParseJson(p.variableGroups, []),
       variableValues: safeParseJson(p.variableValues, {}),
       parameters: safeParseJson(p.parameters, {}),
