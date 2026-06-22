@@ -4,7 +4,7 @@
 // ──────────────────────────────────────────────
 import { Fragment, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ChevronRight, EyeOff, FileText, X } from "lucide-react";
-import type { MessageExtra, QuoteFormat } from "@marinara-engine/shared";
+import { normalizeTextForMatch, type MessageExtra, type QuoteFormat } from "@marinara-engine/shared";
 import { cn } from "../../lib/utils";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../lib/markdown";
 import { renderInlineWithCustomEmojis } from "../../lib/custom-emoji-render";
@@ -226,7 +226,7 @@ export function parseSpeakerTags(content: string, knownNames: Set<string>): Spea
   while ((match = regex.exec(content)) !== null) {
     foundTag = true;
     const speakerName = match[1]!.trim();
-    const knownSpeaker = knownNames.has(speakerName.toLowerCase());
+    const knownSpeaker = knownNames.has(normalizeTextForMatch(speakerName));
     if (match.index > lastIndex) {
       const before = content.slice(lastIndex, match.index).trim();
       if (before) segments.push({ speaker: null, text: before });
@@ -252,7 +252,7 @@ export function parseNamePrefixFormat(content: string, knownNames: Set<string>):
     const colonIdx = line.indexOf(": ");
     if (colonIdx > 0) {
       const potentialName = line.slice(0, colonIdx).trim();
-      if (knownNames.has(potentialName.toLowerCase())) {
+      if (knownNames.has(normalizeTextForMatch(potentialName))) {
         if (currentLines.length > 0) segments.push({ speaker: currentSpeaker, text: currentLines.join("\n") });
         currentSpeaker = potentialName;
         currentLines = [line.slice(colonIdx + 2)];
@@ -272,7 +272,12 @@ export function groupConsecutiveSegments(segments: SpeakerSegment[]): GroupedSeg
   for (const seg of segments) {
     const last = groups[groups.length - 1];
     const trimmed = seg.text.replace(/^\n+|\n+$/g, "");
-    if (last && last.speaker && seg.speaker && last.speaker.toLowerCase() === seg.speaker.toLowerCase()) {
+    if (
+      last &&
+      last.speaker &&
+      seg.speaker &&
+      normalizeTextForMatch(last.speaker) === normalizeTextForMatch(seg.speaker)
+    ) {
       last.lines.push(trimmed);
     } else {
       groups.push({ speaker: seg.speaker, lines: [trimmed] });
@@ -325,7 +330,10 @@ export function HiddenFromAIConversationSummary({ onExpand }: { onExpand: () => 
   return (
     <button
       type="button"
-      onClick={(event) => { event.stopPropagation(); onExpand(); }}
+      onClick={(event) => {
+        event.stopPropagation();
+        onExpand();
+      }}
       className="flex w-full items-center gap-2 rounded-md border border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-highlight-bg)] px-2.5 py-1.5 text-left text-[0.75rem] text-[var(--marinara-chat-chrome-highlight-text)] transition-colors hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)]"
       title="Expand hidden from AI message"
       aria-label="Expand hidden from AI message"
@@ -353,7 +361,15 @@ export function MessageContent({
   if (IMAGE_URL_RE.test(content.trim())) {
     const url = content.trim();
     return (
-      <button type="button" onClick={(e) => { e.stopPropagation(); onImageOpen(url); }} className="block cursor-zoom-in rounded-lg text-left" title="Open image">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onImageOpen(url);
+        }}
+        className="block cursor-zoom-in rounded-lg text-left"
+        title="Open image"
+      >
         <img src={url} alt="GIF" className="max-h-48 max-w-full sm:max-w-xs rounded-lg" loading="lazy" />
       </button>
     );
@@ -369,7 +385,11 @@ export function MessageContent({
   const renderTextBlock = (text: string, kp: string) => (
     <Fragment key={kp}>{renderMarkdownBlocks(text, renderInline)}</Fragment>
   );
-  return <>{stickerMap ? renderWithStickerBlocks(compacted, stickerMap, renderTextBlock) : renderTextBlock(compacted, "sc")}</>;
+  return (
+    <>
+      {stickerMap ? renderWithStickerBlocks(compacted, stickerMap, renderTextBlock) : renderTextBlock(compacted, "sc")}
+    </>
+  );
 }
 
 /** Tiny action-bar button. */
@@ -388,10 +408,16 @@ export function MsgAction({
 }) {
   return (
     <button
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       title={title}
       tabIndex={tabIndex}
-      className={cn("rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground", className)}
+      className={cn(
+        "rounded p-1 text-foreground/70 transition-colors hover:bg-foreground/20 hover:text-foreground",
+        className,
+      )}
     >
       {icon}
     </button>
@@ -431,12 +457,21 @@ export function ConversationMessageEditForm({
         className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--secondary)] p-2.5 text-[0.9375rem] leading-relaxed outline-none"
         rows={1}
         style={{ overflow: "auto", ...messageTextStyle }}
-        onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); onCancel(); } }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
       />
       <div className="flex items-center gap-2 text-[0.6875rem] text-[var(--muted-foreground)]">
-        <button onClick={onCancel} className="text-foreground/70 hover:underline hover:text-foreground">cancel</button>
+        <button onClick={onCancel} className="text-foreground/70 hover:underline hover:text-foreground">
+          cancel
+        </button>
         <span>·</span>
-        <button onClick={onSave} className="text-foreground/70 hover:underline hover:text-foreground">save</button>
+        <button onClick={onSave} className="text-foreground/70 hover:underline hover:text-foreground">
+          save
+        </button>
       </div>
     </div>
   );
@@ -462,11 +497,19 @@ export function ConversationMessageAttachments({
           <div key={i} className="group/att relative inline-block">
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); onImageOpen(att.url || att.data || "", att.prompt); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onImageOpen(att.url || att.data || "", att.prompt);
+              }}
               className="block cursor-zoom-in rounded-lg text-left"
               title="Open image"
             >
-              <img src={att.url || att.data} alt={att.filename || att.name || "image"} className="max-h-80 max-w-full rounded-lg" loading="lazy" />
+              <img
+                src={att.url || att.data}
+                alt={att.filename || att.name || "image"}
+                className="max-h-80 max-w-full rounded-lg"
+                loading="lazy"
+              />
             </button>
             <button
               type="button"
@@ -519,7 +562,9 @@ export function ConversationMessageTranslation({
       {isTranslating ? (
         <span className="text-[0.75rem] italic text-[var(--muted-foreground)]">Translating…</span>
       ) : (
-        <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">{translatedText}</div>
+        <div className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--muted-foreground)]">
+          {translatedText}
+        </div>
       )}
     </div>
   );

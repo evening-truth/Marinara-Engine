@@ -14,6 +14,7 @@ import {
 import { getMaxToolRounds, isDebugAgentsEnabled } from "../../config/runtime-config.js";
 import { logger } from "../../lib/logger.js";
 import { wrapContent } from "../prompt/format-engine.js";
+import { settleAgentJobsWithConcurrencyLimit } from "./agent-concurrency.js";
 
 const MAX_AGENT_CONTEXT_MESSAGES = 200;
 const EXPRESSION_AGENT_RECENT_CONTEXT_MESSAGES = 2;
@@ -23,6 +24,7 @@ const CHARACTER_LORE_DESCRIPTION_LIMIT = 2000;
 const CHARACTER_LORE_FIELD_LIMIT = 1200;
 const DEFAULT_AGENT_TEMPERATURE = 0.3;
 const DEFAULT_AGENT_CALL_TIMEOUT_MS = 5 * 60_000;
+const AGENT_BATCH_FALLBACK_MAX_CONCURRENT = 4;
 
 /** Strip HTML/XML-style tags (e.g. <div style="..."> <br> <speaker>) from text to save tokens. */
 function stripHtmlTags(text: string): string {
@@ -668,8 +670,17 @@ export async function executeAgentBatch(
       isolatedConfigs.length,
       isolatedConfigs.map((c) => c.type).join(", "),
     );
-    const isolatedSettled = await Promise.allSettled(
-      isolatedConfigs.map((config) => executeAgent(config, context, provider, model)),
+    if (isolatedConfigs.length > AGENT_BATCH_FALLBACK_MAX_CONCURRENT) {
+      logger.warn(
+        "[agent-batch] Limiting %d isolated agent request(s) to %d concurrent request(s)",
+        isolatedConfigs.length,
+        AGENT_BATCH_FALLBACK_MAX_CONCURRENT,
+      );
+    }
+    const isolatedSettled = await settleAgentJobsWithConcurrencyLimit(
+      isolatedConfigs,
+      AGENT_BATCH_FALLBACK_MAX_CONCURRENT,
+      (config) => executeAgent(config, context, provider, model),
     );
     return isolatedSettled.map((entry, index) =>
       entry.status === "fulfilled"
@@ -690,7 +701,9 @@ export async function executeAgentBatch(
     const batchedConfigs = configs.filter((config) => !shouldRunAgentIndividually(config));
     const [batchedResults, isolatedSettled] = await Promise.all([
       executeAgentBatch(batchedConfigs, context, provider, model),
-      Promise.allSettled(isolatedConfigs.map((config) => executeAgent(config, context, provider, model))),
+      settleAgentJobsWithConcurrencyLimit(isolatedConfigs, AGENT_BATCH_FALLBACK_MAX_CONCURRENT, (config) =>
+        executeAgent(config, context, provider, model),
+      ),
     ]);
     const isolatedResults = isolatedSettled.map((entry, index) =>
       entry.status === "fulfilled"
@@ -822,8 +835,17 @@ export async function executeAgentBatch(
     // Retry failed agents individually (batch fallback)
     if (failed.length > 0) {
       logger.info(`[agent-batch] Retrying ${failed.length} failed agents individually...`);
-      const retrySettled = await Promise.allSettled(
-        failed.map((config) => executeAgent(config, context, provider, model)),
+      if (failed.length > AGENT_BATCH_FALLBACK_MAX_CONCURRENT) {
+        logger.warn(
+          "[agent-batch] Limiting %d individual fallback retry request(s) to %d concurrent request(s)",
+          failed.length,
+          AGENT_BATCH_FALLBACK_MAX_CONCURRENT,
+        );
+      }
+      const retrySettled = await settleAgentJobsWithConcurrencyLimit(
+        failed,
+        AGENT_BATCH_FALLBACK_MAX_CONCURRENT,
+        (config) => executeAgent(config, context, provider, model),
       );
       const retries: AgentResult[] = [];
       for (let i = 0; i < retrySettled.length; i++) {

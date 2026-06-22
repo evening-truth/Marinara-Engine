@@ -126,6 +126,15 @@ function canProviderTreatAsLocalEndpoint(provider: APIProvider): boolean {
   return provider !== "image_generation" && provider !== "claude_subscription" && provider !== "openai_chatgpt";
 }
 
+function providerSupportsDirectEmbeddingConfig(provider: APIProvider): boolean {
+  return (
+    provider !== "image_generation" &&
+    provider !== "anthropic" &&
+    provider !== "claude_subscription" &&
+    provider !== "openai_chatgpt"
+  );
+}
+
 function normalizeCachingAtDepth(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return DEFAULT_CACHING_AT_DEPTH;
   return Math.min(MAX_CACHING_AT_DEPTH, Math.floor(value));
@@ -431,11 +440,14 @@ export function ConnectionEditor() {
       setSaveError(baseUrlValidation.error);
       throw new Error(baseUrlValidation.error);
     }
-    if (embeddingBaseUrlValidation.error) {
+    const supportsDirectEmbeddings = providerSupportsDirectEmbeddingConfig(localProvider);
+    if (supportsDirectEmbeddings && embeddingBaseUrlValidation.error) {
       setSaveError(embeddingBaseUrlValidation.error);
       throw new Error(embeddingBaseUrlValidation.error);
     }
     const canTreatAsLocalEndpoint = canProviderTreatAsLocalEndpoint(localProvider);
+    const existingEmbeddingModel = (conn as { embeddingModel?: string | null } | undefined)?.embeddingModel ?? "";
+    const existingEmbeddingBaseUrl = (conn as { embeddingBaseUrl?: string | null } | undefined)?.embeddingBaseUrl ?? "";
     const payload: Record<string, unknown> = {
       id: connectionDetailId,
       name: localName,
@@ -447,8 +459,8 @@ export function ConnectionEditor() {
       enableCaching: localEnableCaching,
       cachingAtDepth: localCachingAtDepth,
       defaultForAgents: localDefaultForAgents,
-      embeddingModel: localEmbeddingModel,
-      embeddingBaseUrl: embeddingBaseUrlValidation.value,
+      embeddingModel: supportsDirectEmbeddings ? localEmbeddingModel : existingEmbeddingModel,
+      embeddingBaseUrl: supportsDirectEmbeddings ? embeddingBaseUrlValidation.value : existingEmbeddingBaseUrl,
       embeddingConnectionId: localEmbeddingConnectionId || null,
       promptPresetId: localProvider !== "image_generation" ? localPromptPresetId || null : null,
       openrouterProvider: localOpenrouterProvider || null,
@@ -494,7 +506,7 @@ export function ConnectionEditor() {
       if (baseUrlValidation.value !== localBaseUrl.trim()) {
         setLocalBaseUrl(baseUrlValidation.value);
       }
-      if (embeddingBaseUrlValidation.value !== localEmbeddingBaseUrl.trim()) {
+      if (supportsDirectEmbeddings && embeddingBaseUrlValidation.value !== localEmbeddingBaseUrl.trim()) {
         setLocalEmbeddingBaseUrl(embeddingBaseUrlValidation.value);
       }
       setDirty(false);
@@ -583,6 +595,9 @@ export function ConnectionEditor() {
     const imageService =
       localProvider === "image_generation" ? localImageGenerationSource || localImageService || null : null;
     const canTreatAsLocalEndpoint = canProviderTreatAsLocalEndpoint(localProvider);
+    const supportsDirectEmbeddings = providerSupportsDirectEmbeddingConfig(localProvider);
+    const existingEmbeddingModel = (conn as { embeddingModel?: string | null } | undefined)?.embeddingModel ?? "";
+    const existingEmbeddingBaseUrl = (conn as { embeddingBaseUrl?: string | null } | undefined)?.embeddingBaseUrl ?? "";
     const exportRow: ConnectionTransferRow = {
       ...currentConnection,
       name: localName,
@@ -598,8 +613,8 @@ export function ConnectionEditor() {
       enableCaching: localEnableCaching,
       cachingAtDepth: localCachingAtDepth,
       defaultForAgents: localDefaultForAgents,
-      embeddingModel: localEmbeddingModel,
-      embeddingBaseUrl: localEmbeddingBaseUrl,
+      embeddingModel: supportsDirectEmbeddings ? localEmbeddingModel : existingEmbeddingModel,
+      embeddingBaseUrl: supportsDirectEmbeddings ? embeddingBaseUrlValidation.value : existingEmbeddingBaseUrl,
       embeddingConnectionId: localEmbeddingConnectionId || null,
       openrouterProvider: localOpenrouterProvider || null,
       imageGenerationSource: imageService,
@@ -634,7 +649,7 @@ export function ConnectionEditor() {
     localCachingAtDepth,
     localDefaultForAgents,
     localEmbeddingModel,
-    localEmbeddingBaseUrl,
+    embeddingBaseUrlValidation.value,
     localEmbeddingConnectionId,
     localOpenrouterProvider,
     localImageGenerationSource,
@@ -809,6 +824,7 @@ export function ConnectionEditor() {
   const isClaudeSubscriptionProvider = localProvider === "claude_subscription";
   const isOpenAIChatGPTProvider = localProvider === "openai_chatgpt";
   const isLocalAuthProvider = isClaudeSubscriptionProvider || isOpenAIChatGPTProvider;
+  const supportsDirectEmbeddingConfig = providerSupportsDirectEmbeddingConfig(localProvider);
   const canTreatAsLocalEndpoint = canProviderTreatAsLocalEndpoint(localProvider);
 
   if (!connectionDetailId) return null;
@@ -1909,60 +1925,69 @@ export function ConnectionEditor() {
           )}
 
           {/* ── Embedding Model (for lorebook vectorization) ── */}
-          {localProvider !== "image_generation" && localProvider !== "claude_subscription" && (
+          {localProvider !== "image_generation" && (
             <FieldGroup
-              label="Embedding Model"
+              label="Semantic Search (Embeddings)"
               icon={<Server size="0.875rem" className="mari-chrome-accent-icon mari-accent-animated" />}
-              help="Optional. The model used for generating embeddings when vectorizing lorebook entries. Leave empty to skip semantic matching. Examples: text-embedding-3-small, text-embedding-ada-002."
+              help="Optional. Configure the embedding source used for lorebook semantic search and memory recall."
             >
-              <input
-                value={localEmbeddingModel}
-                onChange={(e) => {
-                  setLocalEmbeddingModel(e.target.value);
-                  markDirty();
-                }}
-                className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm font-mono ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-                placeholder="e.g. text-embedding-3-small"
-              />
-              <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                Used for lorebook semantic search. Entries matching by meaning (not just keywords) will be included in
-                the prompt.
-              </p>
-
-              {/* Embedding Base URL Override */}
-              <div className="mt-3 pt-3 border-t border-[var(--border)]">
-                <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
-                  Embedding Endpoint URL
-                </label>
-                <input
-                  value={localEmbeddingBaseUrl}
-                  onChange={(e) => {
-                    setLocalEmbeddingBaseUrl(e.target.value);
-                    markDirty();
-                  }}
-                  className={cn(
-                    "w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm font-mono ring-1 placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]",
-                    embeddingBaseUrlValidation.error ? "ring-[var(--destructive)]" : "ring-[var(--border)]",
-                  )}
-                  placeholder="e.g. http://localhost:5002/v1"
-                />
-                {embeddingBaseUrlValidation.error && (
-                  <p className="mt-1 text-[0.625rem] text-[var(--destructive)]">
-                    {embeddingBaseUrlValidation.error}
+              {supportsDirectEmbeddingConfig ? (
+                <>
+                  <input
+                    value={localEmbeddingModel}
+                    onChange={(e) => {
+                      setLocalEmbeddingModel(e.target.value);
+                      markDirty();
+                    }}
+                    className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm font-mono ring-1 ring-[var(--border)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                    placeholder="e.g. text-embedding-3-small"
+                  />
+                  <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                    Used for lorebook semantic search. Entries matching by meaning (not just keywords) will be included
+                    in the prompt.
                   </p>
-                )}
-                {!embeddingBaseUrlValidation.error &&
-                  embeddingBaseUrlValidation.value !== localEmbeddingBaseUrl.trim() && (
+
+                  {/* Embedding Base URL Override */}
+                  <div className="mt-3 pt-3 border-t border-[var(--border)]">
+                    <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
+                      Embedding Endpoint URL
+                    </label>
+                    <input
+                      value={localEmbeddingBaseUrl}
+                      onChange={(e) => {
+                        setLocalEmbeddingBaseUrl(e.target.value);
+                        markDirty();
+                      }}
+                      className={cn(
+                        "w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm font-mono ring-1 placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]",
+                        embeddingBaseUrlValidation.error ? "ring-[var(--destructive)]" : "ring-[var(--border)]",
+                      )}
+                      placeholder="e.g. http://localhost:5002/v1"
+                    />
+                    {embeddingBaseUrlValidation.error && (
+                      <p className="mt-1 text-[0.625rem] text-[var(--destructive)]">
+                        {embeddingBaseUrlValidation.error}
+                      </p>
+                    )}
+                    {!embeddingBaseUrlValidation.error &&
+                      embeddingBaseUrlValidation.value !== localEmbeddingBaseUrl.trim() && (
+                        <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
+                          Will save as {embeddingBaseUrlValidation.value}
+                        </p>
+                      )}
                     <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                      Will save as {embeddingBaseUrlValidation.value}
+                      Optional. A separate base URL for your embedding backend. Useful when running two instances of
+                      llama.cpp on different ports — one for chat, one for embeddings. Leave empty to use the
+                      connection&apos;s main URL.
                     </p>
-                  )}
+                  </div>
+                </>
+              ) : (
                 <p className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-                  Optional. A separate base URL for your embedding backend. Useful when running two instances of
-                  llama.cpp on different ports — one for chat, one for embeddings. Leave empty to use the
-                  connection&apos;s main URL.
+                  This provider does not expose embeddings through Marinara. Choose a dedicated embedding connection
+                  below, such as OpenAI-compatible, Google, or the Local Model sidecar.
                 </p>
-              </div>
+              )}
 
               {/* Embedding Connection Override */}
               <div className="mt-3 pt-3 border-t border-[var(--border)]">

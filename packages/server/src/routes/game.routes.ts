@@ -176,9 +176,9 @@ function normalizeAvatarLookupName(value: string): string {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/['’]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
+    .replace(/\s+/gu, " ")
     .trim();
 }
 
@@ -189,7 +189,7 @@ function avatarLookupAliases(value: string): string[] {
     words.length > 1 && AVATAR_NAME_TITLE_WORDS.has(words[0]!) ? words.slice(1).join(" ") : normalized;
   return Array.from(
     new Set([
-      value.trim().toLowerCase(),
+      value.normalize("NFKC").trim().toLocaleLowerCase(),
       normalized,
       withoutLeadingTitle,
       ...words.filter((word) => word.length >= 3 && !AVATAR_NAME_TITLE_WORDS.has(word)),
@@ -335,9 +335,13 @@ function collectIllustrationCharacterAssets(opts: {
   const requestedNames = (opts.illustration.characters?.length ? opts.illustration.characters : opts.characterNames)
     .map((name) => name.trim())
     .filter(Boolean);
-  const uniqueNames = Array.from(new Set(requestedNames.map((name) => name.toLowerCase())))
-    .map((lowerName) => requestedNames.find((name) => name.toLowerCase() === lowerName)!)
-    .slice(0, 6);
+  const uniqueNames = Array.from(
+    new Map(
+      requestedNames
+        .map((name) => [normalizeAvatarLookupName(name), name] as const)
+        .filter(([normalizedName]) => normalizedName.length > 0),
+    ).values(),
+  ).slice(0, 6);
 
   const references: string[] = [];
   const characterDescriptions: string[] = [];
@@ -366,7 +370,7 @@ function collectIllustrationCharacterAssets(opts: {
 
     const description =
       findCharAvatarFuzzy(name, opts.charDescriptionByName) ?? findCharAvatarFuzzy(name, npcDescriptionByName);
-    const normalizedName = name.toLowerCase();
+    const normalizedName = normalizeAvatarLookupName(name);
     if (description && !described.has(normalizedName)) {
       described.add(normalizedName);
       characterDescriptions.push(`${name}: ${description}`.slice(0, 300));
@@ -512,7 +516,16 @@ const trimmedWidgetString = (max: number) => z.string().trim().min(1).max(max);
 
 const hudWidgetSchema = z.object({
   id: trimmedWidgetString(80),
-  type: z.enum(["progress_bar", "gauge", "relationship_meter", "counter", "stat_block", "list", "inventory_grid", "timer"]),
+  type: z.enum([
+    "progress_bar",
+    "gauge",
+    "relationship_meter",
+    "counter",
+    "stat_block",
+    "list",
+    "inventory_grid",
+    "timer",
+  ]),
   label: trimmedWidgetString(120),
   icon: z.string().trim().max(16).optional(),
   position: z.enum(["hud_left", "hud_right"]),
@@ -662,14 +675,50 @@ function parseMeta(raw: unknown): Record<string, unknown> {
   return (raw as Record<string, unknown>) ?? {};
 }
 
+function readTrimmedString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function parseSettingsRecord(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+async function resolveGameImageConnectionId(
+  meta: Record<string, unknown>,
+  agents: ReturnType<typeof createAgentsStorage>,
+): Promise<string | null> {
+  const chatConnectionId = readTrimmedString(meta.gameImageConnectionId);
+  if (chatConnectionId) return chatConnectionId;
+
+  try {
+    const illustrator = await agents.getByType("illustrator");
+    return readTrimmedString(parseSettingsRecord(illustrator?.settings).imageConnectionId);
+  } catch (err) {
+    logger.warn(err, "[game.routes] Failed to resolve Illustrator image connection fallback");
+    return null;
+  }
+}
+
 function isTimeOfDayLabel(action: string): action is TimeOfDay {
   return ["dawn", "morning", "afternoon", "evening", "night", "midnight"].includes(action);
 }
 
 function normalizeCharacterLookupName(value: string): string {
   return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
+    .replace(/\s+/gu, " ")
     .trim();
 }
 
@@ -724,11 +773,6 @@ function findExistingGameCharacterCardIndex(
   currentCards: Array<Record<string, unknown>>,
   characterName: string,
 ): number {
-  const exactIndex = currentCards.findIndex(
-    (card) => typeof card.name === "string" && card.name.toLowerCase() === characterName.toLowerCase(),
-  );
-  if (exactIndex >= 0) return exactIndex;
-
   const normalizedName = normalizeCharacterLookupName(characterName);
   const normalizedIndex = currentCards.findIndex(
     (card) => typeof card.name === "string" && normalizeCharacterLookupName(card.name) === normalizedName,
@@ -742,12 +786,16 @@ function findExistingGameCharacterCardIndex(
 }
 
 function buildPartyNpcId(name: string): string {
-  const slug = normalizeCharacterLookupName(name).replace(/\s+/g, "-");
+  const legacySlug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
   const encodedSlug = encodeURIComponent(name.trim().toLowerCase())
     .replace(/%/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
-  return `npc:${slug || encodedSlug || "unknown"}`;
+  return `npc:${legacySlug || encodedSlug || "unknown"}`;
 }
 
 function isPartyNpcId(id: string): boolean {
@@ -911,10 +959,7 @@ export function removeMemberFromGameMetadata(input: RemoveMemberInput): RemoveMe
 
 function findGameNpcByName(npcs: GameNpc[], requestedName: string): GameNpc | null {
   const requestedLookup = normalizeCharacterLookupName(requestedName);
-  let matches = npcs.filter((npc) => npc.name.toLowerCase() === requestedName.toLowerCase());
-  if (matches.length === 0) {
-    matches = npcs.filter((npc) => normalizeCharacterLookupName(npc.name) === requestedLookup);
-  }
+  let matches = npcs.filter((npc) => normalizeCharacterLookupName(npc.name) === requestedLookup);
   if (matches.length === 0 && requestedLookup.length >= 3) {
     matches = npcs.filter((npc) => {
       const lookup = normalizeCharacterLookupName(npc.name);
@@ -1024,7 +1069,7 @@ function applyGeneratedGameCharacterCards(
     if (!card || typeof card !== "object" || Array.isArray(card)) continue;
     const name = (card as Record<string, unknown>).name;
     if (typeof name !== "string" || !name.trim()) continue;
-    generatedCardsByName.set(name.trim().toLowerCase(), card as Record<string, unknown>);
+    generatedCardsByName.set(normalizeCharacterLookupName(name), card as Record<string, unknown>);
   }
 
   if (generatedCardsByName.size === 0) {
@@ -1036,7 +1081,7 @@ function applyGeneratedGameCharacterCards(
     const existingName = typeof existingCard.name === "string" ? existingCard.name.trim() : "";
     if (!existingName) return existingCard;
 
-    const generatedCard = generatedCardsByName.get(existingName.toLowerCase());
+    const generatedCard = generatedCardsByName.get(normalizeCharacterLookupName(existingName));
     if (!generatedCard) return existingCard;
 
     updatedCount += 1;
@@ -1625,6 +1670,8 @@ function gameGenOptions(
       suppressModelParameters: true,
     };
     if (overrides.stream !== undefined) stripped.stream = overrides.stream;
+    if (overrides.maxTokens !== undefined) stripped.maxTokens = overrides.maxTokens;
+    if (overrides.maxContext !== undefined) stripped.maxContext = overrides.maxContext;
     if (overrides.onToken) stripped.onToken = overrides.onToken;
     if (overrides.onThinking) stripped.onThinking = overrides.onThinking;
     if (overrides.onResponseParts) stripped.onResponseParts = overrides.onResponseParts;
@@ -1758,7 +1805,10 @@ async function runGameChatComplete(
   });
 
   try {
-    return await Promise.race([provider.chatComplete(messages, { ...options, signal: controller.signal }), timeoutPromise]);
+    return await Promise.race([
+      provider.chatComplete(messages, { ...options, signal: controller.signal }),
+      timeoutPromise,
+    ]);
   } finally {
     if (timeout) clearTimeout(timeout);
     parentSignal?.removeEventListener("abort", abortFromParent);
@@ -1839,7 +1889,11 @@ function abortReasonAsError(signal: AbortSignal, fallback: string): Error {
   return signal.reason instanceof Error ? signal.reason : new Error(fallback);
 }
 
-function waitForPreviousGameAssetGeneration(chatId: string, previous: Promise<void>, signal: AbortSignal): Promise<void> {
+function waitForPreviousGameAssetGeneration(
+  chatId: string,
+  previous: Promise<void>,
+  signal: AbortSignal,
+): Promise<void> {
   if (signal.aborted) return Promise.reject(abortReasonAsError(signal, "Game asset generation cancelled"));
 
   return new Promise((resolve, reject) => {
@@ -3386,7 +3440,7 @@ export async function gameRoutes(app: FastifyInstance) {
           location: typeof n.location === "string" && n.location ? n.location : "Unknown",
           reputation: typeof n.reputation === "number" ? n.reputation : 0,
           notes: [] as string[],
-          avatarUrl: charAvatarByName.get(name.toLowerCase()) ?? undefined,
+          avatarUrl: findCharAvatarFuzzy(name, charAvatarByName) ?? undefined,
         };
       });
       updates.gameNpcs = npcs;
@@ -3408,8 +3462,16 @@ export async function gameRoutes(app: FastifyInstance) {
         .map((c) => {
           const name = (c.name as string) || "";
           const normalizedCard = normalizeGeneratedGameCharacterCard(c, name);
-          const charStats = rpgContext.partyRpgStats[name] ?? null;
-          const isPersona = rpgContext.personaName && name.toLowerCase() === rpgContext.personaName.toLowerCase();
+          const normalizedCardName = normalizeCharacterLookupName(name);
+          const charStats =
+            rpgContext.partyRpgStats[name] ??
+            Object.entries(rpgContext.partyRpgStats).find(
+              ([partyName]) => normalizeCharacterLookupName(partyName) === normalizedCardName,
+            )?.[1] ??
+            null;
+          const isPersona =
+            rpgContext.personaName &&
+            normalizedCardName === normalizeCharacterLookupName(rpgContext.personaName);
           const rpg = isPersona ? rpgContext.personaRpgStats : charStats;
           return {
             ...normalizedCard,
@@ -3563,7 +3625,9 @@ export async function gameRoutes(app: FastifyInstance) {
       updates.gameBlueprint = { ...currentBlueprint, hudWidgets: customHudWidgets };
       updates.gameWidgetState = customHudWidgets;
       const currentSetupConfig =
-        updates.gameSetupConfig && typeof updates.gameSetupConfig === "object" && !Array.isArray(updates.gameSetupConfig)
+        updates.gameSetupConfig &&
+        typeof updates.gameSetupConfig === "object" &&
+        !Array.isArray(updates.gameSetupConfig)
           ? (updates.gameSetupConfig as Record<string, unknown>)
           : (setupConfig ?? {});
       updates.gameSetupConfig = {
@@ -3593,7 +3657,8 @@ export async function gameRoutes(app: FastifyInstance) {
     const gameSpecialInstructions = parsedCreateGameInput.setupConfig.gameSpecialInstructions?.trim() || null;
     const setupConfig: GameSetupConfig = {
       ...parsedCreateGameInput.setupConfig,
-      enableCustomWidgets: parsedCreateGameInput.setupConfig.enableCustomWidgets !== false || customHudWidgets.length > 0,
+      enableCustomWidgets:
+        parsedCreateGameInput.setupConfig.enableCustomWidgets !== false || customHudWidgets.length > 0,
       customHudWidgets: customHudWidgets.length > 0 ? customHudWidgets : undefined,
       gameSystemPrompt,
       gameSpecialInstructions,
@@ -4489,241 +4554,245 @@ export async function gameRoutes(app: FastifyInstance) {
     }
 
     const conclusionRequest = (async () => {
-    const trimmedNextSessionRequest = nextSessionRequest.trim();
-    logger.info("[game/session/conclude] Starting manual conclude for chat %s", chatId);
-    const chats = createChatsStorage(app.db);
-    const connections = createConnectionsStorage(app.db);
+      const trimmedNextSessionRequest = nextSessionRequest.trim();
+      logger.info("[game/session/conclude] Starting manual conclude for chat %s", chatId);
+      const chats = createChatsStorage(app.db);
+      const connections = createConnectionsStorage(app.db);
 
-    const chat = await chats.getById(chatId);
-    if (!chat) throw new Error("Chat not found");
+      const chat = await chats.getById(chatId);
+      if (!chat) throw new Error("Chat not found");
 
-    const meta = parseMeta(chat.metadata);
-    const alreadyConcludedSummary = getAlreadyConcludedSummary(meta);
-    if (alreadyConcludedSummary) {
-      logger.info("[game/session/conclude] Session already concluded for chat %s", chatId);
-      return { summary: alreadyConcludedSummary, alreadyConcluded: true };
-    }
-    const setupConfig = meta.gameSetupConfig as GameSetupConfig | null;
-    const chatCharacterIds = parseChatCharacterIds(chat.characterIds);
-    const syncedPartyIds = setupConfig
-      ? reconcileGamePartyCharacterIds(meta, setupConfig, chatCharacterIds)
-      : chatCharacterIds;
-    const syncedSetupConfig = setupConfig ? syncSetupConfigPartyIds(setupConfig, syncedPartyIds) : null;
-    const prevSummaries = normalizeStoredSessionSummaries(meta.gamePreviousSessionSummaries);
-    const sessionNumber = prevSummaries.length + 1;
+      const meta = parseMeta(chat.metadata);
+      const alreadyConcludedSummary = getAlreadyConcludedSummary(meta);
+      if (alreadyConcludedSummary) {
+        logger.info("[game/session/conclude] Session already concluded for chat %s", chatId);
+        return { summary: alreadyConcludedSummary, alreadyConcluded: true };
+      }
+      const setupConfig = meta.gameSetupConfig as GameSetupConfig | null;
+      const chatCharacterIds = parseChatCharacterIds(chat.characterIds);
+      const syncedPartyIds = setupConfig
+        ? reconcileGamePartyCharacterIds(meta, setupConfig, chatCharacterIds)
+        : chatCharacterIds;
+      const syncedSetupConfig = setupConfig ? syncSetupConfigPartyIds(setupConfig, syncedPartyIds) : null;
+      const prevSummaries = normalizeStoredSessionSummaries(meta.gamePreviousSessionSummaries);
+      const sessionNumber = prevSummaries.length + 1;
 
-    const messages = await chats.listMessages(chatId);
-    const relevantMessages = applyGameSegmentEditsForPrompt(messages, meta).filter(
-      (message) => message.role !== "system",
-    );
-    const transcriptText = formatGameTranscript(relevantMessages);
-    const journalRecap = buildStructuredRecap((meta.gameJournal as Journal | null) ?? createJournal(), sessionNumber);
-
-    const gameStates = createGameStateStorage(app.db);
-    const latestState = await gameStates.getLatest(chatId);
-
-    const currentStoryArc = (meta.gameStoryArc as string) || null;
-    const currentPlotTwists = Array.isArray(meta.gamePlotTwists) ? (meta.gamePlotTwists as string[]) : [];
-    const currentPartyArcs = Array.isArray(meta.gamePartyArcs) ? normalizePartyArcPayload(meta.gamePartyArcs) : [];
-    const currentMorale = normalizeMoraleValue(meta.gameMorale, 50);
-    const currentCards = (meta.gameCharacterCards as Array<Record<string, unknown>>) ?? [];
-
-    const { conn, baseUrl, defaultGenerationParameters } = await resolveConnection(
-      connections,
-      connectionId,
-      chat.connectionId,
-    );
-    const conclusionGenerationParameters = resolveStoredGameGenerationParameters(meta, defaultGenerationParameters);
-    const modelAccessPolicy = resolveGameModelAccessPolicy({
-      provider: conn.provider,
-      model: conn.model,
-      maxContext: conn.maxContext,
-      parameters: conclusionGenerationParameters,
-    });
-    const provider = createLLMProvider(
-      conn.provider,
-      baseUrl,
-      conn.apiKey!,
-      conn.maxContext,
-      conn.openrouterProvider,
-      conn.maxTokensOverride,
-    );
-
-    const conclusionAbortSignal = createResponseAbortSignal(reply, GAME_GENERATION_TIMEOUT_MS, "Game session conclusion");
-    const conclusionOptions = gameGenOptions(
-      conn.model,
-      {
-        maxTokens: Math.max(SESSION_CONCLUSION_MIN_OUTPUT_TOKENS, conclusionGenerationParameters?.maxTokens ?? 0),
-        temperature: 0.45,
-        stream: streaming,
-        signal: conclusionAbortSignal,
-        ...(streaming ? { onToken: () => {} } : {}),
-      },
-      conclusionGenerationParameters,
-      conn.provider,
-    );
-    const { messages: conclusionMessages, transcriptTruncated } = fitSessionConclusionMessages({
-      sessionNumber,
-      language: setupConfig?.language ?? null,
-      journalRecap,
-      transcriptText,
-      transcriptMessageCount: relevantMessages.length,
-      latestState,
-      currentStoryArc,
-      currentPlotTwists,
-      currentPartyArcs,
-      currentMorale,
-      currentCards,
-      nextSessionRequest: trimmedNextSessionRequest || null,
-      modelAccessPolicy,
-      maxTokens: conclusionOptions.maxTokens,
-    });
-    if (transcriptTruncated) {
-      logger.info(
-        "[game/session/conclude] Transcript exceeded context for chat %s; trimmed only the middle of the transcript to fit.",
-        chatId,
+      const messages = await chats.listMessages(chatId);
+      const relevantMessages = applyGameSegmentEditsForPrompt(messages, meta).filter(
+        (message) => message.role !== "system",
       );
-    }
+      const transcriptText = formatGameTranscript(relevantMessages);
+      const journalRecap = buildStructuredRecap((meta.gameJournal as Journal | null) ?? createJournal(), sessionNumber);
 
-    const result = await runGameChatComplete(
-      provider,
-      conclusionMessages,
-      conclusionOptions,
-      "Game session conclusion",
-    );
-    logger.info("[game/session/conclude] Conclusion generation completed for chat %s", chatId);
-    const conclusionExtraction = extractLeadingThinkingBlocks(
-      result.content ?? "",
-      conclusionGenerationParameters?.customThinkingTags,
-    );
-    if (conclusionExtraction.thinking) {
-      logger.debug(
-        "[game/session/conclude] Thinking tokens (%d chars):\n%s",
-        conclusionExtraction.thinking.length,
-        conclusionExtraction.thinking,
+      const gameStates = createGameStateStorage(app.db);
+      const latestState = await gameStates.getLatest(chatId);
+
+      const currentStoryArc = (meta.gameStoryArc as string) || null;
+      const currentPlotTwists = Array.isArray(meta.gamePlotTwists) ? (meta.gamePlotTwists as string[]) : [];
+      const currentPartyArcs = Array.isArray(meta.gamePartyArcs) ? normalizePartyArcPayload(meta.gamePartyArcs) : [];
+      const currentMorale = normalizeMoraleValue(meta.gameMorale, 50);
+      const currentCards = (meta.gameCharacterCards as Array<Record<string, unknown>>) ?? [];
+
+      const { conn, baseUrl, defaultGenerationParameters } = await resolveConnection(
+        connections,
+        connectionId,
+        chat.connectionId,
       );
-    }
+      const conclusionGenerationParameters = resolveStoredGameGenerationParameters(meta, defaultGenerationParameters);
+      const modelAccessPolicy = resolveGameModelAccessPolicy({
+        provider: conn.provider,
+        model: conn.model,
+        maxContext: conn.maxContext,
+        parameters: conclusionGenerationParameters,
+      });
+      const provider = createLLMProvider(
+        conn.provider,
+        baseUrl,
+        conn.apiKey!,
+        conn.maxContext,
+        conn.openrouterProvider,
+        conn.maxTokensOverride,
+      );
 
-    let appliedConclusion: SessionConclusionApplication;
-    try {
-      const parsedConclusion = parseJSON(conclusionExtraction.content) as Record<string, unknown>;
-      appliedConclusion = applySessionConclusionPayload(parsedConclusion, {
+      const conclusionAbortSignal = createResponseAbortSignal(
+        reply,
+        GAME_GENERATION_TIMEOUT_MS,
+        "Game session conclusion",
+      );
+      const conclusionOptions = gameGenOptions(
+        conn.model,
+        {
+          maxTokens: Math.max(SESSION_CONCLUSION_MIN_OUTPUT_TOKENS, conclusionGenerationParameters?.maxTokens ?? 0),
+          temperature: 0.45,
+          stream: streaming,
+          signal: conclusionAbortSignal,
+          ...(streaming ? { onToken: () => {} } : {}),
+        },
+        conclusionGenerationParameters,
+        conn.provider,
+      );
+      const { messages: conclusionMessages, transcriptTruncated } = fitSessionConclusionMessages({
         sessionNumber,
-        nextSessionRequest: trimmedNextSessionRequest || null,
+        language: setupConfig?.language ?? null,
+        journalRecap,
+        transcriptText,
+        transcriptMessageCount: relevantMessages.length,
+        latestState,
         currentStoryArc,
         currentPlotTwists,
         currentPartyArcs,
         currentMorale,
         currentCards,
+        nextSessionRequest: trimmedNextSessionRequest || null,
+        modelAccessPolicy,
+        maxTokens: conclusionOptions.maxTokens,
       });
-      if (appliedConclusion.updatedCardCount > 0) {
+      if (transcriptTruncated) {
         logger.info(
-          `[session/conclude] Updated ${appliedConclusion.updatedCardCount} character cards after session ${sessionNumber}`,
+          "[game/session/conclude] Transcript exceeded context for chat %s; trimmed only the middle of the transcript to fit.",
+          chatId,
         );
       }
-    } catch (err) {
-      logger.warn(err, "[session/conclude] Combined session conclusion parsing failed");
-      return {
-        type: "json_repair",
-        error: "The generated session conclusion was not valid JSON.",
-        repair: buildJsonRepairPayload({
-          kind: "session_conclusion",
-          title: `Repair Session ${sessionNumber} Summary JSON`,
-          rawJson: conclusionExtraction.content,
-          applyEndpoint: "/game/session/conclude/apply-json",
-          applyBody: { chatId, connectionId: conn.id, nextSessionRequest: trimmedNextSessionRequest },
-        }),
-      } satisfies JsonRepairRouteResult;
-    }
 
-    let conclusionWasStored = false;
-    let storedConclusionSummary = appliedConclusion.summary;
-    await chats.patchMetadata(chatId, (freshMeta) => {
-      const freshSummaries = normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries);
-      const existingSummary = findSessionSummaryForNumber(freshSummaries, sessionNumber);
-      if (existingSummary) {
-        storedConclusionSummary = existingSummary;
-        return {};
-      }
-
-      conclusionWasStored = true;
-      return {
-        ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
-        gamePartyCharacterIds: syncedPartyIds,
-        gameSessionNumber: sessionNumber,
-        gameSessionStatus: "concluded",
-        gameStoryArc: appliedConclusion.updatedStoryArc,
-        gamePlotTwists: appliedConclusion.updatedPlotTwists,
-        gamePartyArcs: appliedConclusion.updatedPartyArcs,
-        gamePreviousSessionSummaries: [...freshSummaries, appliedConclusion.summary],
-        gameCharacterCards: appliedConclusion.updatedCards,
-        ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
-      };
-    });
-    if (!conclusionWasStored) {
-      logger.info("[game/session/conclude] Session %d was already concluded for chat %s", sessionNumber, chatId);
-      return { summary: storedConclusionSummary, alreadyConcluded: true };
-    }
-
-    const sessionSummaryMsg = await chats.createMessage({
-      chatId,
-      role: "narrator",
-      characterId: null,
-      content: `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`,
-    });
-    if (sessionSummaryMsg?.id && conclusionExtraction.thinking) {
-      await chats.updateMessageExtra(sessionSummaryMsg.id, { thinking: conclusionExtraction.thinking });
-    }
-    mirrorGameMessageToDiscord(
-      meta,
-      `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`,
-      "Narrator",
-    );
-
-    // Push an OOC influence to the connected conversation if linked
-    if (chat.connectedChatId) {
-      await chats.createInfluence(
-        chatId,
-        chat.connectedChatId as string,
-        `Game session ${sessionNumber} just concluded. Summary: ${appliedConclusion.summary.summary}${
-          appliedConclusion.summary.keyDiscoveries.length
-            ? ` Key discoveries: ${appliedConclusion.summary.keyDiscoveries.join(", ")}`
-            : ""
-        }`,
+      const result = await runGameChatComplete(
+        provider,
+        conclusionMessages,
+        conclusionOptions,
+        "Game session conclusion",
       );
-    }
-
-    // Auto-checkpoint at session end
-    try {
-      if (latestState) {
-        const cpSvc = createCheckpointService(app.db);
-        await cpSvc.create({
-          chatId,
-          snapshotId: latestState.id,
-          messageId: latestState.messageId,
-          label: `Session ${sessionNumber} End`,
-          triggerType: "session_end",
-          location: latestState.location,
-          gameState: (meta.gameActiveState as string) ?? "exploration",
-          weather: latestState.weather,
-          timeOfDay: latestState.time,
-        });
+      logger.info("[game/session/conclude] Conclusion generation completed for chat %s", chatId);
+      const conclusionExtraction = extractLeadingThinkingBlocks(
+        result.content ?? "",
+        conclusionGenerationParameters?.customThinkingTags,
+      );
+      if (conclusionExtraction.thinking) {
+        logger.debug(
+          "[game/session/conclude] Thinking tokens (%d chars):\n%s",
+          conclusionExtraction.thinking.length,
+          conclusionExtraction.thinking,
+        );
       }
-    } catch {
-      /* non-fatal */
-    }
 
-    queueGameLorebookKeeperAfterConclusion({
-      app,
-      chatId,
-      connectionId: conn.id,
-      sessionNumber,
-      sessionSummary: appliedConclusion.summary,
-      streaming,
-    });
+      let appliedConclusion: SessionConclusionApplication;
+      try {
+        const parsedConclusion = parseJSON(conclusionExtraction.content) as Record<string, unknown>;
+        appliedConclusion = applySessionConclusionPayload(parsedConclusion, {
+          sessionNumber,
+          nextSessionRequest: trimmedNextSessionRequest || null,
+          currentStoryArc,
+          currentPlotTwists,
+          currentPartyArcs,
+          currentMorale,
+          currentCards,
+        });
+        if (appliedConclusion.updatedCardCount > 0) {
+          logger.info(
+            `[session/conclude] Updated ${appliedConclusion.updatedCardCount} character cards after session ${sessionNumber}`,
+          );
+        }
+      } catch (err) {
+        logger.warn(err, "[session/conclude] Combined session conclusion parsing failed");
+        return {
+          type: "json_repair",
+          error: "The generated session conclusion was not valid JSON.",
+          repair: buildJsonRepairPayload({
+            kind: "session_conclusion",
+            title: `Repair Session ${sessionNumber} Summary JSON`,
+            rawJson: conclusionExtraction.content,
+            applyEndpoint: "/game/session/conclude/apply-json",
+            applyBody: { chatId, connectionId: conn.id, nextSessionRequest: trimmedNextSessionRequest },
+          }),
+        } satisfies JsonRepairRouteResult;
+      }
 
-    logger.info("[game/session/conclude] Session %d concluded for chat %s", sessionNumber, chatId);
-    return { summary: appliedConclusion.summary };
+      let conclusionWasStored = false;
+      let storedConclusionSummary = appliedConclusion.summary;
+      await chats.patchMetadata(chatId, (freshMeta) => {
+        const freshSummaries = normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries);
+        const existingSummary = findSessionSummaryForNumber(freshSummaries, sessionNumber);
+        if (existingSummary) {
+          storedConclusionSummary = existingSummary;
+          return {};
+        }
+
+        conclusionWasStored = true;
+        return {
+          ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
+          gamePartyCharacterIds: syncedPartyIds,
+          gameSessionNumber: sessionNumber,
+          gameSessionStatus: "concluded",
+          gameStoryArc: appliedConclusion.updatedStoryArc,
+          gamePlotTwists: appliedConclusion.updatedPlotTwists,
+          gamePartyArcs: appliedConclusion.updatedPartyArcs,
+          gamePreviousSessionSummaries: [...freshSummaries, appliedConclusion.summary],
+          gameCharacterCards: appliedConclusion.updatedCards,
+          ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
+        };
+      });
+      if (!conclusionWasStored) {
+        logger.info("[game/session/conclude] Session %d was already concluded for chat %s", sessionNumber, chatId);
+        return { summary: storedConclusionSummary, alreadyConcluded: true };
+      }
+
+      const sessionSummaryMsg = await chats.createMessage({
+        chatId,
+        role: "narrator",
+        characterId: null,
+        content: `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`,
+      });
+      if (sessionSummaryMsg?.id && conclusionExtraction.thinking) {
+        await chats.updateMessageExtra(sessionSummaryMsg.id, { thinking: conclusionExtraction.thinking });
+      }
+      mirrorGameMessageToDiscord(
+        meta,
+        `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`,
+        "Narrator",
+      );
+
+      // Push an OOC influence to the connected conversation if linked
+      if (chat.connectedChatId) {
+        await chats.createInfluence(
+          chatId,
+          chat.connectedChatId as string,
+          `Game session ${sessionNumber} just concluded. Summary: ${appliedConclusion.summary.summary}${
+            appliedConclusion.summary.keyDiscoveries.length
+              ? ` Key discoveries: ${appliedConclusion.summary.keyDiscoveries.join(", ")}`
+              : ""
+          }`,
+        );
+      }
+
+      // Auto-checkpoint at session end
+      try {
+        if (latestState) {
+          const cpSvc = createCheckpointService(app.db);
+          await cpSvc.create({
+            chatId,
+            snapshotId: latestState.id,
+            messageId: latestState.messageId,
+            label: `Session ${sessionNumber} End`,
+            triggerType: "session_end",
+            location: latestState.location,
+            gameState: (meta.gameActiveState as string) ?? "exploration",
+            weather: latestState.weather,
+            timeOfDay: latestState.time,
+          });
+        }
+      } catch {
+        /* non-fatal */
+      }
+
+      queueGameLorebookKeeperAfterConclusion({
+        app,
+        chatId,
+        connectionId: conn.id,
+        sessionNumber,
+        sessionSummary: appliedConclusion.summary,
+        streaming,
+      });
+
+      logger.info("[game/session/conclude] Session %d concluded for chat %s", sessionNumber, chatId);
+      return { summary: appliedConclusion.summary };
     })();
 
     pendingSessionConclusions.set(chatId, conclusionRequest);
@@ -4755,137 +4824,141 @@ export async function gameRoutes(app: FastifyInstance) {
     }
 
     const conclusionRequest = (async () => {
-    const trimmedNextSessionRequest = nextSessionRequest.trim();
-    const chats = createChatsStorage(app.db);
-    const chat = await chats.getById(chatId);
-    if (!chat) throw new Error("Chat not found");
+      const trimmedNextSessionRequest = nextSessionRequest.trim();
+      const chats = createChatsStorage(app.db);
+      const chat = await chats.getById(chatId);
+      if (!chat) throw new Error("Chat not found");
 
-    const meta = parseMeta(chat.metadata);
-    const alreadyConcludedSummary = getAlreadyConcludedSummary(meta);
-    if (alreadyConcludedSummary) {
-      logger.info("[game/session/conclude/apply-json] Session already concluded for chat %s", chatId);
-      return { summary: alreadyConcludedSummary, alreadyConcluded: true };
-    }
-    const setupConfig = meta.gameSetupConfig as GameSetupConfig | null;
-    const chatCharacterIds = parseChatCharacterIds(chat.characterIds);
-    const syncedPartyIds = setupConfig
-      ? reconcileGamePartyCharacterIds(meta, setupConfig, chatCharacterIds)
-      : chatCharacterIds;
-    const syncedSetupConfig = setupConfig ? syncSetupConfigPartyIds(setupConfig, syncedPartyIds) : null;
-    const prevSummaries = normalizeStoredSessionSummaries(meta.gamePreviousSessionSummaries);
-    const sessionNumber = prevSummaries.length + 1;
-    const currentStoryArc = (meta.gameStoryArc as string) || null;
-    const currentPlotTwists = Array.isArray(meta.gamePlotTwists) ? (meta.gamePlotTwists as string[]) : [];
-    const currentPartyArcs = Array.isArray(meta.gamePartyArcs) ? normalizePartyArcPayload(meta.gamePartyArcs) : [];
-    const currentMorale = normalizeMoraleValue(meta.gameMorale, 50);
-    const currentCards = (meta.gameCharacterCards as Array<Record<string, unknown>>) ?? [];
-
-    let appliedConclusion: SessionConclusionApplication;
-    try {
-      const parsedConclusion = parseJSON(rawJson) as Record<string, unknown>;
-      appliedConclusion = applySessionConclusionPayload(parsedConclusion, {
-        sessionNumber,
-        nextSessionRequest: trimmedNextSessionRequest || null,
-        currentStoryArc,
-        currentPlotTwists,
-        currentPartyArcs,
-        currentMorale,
-        currentCards,
-      });
-    } catch (err) {
-      logger.warn(err, "[session/conclude/apply-json] Repaired session conclusion JSON still failed to parse");
-      return {
-        type: "json_repair",
-        error: "The edited session conclusion JSON is still invalid.",
-        repair: buildJsonRepairPayload({
-          kind: "session_conclusion",
-          title: `Repair Session ${sessionNumber} Summary JSON`,
-          rawJson,
-          applyEndpoint: "/game/session/conclude/apply-json",
-          applyBody: { chatId, nextSessionRequest: trimmedNextSessionRequest },
-        }),
-      } satisfies JsonRepairRouteResult;
-    }
-
-    let conclusionWasStored = false;
-    let storedConclusionSummary = appliedConclusion.summary;
-    await chats.patchMetadata(chatId, (freshMeta) => {
-      const freshSummaries = normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries);
-      const existingSummary = findSessionSummaryForNumber(freshSummaries, sessionNumber);
-      if (existingSummary) {
-        storedConclusionSummary = existingSummary;
-        return {};
+      const meta = parseMeta(chat.metadata);
+      const alreadyConcludedSummary = getAlreadyConcludedSummary(meta);
+      if (alreadyConcludedSummary) {
+        logger.info("[game/session/conclude/apply-json] Session already concluded for chat %s", chatId);
+        return { summary: alreadyConcludedSummary, alreadyConcluded: true };
       }
+      const setupConfig = meta.gameSetupConfig as GameSetupConfig | null;
+      const chatCharacterIds = parseChatCharacterIds(chat.characterIds);
+      const syncedPartyIds = setupConfig
+        ? reconcileGamePartyCharacterIds(meta, setupConfig, chatCharacterIds)
+        : chatCharacterIds;
+      const syncedSetupConfig = setupConfig ? syncSetupConfigPartyIds(setupConfig, syncedPartyIds) : null;
+      const prevSummaries = normalizeStoredSessionSummaries(meta.gamePreviousSessionSummaries);
+      const sessionNumber = prevSummaries.length + 1;
+      const currentStoryArc = (meta.gameStoryArc as string) || null;
+      const currentPlotTwists = Array.isArray(meta.gamePlotTwists) ? (meta.gamePlotTwists as string[]) : [];
+      const currentPartyArcs = Array.isArray(meta.gamePartyArcs) ? normalizePartyArcPayload(meta.gamePartyArcs) : [];
+      const currentMorale = normalizeMoraleValue(meta.gameMorale, 50);
+      const currentCards = (meta.gameCharacterCards as Array<Record<string, unknown>>) ?? [];
 
-      conclusionWasStored = true;
-      return {
-        ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
-        gamePartyCharacterIds: syncedPartyIds,
-        gameSessionNumber: sessionNumber,
-        gameSessionStatus: "concluded",
-        gameStoryArc: appliedConclusion.updatedStoryArc,
-        gamePlotTwists: appliedConclusion.updatedPlotTwists,
-        gamePartyArcs: appliedConclusion.updatedPartyArcs,
-        gamePreviousSessionSummaries: [...freshSummaries, appliedConclusion.summary],
-        gameCharacterCards: appliedConclusion.updatedCards,
-        ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
-      };
-    });
-    if (!conclusionWasStored) {
-      logger.info("[game/session/conclude/apply-json] Session %d was already concluded for chat %s", sessionNumber, chatId);
-      return { summary: storedConclusionSummary, alreadyConcluded: true };
-    }
-
-    const summaryContent = `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`;
-    await chats.createMessage({
-      chatId,
-      role: "narrator",
-      characterId: null,
-      content: summaryContent,
-    });
-    mirrorGameMessageToDiscord(meta, summaryContent, "Narrator");
-
-    if (chat.connectedChatId) {
-      await chats.createInfluence(
-        chatId,
-        chat.connectedChatId as string,
-        `Game session ${sessionNumber} just concluded. Summary: ${appliedConclusion.summary.summary}${
-          appliedConclusion.summary.keyDiscoveries.length
-            ? ` Key discoveries: ${appliedConclusion.summary.keyDiscoveries.join(", ")}`
-            : ""
-        }`,
-      );
-    }
-
-    try {
-      const latestState = await createGameStateStorage(app.db).getLatest(chatId);
-      if (latestState) {
-        const cpSvc = createCheckpointService(app.db);
-        await cpSvc.create({
-          chatId,
-          snapshotId: latestState.id,
-          messageId: latestState.messageId,
-          label: `Session ${sessionNumber} End`,
-          triggerType: "session_end",
-          location: latestState.location,
-          gameState: (meta.gameActiveState as string) ?? "exploration",
-          weather: latestState.weather,
-          timeOfDay: latestState.time,
+      let appliedConclusion: SessionConclusionApplication;
+      try {
+        const parsedConclusion = parseJSON(rawJson) as Record<string, unknown>;
+        appliedConclusion = applySessionConclusionPayload(parsedConclusion, {
+          sessionNumber,
+          nextSessionRequest: trimmedNextSessionRequest || null,
+          currentStoryArc,
+          currentPlotTwists,
+          currentPartyArcs,
+          currentMorale,
+          currentCards,
         });
+      } catch (err) {
+        logger.warn(err, "[session/conclude/apply-json] Repaired session conclusion JSON still failed to parse");
+        return {
+          type: "json_repair",
+          error: "The edited session conclusion JSON is still invalid.",
+          repair: buildJsonRepairPayload({
+            kind: "session_conclusion",
+            title: `Repair Session ${sessionNumber} Summary JSON`,
+            rawJson,
+            applyEndpoint: "/game/session/conclude/apply-json",
+            applyBody: { chatId, nextSessionRequest: trimmedNextSessionRequest },
+          }),
+        } satisfies JsonRepairRouteResult;
       }
-    } catch {
-      /* non-fatal */
-    }
 
-    queueGameLorebookKeeperAfterConclusion({
-      app,
-      chatId,
-      connectionId,
-      sessionNumber,
-      sessionSummary: appliedConclusion.summary,
-    });
+      let conclusionWasStored = false;
+      let storedConclusionSummary = appliedConclusion.summary;
+      await chats.patchMetadata(chatId, (freshMeta) => {
+        const freshSummaries = normalizeStoredSessionSummaries(freshMeta.gamePreviousSessionSummaries);
+        const existingSummary = findSessionSummaryForNumber(freshSummaries, sessionNumber);
+        if (existingSummary) {
+          storedConclusionSummary = existingSummary;
+          return {};
+        }
 
-    return { summary: appliedConclusion.summary };
+        conclusionWasStored = true;
+        return {
+          ...(syncedSetupConfig ? { gameSetupConfig: syncedSetupConfig } : {}),
+          gamePartyCharacterIds: syncedPartyIds,
+          gameSessionNumber: sessionNumber,
+          gameSessionStatus: "concluded",
+          gameStoryArc: appliedConclusion.updatedStoryArc,
+          gamePlotTwists: appliedConclusion.updatedPlotTwists,
+          gamePartyArcs: appliedConclusion.updatedPartyArcs,
+          gamePreviousSessionSummaries: [...freshSummaries, appliedConclusion.summary],
+          gameCharacterCards: appliedConclusion.updatedCards,
+          ...buildMoraleMetadataUpdates(freshMeta, appliedConclusion.updatedMorale),
+        };
+      });
+      if (!conclusionWasStored) {
+        logger.info(
+          "[game/session/conclude/apply-json] Session %d was already concluded for chat %s",
+          sessionNumber,
+          chatId,
+        );
+        return { summary: storedConclusionSummary, alreadyConcluded: true };
+      }
+
+      const summaryContent = `**Session ${sessionNumber} Concluded**\n\n${appliedConclusion.summary.summary}\n\n*Party Dynamics:* ${appliedConclusion.summary.partyDynamics}`;
+      await chats.createMessage({
+        chatId,
+        role: "narrator",
+        characterId: null,
+        content: summaryContent,
+      });
+      mirrorGameMessageToDiscord(meta, summaryContent, "Narrator");
+
+      if (chat.connectedChatId) {
+        await chats.createInfluence(
+          chatId,
+          chat.connectedChatId as string,
+          `Game session ${sessionNumber} just concluded. Summary: ${appliedConclusion.summary.summary}${
+            appliedConclusion.summary.keyDiscoveries.length
+              ? ` Key discoveries: ${appliedConclusion.summary.keyDiscoveries.join(", ")}`
+              : ""
+          }`,
+        );
+      }
+
+      try {
+        const latestState = await createGameStateStorage(app.db).getLatest(chatId);
+        if (latestState) {
+          const cpSvc = createCheckpointService(app.db);
+          await cpSvc.create({
+            chatId,
+            snapshotId: latestState.id,
+            messageId: latestState.messageId,
+            label: `Session ${sessionNumber} End`,
+            triggerType: "session_end",
+            location: latestState.location,
+            gameState: (meta.gameActiveState as string) ?? "exploration",
+            weather: latestState.weather,
+            timeOfDay: latestState.time,
+          });
+        }
+      } catch {
+        /* non-fatal */
+      }
+
+      queueGameLorebookKeeperAfterConclusion({
+        app,
+        chatId,
+        connectionId,
+        sessionNumber,
+        sessionSummary: appliedConclusion.summary,
+      });
+
+      return { summary: appliedConclusion.summary };
     })();
 
     pendingSessionConclusions.set(chatId, conclusionRequest);
@@ -5596,10 +5669,7 @@ export async function gameRoutes(app: FastifyInstance) {
       }
     });
 
-    let matches = parsedCharacters.filter((candidate) => candidate.name.toLowerCase() === requestedName.toLowerCase());
-    if (matches.length === 0) {
-      matches = parsedCharacters.filter((candidate) => candidate.lookup === requestedLookup);
-    }
+    let matches = parsedCharacters.filter((candidate) => candidate.lookup === requestedLookup);
     if (matches.length === 0 && requestedLookup.length >= 3) {
       matches = parsedCharacters.filter(
         (candidate) =>
@@ -5730,7 +5800,11 @@ export async function gameRoutes(app: FastifyInstance) {
           language: setupConfig.language ?? null,
         });
 
-        const recruitAbortSignal = createResponseAbortSignal(reply, GAME_GENERATION_TIMEOUT_MS, "Game party recruit card");
+        const recruitAbortSignal = createResponseAbortSignal(
+          reply,
+          GAME_GENERATION_TIMEOUT_MS,
+          "Game party recruit card",
+        );
         const result = await runGameChatComplete(
           provider,
           [
@@ -5789,7 +5863,11 @@ export async function gameRoutes(app: FastifyInstance) {
     // snapshot, so a concurrent recruit of the same member during the LLM window is reported honestly.
     let added = false;
     const updatedSession = await chats.patchMetadataWithCharacterIds(chat.id, (current) => {
-      const { patch, mergedChatCharacterIds, added: didAdd } = mergeRecruitIntoGameMetadata({
+      const {
+        patch,
+        mergedChatCharacterIds,
+        added: didAdd,
+      } = mergeRecruitIntoGameMetadata({
         current,
         recruitId,
         recruitName,
@@ -5874,10 +5952,7 @@ export async function gameRoutes(app: FastifyInstance) {
       currentParty.push({ id, row: null as never, name, lookup: normalizeCharacterLookupName(name) });
     }
 
-    let matches = currentParty.filter((candidate) => candidate.name.toLowerCase() === requestedName.toLowerCase());
-    if (matches.length === 0) {
-      matches = currentParty.filter((candidate) => candidate.lookup === requestedLookup);
-    }
+    let matches = currentParty.filter((candidate) => candidate.lookup === requestedLookup);
     if (matches.length === 0 && requestedLookup.length >= 3) {
       matches = currentParty.filter(
         (candidate) =>
@@ -6634,7 +6709,9 @@ export async function gameRoutes(app: FastifyInstance) {
 
   // ── PUT /game/:chatId/widgets ──
   app.put<{ Params: { chatId: string } }>("/:chatId/widgets", async (req) => {
-    const { widgets: rawWidgets } = z.object({ widgets: z.array(hudWidgetSchema).max(MAX_GAME_HUD_WIDGETS) }).parse(req.body);
+    const { widgets: rawWidgets } = z
+      .object({ widgets: z.array(hudWidgetSchema).max(MAX_GAME_HUD_WIDGETS) })
+      .parse(req.body);
     const widgets = sanitizeGameHudWidgets(rawWidgets);
     const chats = createChatsStorage(app.db);
     const chat = await chats.getById(req.params.chatId);
@@ -6717,7 +6794,7 @@ export async function gameRoutes(app: FastifyInstance) {
     const gameCardByName = new Map<string, Record<string, unknown>>();
     for (const gc of gameCharCards) {
       if (typeof gc.name === "string" && gc.name.trim()) {
-        gameCardByName.set(gc.name.toLowerCase(), gc);
+        gameCardByName.set(normalizeCharacterLookupName(gc.name), gc);
       }
     }
     for (const charId of partyCharIds) {
@@ -6738,7 +6815,7 @@ export async function gameRoutes(app: FastifyInstance) {
             : null,
         ];
 
-        const gameCard = gameCardByName.get(String(charData.name || "").toLowerCase());
+        const gameCard = gameCardByName.get(normalizeCharacterLookupName(String(charData.name || "")));
         if (gameCard) {
           if (typeof gameCard.class === "string" && gameCard.class.trim()) {
             card.push(`Class: ${gameCard.class}`);
@@ -6781,7 +6858,7 @@ export async function gameRoutes(app: FastifyInstance) {
         npc.notes?.length ? `Notes: ${npc.notes.join("; ")}` : null,
       ];
 
-      const gameCard = gameCardByName.get(npc.name.toLowerCase());
+      const gameCard = gameCardByName.get(normalizeCharacterLookupName(npc.name));
       if (gameCard) {
         if (typeof gameCard.class === "string" && gameCard.class.trim()) {
           card.push(`Class: ${gameCard.class}`);
@@ -7088,6 +7165,7 @@ export async function gameRoutes(app: FastifyInstance) {
     };
     const chats = createChatsStorage(app.db);
     const connections = createConnectionsStorage(app.db);
+    const agents = createAgentsStorage(app.db);
 
     const chat = await chats.getById(input.chatId);
     if (!chat) throw new Error("Chat not found");
@@ -7101,7 +7179,7 @@ export async function gameRoutes(app: FastifyInstance) {
     );
     const gameGenerationParameters = resolveStoredGameGenerationParameters(meta, defaultGenerationParameters);
     const enableGen = !!meta.enableSpriteGeneration;
-    const imgConnId = (meta.gameImageConnectionId as string) || null;
+    const imgConnId = await resolveGameImageConnectionId(meta, agents);
     const setupCfgForScene = meta.gameSetupConfig as Record<string, unknown> | null;
     const artStyleForScene = (setupCfgForScene?.artStylePrompt as string) || "";
     const latestSceneState = await createGameStateStorage(app.db)
@@ -7303,7 +7381,7 @@ export async function gameRoutes(app: FastifyInstance) {
       if (!enableGen) {
         logger.debug("[game/scene-wrap] asset-gen skipped: enableSpriteGeneration=false");
       } else if (!imgConnId) {
-        logger.debug("[game/scene-wrap] asset-gen skipped: no gameImageConnectionId configured");
+        logger.debug("[game/scene-wrap] asset-gen skipped: no Illustrator image connection configured");
       }
 
       if (enableGen && imgConnId && parsed && typeof parsed === "object") {
@@ -7672,6 +7750,7 @@ export async function gameRoutes(app: FastifyInstance) {
     promptOverrides: imagePromptOverrideSchema,
     useAvatarReferences: z.boolean().optional(),
     includeCharacterAppearance: z.boolean().optional(),
+    forceIllustration: z.boolean().optional(),
     debugMode: z.boolean().optional().default(false),
   });
 
@@ -7679,13 +7758,14 @@ export async function gameRoutes(app: FastifyInstance) {
     const input = generateAssetsSchema.parse(req.body);
     const chats = createChatsStorage(app.db);
     const connections = createConnectionsStorage(app.db);
+    const agents = createAgentsStorage(app.db);
 
     const chat = await chats.getById(input.chatId);
     if (!chat) throw new Error("Chat not found");
 
     const meta = parseMeta(chat.metadata);
     const enableGen = !!meta.enableSpriteGeneration;
-    const imgConnId = (meta.gameImageConnectionId as string) || null;
+    const imgConnId = await resolveGameImageConnectionId(meta, agents);
     if (!enableGen || !imgConnId) return { items: [] };
 
     const imgConn = await connections.getWithKey(imgConnId);
@@ -7723,9 +7803,9 @@ export async function gameRoutes(app: FastifyInstance) {
       typeof meta.gameImagePromptInstructions === "string"
         ? meta.gameImagePromptInstructions.trim().slice(0, 1200)
         : "";
-    const useAvatarReferences = input.useAvatarReferences ?? (meta.gameImageUseAvatarReferences !== false);
+    const useAvatarReferences = input.useAvatarReferences ?? meta.gameImageUseAvatarReferences !== false;
     const includeCharacterAppearance =
-      input.includeCharacterAppearance ?? (meta.gameImageIncludeCharacterAppearance !== false);
+      input.includeCharacterAppearance ?? meta.gameImageIncludeCharacterAppearance !== false;
     const latestImageState = await createGameStateStorage(app.db)
       .getLatest(input.chatId)
       .catch(() => null);
@@ -7784,7 +7864,7 @@ export async function gameRoutes(app: FastifyInstance) {
       const allMsgs = await chats.listMessages(input.chatId);
       const approxTurnNumber = Math.max(1, allMsgs.filter((message) => message.role === "user").length + 1);
       const sessionNumber = currentGameSessionNumber(meta);
-      if (isIllustrationAllowed(meta, approxTurnNumber, sessionNumber)) {
+      if (input.forceIllustration === true || isIllustrationAllowed(meta, approxTurnNumber, sessionNumber)) {
         const charStore = createCharactersStorage(app.db);
         const allChars = await charStore.list();
         const charReferenceByName = new Map<string, string>();
@@ -7953,224 +8033,130 @@ export async function gameRoutes(app: FastifyInstance) {
     );
     const releaseAssetGeneration = await acquireGameAssetGenerationLock(input.chatId, assetAbortSignal);
     try {
-    const requestDebug = input.debugMode === true;
-    const debugOverrideEnabled = requestDebug || isDebugAgentsEnabled();
-    const debugLogsEnabled = debugOverrideEnabled || logger.isLevelEnabled("debug");
-    const debugLog = (message: string, ...args: any[]) => {
-      logDebugOverride(debugOverrideEnabled, message, ...args);
-    };
-    const chats = createChatsStorage(app.db);
-    const connections = createConnectionsStorage(app.db);
+      const requestDebug = input.debugMode === true;
+      const debugOverrideEnabled = requestDebug || isDebugAgentsEnabled();
+      const debugLogsEnabled = debugOverrideEnabled || logger.isLevelEnabled("debug");
+      const debugLog = (message: string, ...args: any[]) => {
+        logDebugOverride(debugOverrideEnabled, message, ...args);
+      };
+      const chats = createChatsStorage(app.db);
+      const connections = createConnectionsStorage(app.db);
+      const agents = createAgentsStorage(app.db);
 
-    logger.info(
-      "[game/generate-assets] request: chatId=%s bg=%s npcs=%s",
-      input.chatId,
-      input.backgroundTag ?? "none",
-      input.npcsNeedingAvatars?.length ?? 0,
-    );
-    if (debugLogsEnabled) {
-      debugLog(
-        "[debug/game/generate-assets] request payload:\n%s",
-        JSON.stringify(
-          {
-            chatId: input.chatId,
-            backgroundTag: input.backgroundTag ?? null,
-            npcsNeedingAvatars: input.npcsNeedingAvatars ?? [],
-            illustration: input.illustration ?? null,
-            useAvatarReferences: input.useAvatarReferences ?? null,
-            includeCharacterAppearance: input.includeCharacterAppearance ?? null,
-          },
-          null,
-          2,
-        ),
-      );
-    }
-
-    const chat = await chats.getById(input.chatId);
-    if (!chat) throw new Error("Chat not found");
-
-    const meta = parseMeta(chat.metadata);
-    const enableGen = !!meta.enableSpriteGeneration;
-    const imgConnId = (meta.gameImageConnectionId as string) || null;
-
-    if (!enableGen || !imgConnId) {
       logger.info(
-        "[game/generate-assets] skipped: enableSpriteGeneration=%s imageConnectionConfigured=%s",
-        enableGen,
-        !!imgConnId,
+        "[game/generate-assets] request: chatId=%s bg=%s npcs=%s",
+        input.chatId,
+        input.backgroundTag ?? "none",
+        input.npcsNeedingAvatars?.length ?? 0,
       );
-      return {
-        generatedBackground: null,
-        fallbackBackground: null,
-        generatedIllustration: null,
-        generatedNpcAvatars: [],
-      };
-    }
-
-    const imgConn = await connections.getWithKey(imgConnId);
-    if (!imgConn) {
-      logger.info("[game/generate-assets] skipped: image connection %s not found", imgConnId);
-      return {
-        generatedBackground: null,
-        fallbackBackground: null,
-        generatedIllustration: null,
-        generatedNpcAvatars: [],
-      };
-    }
-
-    const imgModel = imgConn.model || "";
-    const imgBaseUrl = imgConn.baseUrl || "https://image.pollinations.ai";
-    const imgApiKey = imgConn.apiKey || "";
-    const imgSource = (imgConn as any).imageGenerationSource || imgModel;
-    const imgComfyWorkflow = imgConn.comfyuiWorkflow || undefined;
-    const imgServiceHint = imgConn.imageService || imgSource;
-    const imgEndpointId = imgConn.imageEndpointId || undefined;
-    const imgDefaults = resolveConnectionImageDefaults(imgConn);
-
-    const setupCfg = meta.gameSetupConfig as Record<string, unknown> | null;
-    const genre = (setupCfg?.genre as string) || "";
-    const setting = (setupCfg?.setting as string) || "";
-    const artStyle = (setupCfg?.artStylePrompt as string) || "";
-    const styleProfileId =
-      ((setupCfg?.imageStyleProfileId as string | undefined) ?? (meta.imageStyleProfileId as string | undefined)) ||
-      null;
-    const imagePromptInstructions =
-      typeof meta.gameImagePromptInstructions === "string"
-        ? meta.gameImagePromptInstructions.trim().slice(0, 1200)
-        : "";
-    const useAvatarReferences = input.useAvatarReferences ?? (meta.gameImageUseAvatarReferences !== false);
-    const includeCharacterAppearance =
-      input.includeCharacterAppearance ?? (meta.gameImageIncludeCharacterAppearance !== false);
-    const latestImageState = await createGameStateStorage(app.db)
-      .getLatest(input.chatId)
-      .catch(() => null);
-    const imageSettings = await loadImageGenerationUserSettings(app.db);
-    const backgroundSize: ImageGenerationSize = input.imageSizes?.background ?? imageSettings.background;
-    const portraitSize: ImageGenerationSize = input.imageSizes?.portrait ?? imageSettings.portrait;
-    const styleProfiles = imageSettings.styleProfiles;
-    const promptOverrideById = new Map(
-      (input.promptOverrides ?? []).map((item) => [
-        item.id,
-        { prompt: item.prompt.trim(), negativePrompt: item.negativePrompt?.trim() || undefined },
-      ]),
-    );
-
-    let generatedBackground: string | null = null;
-    let fallbackBackground: string | null = null;
-    let generatedIllustration: { tag: string; segment?: number } | null = null;
-    const generatedNpcAvatars: Array<{ name: string; avatarUrl: string }> = [];
-
-    // ── Generate background ──
-    if (!assetAbortSignal.aborted && input.backgroundTag) {
-      const slug = generatedBackgroundSlug(input.backgroundTag);
-      const promptOverride = promptOverrideById.get(gameImagePromptReviewId("background", slug));
-
-      const tag = await generateBackground({
-        chatId: input.chatId,
-        locationSlug: slug,
-        sceneDescription: input.backgroundTag.replace(/:/g, " ").replace(/-/g, " "),
-        genre,
-        setting,
-        currentLocation: latestImageState?.location ?? null,
-        currentWeather: latestImageState?.weather ?? null,
-        currentTimeOfDay: latestImageState?.time ?? null,
-        worldOverview: (meta.gameWorldOverview as string | undefined) ?? null,
-        artStyle,
-        imgSource,
-        imgModel,
-        imgBaseUrl,
-        imgApiKey,
-        imgService: imgServiceHint,
-        imgEndpointId,
-        imgComfyWorkflow,
-        imgDefaults,
-        styleProfiles,
-        styleProfileId,
-        debugLog: debugLogsEnabled ? debugLog : undefined,
-        promptOverridesStorage: createPromptOverridesStorage(app.db),
-        size: backgroundSize,
-        promptOverride: promptOverride?.prompt,
-        negativePromptOverride: promptOverride?.negativePrompt,
-        signal: assetAbortSignal,
-      });
-      if (tag) {
-        generatedBackground = tag;
-      } else {
-        fallbackBackground = pickFallbackBackgroundTag(input.backgroundTag, getAssetManifest().assets);
-        if (fallbackBackground) {
-          logger.warn(
-            '[game/generate-assets] background generation failed for "%s"; using fallback "%s"',
-            input.backgroundTag,
-            fallbackBackground,
-          );
-          const latestChat = await chats.getById(input.chatId);
-          if (latestChat) {
-            const latestMeta = parseMeta(latestChat.metadata);
-            await chats.updateMetadata(input.chatId, { ...latestMeta, gameSceneBackground: fallbackBackground });
-          }
-        }
+      if (debugLogsEnabled) {
+        debugLog(
+          "[debug/game/generate-assets] request payload:\n%s",
+          JSON.stringify(
+            {
+              chatId: input.chatId,
+              backgroundTag: input.backgroundTag ?? null,
+              npcsNeedingAvatars: input.npcsNeedingAvatars ?? [],
+              illustration: input.illustration ?? null,
+              useAvatarReferences: input.useAvatarReferences ?? null,
+              includeCharacterAppearance: input.includeCharacterAppearance ?? null,
+            },
+            null,
+            2,
+          ),
+        );
       }
-    }
 
-    // ── Generate rare VN illustration ──
-    if (!assetAbortSignal.aborted && input.illustration) {
-      const allMsgs = await chats.listMessages(input.chatId);
-      const approxTurnNumber = Math.max(1, allMsgs.filter((message) => message.role === "user").length + 1);
-      const sessionNumber = currentGameSessionNumber(meta);
-      if (!isIllustrationAllowed(meta, approxTurnNumber, sessionNumber)) {
-        logger.info("[game/generate-assets] illustration skipped: cooldown active");
-      } else {
-        const charStore = createCharactersStorage(app.db);
-        const allChars = await charStore.list();
-        const charReferenceByName = new Map<string, string>();
-        const charAvatarByName = new Map<string, string>();
-        const charDescriptionByName = new Map<string, string>();
-        for (const ch of allChars) {
-          try {
-            const parsed = JSON.parse(ch.data) as Record<string, unknown> & { name?: string };
-            const fullBodyReference = parsed.name ? readPreferredFullBodySpriteBase64(ch.id) : null;
-            if (parsed.name && fullBodyReference) {
-              addNameLookupEntry(charReferenceByName, parsed.name, fullBodyReference.base64);
-            }
-            if (parsed.name && ch.avatarPath) {
-              addNameLookupEntry(charAvatarByName, parsed.name, ch.avatarPath);
-            }
-            const appearanceText = extractCharacterAppearanceText(parsed);
-            if (parsed.name && appearanceText) {
-              addNameLookupEntry(charDescriptionByName, parsed.name, appearanceText);
-            }
-          } catch {
-            /* skip */
-          }
-        }
+      const chat = await chats.getById(input.chatId);
+      if (!chat) throw new Error("Chat not found");
 
-        const illustration = input.illustration as SceneIllustrationRequest;
-        const illustrationKey = illustration.slug || illustration.reason || illustration.prompt.slice(0, 80);
-        const promptOverride = promptOverrideById.get(gameImagePromptReviewId("illustration", illustrationKey));
-        const illustrationAssets = collectIllustrationCharacterAssets({
-          illustration,
-          characterNames: illustration.characters ?? [],
-          trackedNpcs: [],
-          gameNpcs: (meta.gameNpcs as GameNpc[]) ?? [],
-          charReferenceByName,
-          charAvatarByName,
-          charDescriptionByName,
-          includeReferenceImages: useAvatarReferences,
-          includeCharacterDescriptions: includeCharacterAppearance,
-        });
-        const tag = await generateSceneIllustration({
+      const meta = parseMeta(chat.metadata);
+      const enableGen = !!meta.enableSpriteGeneration;
+      const imgConnId = await resolveGameImageConnectionId(meta, agents);
+
+      if (!enableGen || !imgConnId) {
+        logger.info(
+          "[game/generate-assets] skipped: enableSpriteGeneration=%s imageConnectionConfigured=%s",
+          enableGen,
+          !!imgConnId,
+        );
+        return {
+          generatedBackground: null,
+          fallbackBackground: null,
+          generatedIllustration: null,
+          generatedNpcAvatars: [],
+        };
+      }
+
+      const imgConn = await connections.getWithKey(imgConnId);
+      if (!imgConn) {
+        logger.info("[game/generate-assets] skipped: image connection %s not found", imgConnId);
+        return {
+          generatedBackground: null,
+          fallbackBackground: null,
+          generatedIllustration: null,
+          generatedNpcAvatars: [],
+        };
+      }
+
+      const imgModel = imgConn.model || "";
+      const imgBaseUrl = imgConn.baseUrl || "https://image.pollinations.ai";
+      const imgApiKey = imgConn.apiKey || "";
+      const imgSource = (imgConn as any).imageGenerationSource || imgModel;
+      const imgComfyWorkflow = imgConn.comfyuiWorkflow || undefined;
+      const imgServiceHint = imgConn.imageService || imgSource;
+      const imgEndpointId = imgConn.imageEndpointId || undefined;
+      const imgDefaults = resolveConnectionImageDefaults(imgConn);
+
+      const setupCfg = meta.gameSetupConfig as Record<string, unknown> | null;
+      const genre = (setupCfg?.genre as string) || "";
+      const setting = (setupCfg?.setting as string) || "";
+      const artStyle = (setupCfg?.artStylePrompt as string) || "";
+      const styleProfileId =
+        ((setupCfg?.imageStyleProfileId as string | undefined) ?? (meta.imageStyleProfileId as string | undefined)) ||
+        null;
+      const imagePromptInstructions =
+        typeof meta.gameImagePromptInstructions === "string"
+          ? meta.gameImagePromptInstructions.trim().slice(0, 1200)
+          : "";
+      const useAvatarReferences = input.useAvatarReferences ?? meta.gameImageUseAvatarReferences !== false;
+      const includeCharacterAppearance =
+        input.includeCharacterAppearance ?? meta.gameImageIncludeCharacterAppearance !== false;
+      const latestImageState = await createGameStateStorage(app.db)
+        .getLatest(input.chatId)
+        .catch(() => null);
+      const imageSettings = await loadImageGenerationUserSettings(app.db);
+      const backgroundSize: ImageGenerationSize = input.imageSizes?.background ?? imageSettings.background;
+      const portraitSize: ImageGenerationSize = input.imageSizes?.portrait ?? imageSettings.portrait;
+      const styleProfiles = imageSettings.styleProfiles;
+      const promptOverrideById = new Map(
+        (input.promptOverrides ?? []).map((item) => [
+          item.id,
+          { prompt: item.prompt.trim(), negativePrompt: item.negativePrompt?.trim() || undefined },
+        ]),
+      );
+
+      let generatedBackground: string | null = null;
+      let fallbackBackground: string | null = null;
+      let generatedIllustration: { tag: string; segment?: number } | null = null;
+      const generatedNpcAvatars: Array<{ name: string; avatarUrl: string }> = [];
+
+      // ── Generate background ──
+      if (!assetAbortSignal.aborted && input.backgroundTag) {
+        const slug = generatedBackgroundSlug(input.backgroundTag);
+        const promptOverride = promptOverrideById.get(gameImagePromptReviewId("background", slug));
+
+        const tag = await generateBackground({
           chatId: input.chatId,
-          title: illustration.title,
-          prompt: illustration.prompt,
-          reason: illustration.reason,
-          characters: illustration.characters,
-          characterDescriptions: illustrationAssets.characterDescriptions,
-          slug: illustration.slug,
+          locationSlug: slug,
+          sceneDescription: input.backgroundTag.replace(/:/g, " ").replace(/-/g, " "),
           genre,
           setting,
+          currentLocation: latestImageState?.location ?? null,
+          currentWeather: latestImageState?.weather ?? null,
+          currentTimeOfDay: latestImageState?.time ?? null,
+          worldOverview: (meta.gameWorldOverview as string | undefined) ?? null,
           artStyle,
-          imagePromptInstructions,
-          referenceImages: illustrationAssets.referenceImages,
           imgSource,
           imgModel,
           imgBaseUrl,
@@ -8188,101 +8174,84 @@ export async function gameRoutes(app: FastifyInstance) {
           negativePromptOverride: promptOverride?.negativePrompt,
           signal: assetAbortSignal,
         });
-
         if (tag) {
-          await addGeneratedIllustrationToGallery({
-            app,
-            chatId: input.chatId,
-            tag,
+          generatedBackground = tag;
+        } else {
+          fallbackBackground = pickFallbackBackgroundTag(input.backgroundTag, getAssetManifest().assets);
+          if (fallbackBackground) {
+            logger.warn(
+              '[game/generate-assets] background generation failed for "%s"; using fallback "%s"',
+              input.backgroundTag,
+              fallbackBackground,
+            );
+            const latestChat = await chats.getById(input.chatId);
+            if (latestChat) {
+              const latestMeta = parseMeta(latestChat.metadata);
+              await chats.updateMetadata(input.chatId, { ...latestMeta, gameSceneBackground: fallbackBackground });
+            }
+          }
+        }
+      }
+
+      // ── Generate rare VN illustration ──
+      if (!assetAbortSignal.aborted && input.illustration) {
+        const allMsgs = await chats.listMessages(input.chatId);
+        const approxTurnNumber = Math.max(1, allMsgs.filter((message) => message.role === "user").length + 1);
+        const sessionNumber = currentGameSessionNumber(meta);
+        if (input.forceIllustration !== true && !isIllustrationAllowed(meta, approxTurnNumber, sessionNumber)) {
+          logger.info("[game/generate-assets] illustration skipped: cooldown active");
+        } else {
+          const charStore = createCharactersStorage(app.db);
+          const allChars = await charStore.list();
+          const charReferenceByName = new Map<string, string>();
+          const charAvatarByName = new Map<string, string>();
+          const charDescriptionByName = new Map<string, string>();
+          for (const ch of allChars) {
+            try {
+              const parsed = JSON.parse(ch.data) as Record<string, unknown> & { name?: string };
+              const fullBodyReference = parsed.name ? readPreferredFullBodySpriteBase64(ch.id) : null;
+              if (parsed.name && fullBodyReference) {
+                addNameLookupEntry(charReferenceByName, parsed.name, fullBodyReference.base64);
+              }
+              if (parsed.name && ch.avatarPath) {
+                addNameLookupEntry(charAvatarByName, parsed.name, ch.avatarPath);
+              }
+              const appearanceText = extractCharacterAppearanceText(parsed);
+              if (parsed.name && appearanceText) {
+                addNameLookupEntry(charDescriptionByName, parsed.name, appearanceText);
+              }
+            } catch {
+              /* skip */
+            }
+          }
+
+          const illustration = input.illustration as SceneIllustrationRequest;
+          const illustrationKey = illustration.slug || illustration.reason || illustration.prompt.slice(0, 80);
+          const promptOverride = promptOverrideById.get(gameImagePromptReviewId("illustration", illustrationKey));
+          const illustrationAssets = collectIllustrationCharacterAssets({
             illustration,
-            model: imgModel,
+            characterNames: illustration.characters ?? [],
+            trackedNpcs: [],
+            gameNpcs: (meta.gameNpcs as GameNpc[]) ?? [],
+            charReferenceByName,
+            charAvatarByName,
+            charDescriptionByName,
+            includeReferenceImages: useAvatarReferences,
+            includeCharacterDescriptions: includeCharacterAppearance,
           });
-          generatedIllustration = {
-            tag,
-            ...(illustration.segment !== undefined ? { segment: illustration.segment } : {}),
-          };
-          const latestChat = await chats.getById(input.chatId);
-          if (latestChat) {
-            const latestMeta = parseMeta(latestChat.metadata);
-            await chats.updateMetadata(input.chatId, {
-              ...latestMeta,
-              gameLastIllustrationTurn: approxTurnNumber,
-              gameLastIllustrationSessionNumber: sessionNumber,
-              gameLastIllustrationTag: tag,
-            });
-          }
-        }
-      }
-    }
-
-    // ── Generate NPC avatars ──
-    if (!assetAbortSignal.aborted && input.npcsNeedingAvatars?.length) {
-      const forceNpcAvatarNames = new Set(
-        (input.forceNpcAvatarNames ?? []).map((name) => normalizeJournalMatch(name)).filter(Boolean),
-      );
-      const latestChat = await chats.getById(input.chatId);
-      const latestMeta = latestChat ? parseMeta(latestChat.metadata) : meta;
-      const currentNpcs = (latestMeta.gameNpcs as GameNpc[]) ?? [];
-      const existingNpcAvatarByName = new Map<string, string>();
-      for (const currentNpc of currentNpcs) {
-        addExistingNpcAvatar(existingNpcAvatarByName, currentNpc.name, currentNpc.avatarUrl);
-      }
-
-      const latestState = await createGameStateStorage(app.db).getLatest(input.chatId);
-      const presentCharacters = parseStoredJson<Array<Record<string, unknown>>>(latestState?.presentCharacters) ?? [];
-      for (const presentCharacter of presentCharacters) {
-        addExistingNpcAvatar(existingNpcAvatarByName, presentCharacter.name, presentCharacter.avatarPath);
-      }
-
-      for (const npc of input.npcsNeedingAvatars) {
-        const generatedAvatarUrl = buildNpcAvatarUrl(input.chatId, npc.name);
-        addExistingNpcAvatar(existingNpcAvatarByName, npc.name, generatedAvatarUrl);
-      }
-
-      // Check character library first — reuse existing avatars
-      const charStore = createCharactersStorage(app.db);
-      const allChars = await charStore.list();
-      const charAvatarByName = new Map<string, string>();
-      for (const ch of allChars) {
-        try {
-          const parsed = JSON.parse(ch.data) as { name?: string };
-          if (parsed.name && ch.avatarPath) {
-            addNameLookupEntry(charAvatarByName, parsed.name, ch.avatarPath);
-          }
-        } catch {
-          /* skip */
-        }
-      }
-
-      let nextNpcIndex = 0;
-      const runPortraitWorker = async () => {
-        while (!assetAbortSignal.aborted) {
-          const npc = input.npcsNeedingAvatars?.[nextNpcIndex++];
-          if (!npc) return;
-
-          const normalizedNpcName = normalizeJournalMatch(npc.name);
-          const forceNpcAvatar = forceNpcAvatarNames.has(normalizedNpcName);
-          const existingAvatarUrl = existingNpcAvatarByName.get(normalizeJournalMatch(npc.name));
-          if (!forceNpcAvatar && existingAvatarUrl) {
-            logger.info('[game/generate-assets] NPC avatar exists, skipping generation: "%s"', npc.name);
-            generatedNpcAvatars.push({ name: npc.name, avatarUrl: existingAvatarUrl });
-            continue;
-          }
-
-          const libAvatar = findCharAvatarFuzzy(npc.name, charAvatarByName);
-          if (!forceNpcAvatar && libAvatar) {
-            generatedNpcAvatars.push({ name: npc.name, avatarUrl: libAvatar });
-            continue;
-          }
-          const metadataNpc = findNpcRecordByName(currentNpcs, npc.name);
-          const presentCharacter = findRecordByName(presentCharacters, npc.name);
-          const avatarUrl = await generateNpcPortrait({
+          const tag = await generateSceneIllustration({
             chatId: input.chatId,
-            npcName: npc.name,
-            appearance: npc.description,
-            gender: npc.gender ?? metadataNpc?.gender ?? optionalTrimmedString(presentCharacter?.gender),
-            pronouns: npc.pronouns ?? metadataNpc?.pronouns ?? optionalTrimmedString(presentCharacter?.pronouns),
+            title: illustration.title,
+            prompt: illustration.prompt,
+            reason: illustration.reason,
+            characters: illustration.characters,
+            characterDescriptions: illustrationAssets.characterDescriptions,
+            slug: illustration.slug,
+            genre,
+            setting,
             artStyle,
+            imagePromptInstructions,
+            referenceImages: illustrationAssets.referenceImages,
             imgSource,
             imgModel,
             imgBaseUrl,
@@ -8295,26 +8264,143 @@ export async function gameRoutes(app: FastifyInstance) {
             styleProfileId,
             debugLog: debugLogsEnabled ? debugLog : undefined,
             promptOverridesStorage: createPromptOverridesStorage(app.db),
-            size: portraitSize,
-            promptOverride: promptOverrideById.get(gameImagePromptReviewId("portrait", npc.name))?.prompt,
-            negativePromptOverride: promptOverrideById.get(gameImagePromptReviewId("portrait", npc.name))?.negativePrompt,
-            force: forceNpcAvatar,
+            size: backgroundSize,
+            promptOverride: promptOverride?.prompt,
+            negativePromptOverride: promptOverride?.negativePrompt,
             signal: assetAbortSignal,
           });
-          if (avatarUrl) {
-            generatedNpcAvatars.push({
-              name: npc.name,
-              avatarUrl: `${avatarUrl.split("?")[0]}?v=${Date.now()}`,
+
+          if (tag) {
+            await addGeneratedIllustrationToGallery({
+              app,
+              chatId: input.chatId,
+              tag,
+              illustration,
+              model: imgModel,
             });
+            generatedIllustration = {
+              tag,
+              ...(illustration.segment !== undefined ? { segment: illustration.segment } : {}),
+            };
+            const latestChat = await chats.getById(input.chatId);
+            if (latestChat) {
+              const latestMeta = parseMeta(latestChat.metadata);
+              await chats.updateMetadata(input.chatId, {
+                ...latestMeta,
+                gameLastIllustrationTurn: approxTurnNumber,
+                gameLastIllustrationSessionNumber: sessionNumber,
+                gameLastIllustrationTag: tag,
+              });
+            }
           }
         }
-      };
-      const portraitWorkerCount = Math.min(GAME_ASSET_PORTRAIT_CONCURRENCY, input.npcsNeedingAvatars.length);
-      await Promise.all(Array.from({ length: portraitWorkerCount }, () => runPortraitWorker()));
+      }
 
-      // Persist avatar URLs to NPC list in metadata
-      if (generatedNpcAvatars.length > 0) {
-        if (latestChat) {
+      // ── Generate NPC avatars ──
+      if (!assetAbortSignal.aborted && input.npcsNeedingAvatars?.length) {
+        const forceNpcAvatarNames = new Set(
+          (input.forceNpcAvatarNames ?? []).map((name) => normalizeJournalMatch(name)).filter(Boolean),
+        );
+        const latestChat = await chats.getById(input.chatId);
+        const latestMeta = latestChat ? parseMeta(latestChat.metadata) : meta;
+        const currentNpcs = (latestMeta.gameNpcs as GameNpc[]) ?? [];
+        const existingNpcAvatarByName = new Map<string, string>();
+        for (const currentNpc of currentNpcs) {
+          addExistingNpcAvatar(existingNpcAvatarByName, currentNpc.name, currentNpc.avatarUrl);
+        }
+
+        const latestState = await createGameStateStorage(app.db).getLatest(input.chatId);
+        const presentCharacters = parseStoredJson<Array<Record<string, unknown>>>(latestState?.presentCharacters) ?? [];
+        for (const presentCharacter of presentCharacters) {
+          addExistingNpcAvatar(existingNpcAvatarByName, presentCharacter.name, presentCharacter.avatarPath);
+        }
+
+        for (const npc of input.npcsNeedingAvatars) {
+          const generatedAvatarUrl = buildNpcAvatarUrl(input.chatId, npc.name);
+          addExistingNpcAvatar(existingNpcAvatarByName, npc.name, generatedAvatarUrl);
+        }
+
+        // Check character library first — reuse existing avatars
+        const charStore = createCharactersStorage(app.db);
+        const allChars = await charStore.list();
+        const charAvatarByName = new Map<string, string>();
+        for (const ch of allChars) {
+          try {
+            const parsed = JSON.parse(ch.data) as { name?: string };
+            if (parsed.name && ch.avatarPath) {
+              addNameLookupEntry(charAvatarByName, parsed.name, ch.avatarPath);
+            }
+          } catch {
+            /* skip */
+          }
+        }
+
+        let nextNpcIndex = 0;
+        const runPortraitWorker = async () => {
+          while (!assetAbortSignal.aborted) {
+            const npc = input.npcsNeedingAvatars?.[nextNpcIndex++];
+            if (!npc) return;
+
+            try {
+              const normalizedNpcName = normalizeJournalMatch(npc.name);
+              const forceNpcAvatar = forceNpcAvatarNames.has(normalizedNpcName);
+              const existingAvatarUrl = existingNpcAvatarByName.get(normalizedNpcName);
+              if (!forceNpcAvatar && existingAvatarUrl) {
+                logger.info('[game/generate-assets] NPC avatar exists, skipping generation: "%s"', npc.name);
+                generatedNpcAvatars.push({ name: npc.name, avatarUrl: existingAvatarUrl });
+                continue;
+              }
+
+              const libAvatar = findCharAvatarFuzzy(npc.name, charAvatarByName);
+              if (!forceNpcAvatar && libAvatar) {
+                generatedNpcAvatars.push({ name: npc.name, avatarUrl: libAvatar });
+                continue;
+              }
+              const metadataNpc = findNpcRecordByName(currentNpcs, npc.name);
+              const presentCharacter = findRecordByName(presentCharacters, npc.name);
+              const avatarUrl = await generateNpcPortrait({
+                chatId: input.chatId,
+                npcName: npc.name,
+                appearance: npc.description,
+                gender: npc.gender ?? metadataNpc?.gender ?? optionalTrimmedString(presentCharacter?.gender),
+                pronouns: npc.pronouns ?? metadataNpc?.pronouns ?? optionalTrimmedString(presentCharacter?.pronouns),
+                artStyle,
+                imgSource,
+                imgModel,
+                imgBaseUrl,
+                imgApiKey,
+                imgService: imgServiceHint,
+                imgEndpointId,
+                imgComfyWorkflow,
+                imgDefaults,
+                styleProfiles,
+                styleProfileId,
+                debugLog: debugLogsEnabled ? debugLog : undefined,
+                promptOverridesStorage: createPromptOverridesStorage(app.db),
+                size: portraitSize,
+                promptOverride: promptOverrideById.get(gameImagePromptReviewId("portrait", npc.name))?.prompt,
+                negativePromptOverride: promptOverrideById.get(gameImagePromptReviewId("portrait", npc.name))
+                  ?.negativePrompt,
+                force: forceNpcAvatar,
+                signal: assetAbortSignal,
+              });
+              if (avatarUrl) {
+                generatedNpcAvatars.push({
+                  name: npc.name,
+                  avatarUrl: `${avatarUrl.split("?")[0]}?v=${Date.now()}`,
+                });
+              }
+            } catch (err) {
+              if (assetAbortSignal.aborted) throw err;
+              logger.warn(err, '[game/generate-assets] Failed to generate NPC avatar for "%s"', npc.name);
+            }
+          }
+        };
+        const portraitWorkerCount = Math.min(GAME_ASSET_PORTRAIT_CONCURRENCY, input.npcsNeedingAvatars.length);
+        await Promise.all(Array.from({ length: portraitWorkerCount }, () => runPortraitWorker()));
+
+        // Persist avatar URLs to NPC list in metadata
+        if (generatedNpcAvatars.length > 0) {
           const avatarEntries: SceneAssetNpcAvatarEntry[] = generatedNpcAvatars.map((generatedAvatar) => ({
             ...generatedAvatar,
             ...(() => {
@@ -8328,33 +8414,33 @@ export async function gameRoutes(app: FastifyInstance) {
               };
             })(),
           }));
-          const nextNpcs = upsertGameNpcAvatarEntries(currentNpcs, avatarEntries);
-          if (nextNpcs !== currentNpcs) {
-            await chats.updateMetadata(input.chatId, { ...latestMeta, gameNpcs: nextNpcs });
-          }
+          await chats.patchMetadata(input.chatId, (freshMeta) => {
+            const freshNpcs = Array.isArray(freshMeta.gameNpcs) ? (freshMeta.gameNpcs as GameNpc[]) : [];
+            const nextNpcs = upsertGameNpcAvatarEntries(freshNpcs, avatarEntries);
+            return nextNpcs !== freshNpcs ? { gameNpcs: nextNpcs } : {};
+          });
         }
       }
-    }
 
-    logger.info(
-      "[game/generate-assets] result: bg=%s fallback=%s illustration=%s npcs=%s",
-      generatedBackground ?? "none",
-      fallbackBackground ?? "none",
-      generatedIllustration?.tag ?? "none",
-      generatedNpcAvatars.length,
-    );
-    if (debugLogsEnabled) {
-      debugLog(
-        "[debug/game/generate-assets] result payload:\n%s",
-        JSON.stringify(
-          { generatedBackground, fallbackBackground, generatedIllustration, generatedNpcAvatars },
-          null,
-          2,
-        ),
+      logger.info(
+        "[game/generate-assets] result: bg=%s fallback=%s illustration=%s npcs=%s",
+        generatedBackground ?? "none",
+        fallbackBackground ?? "none",
+        generatedIllustration?.tag ?? "none",
+        generatedNpcAvatars.length,
       );
-    }
+      if (debugLogsEnabled) {
+        debugLog(
+          "[debug/game/generate-assets] result payload:\n%s",
+          JSON.stringify(
+            { generatedBackground, fallbackBackground, generatedIllustration, generatedNpcAvatars },
+            null,
+            2,
+          ),
+        );
+      }
 
-    return { generatedBackground, fallbackBackground, generatedIllustration, generatedNpcAvatars };
+      return { generatedBackground, fallbackBackground, generatedIllustration, generatedNpcAvatars };
     } finally {
       releaseAssetGeneration();
     }

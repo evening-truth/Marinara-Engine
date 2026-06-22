@@ -1269,6 +1269,23 @@ function isNovelAiV4Model(model: string): boolean {
   return /^nai-diffusion-(?:4(?:-(?:curated-preview|full))?|4-5(?:-(?:curated|full))?)$/i.test(model.trim());
 }
 
+function collectNovelAiReferenceImages(request: ImageGenRequest): string[] {
+  return [request.referenceImage, ...(request.referenceImages ?? [])]
+    .filter((reference): reference is string => typeof reference === "string" && reference.trim().length > 0)
+    .filter((reference, index, all) => all.indexOf(reference) === index)
+    .slice(0, 16)
+    .map((reference, index) => {
+      try {
+        return decodeReferenceImage(reference).base64;
+      } catch (err) {
+        const detail = err instanceof Error ? ` ${err.message}` : "";
+        throw new Error(
+          `NovelAI reference image ${index + 1} could not be read as valid image data. Upload a PNG, JPEG, WebP, or valid image data URL.${detail}`,
+        );
+      }
+    });
+}
+
 function sanitizeNovelAiV4Prompt(value: string): string {
   return value
     .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
@@ -1317,6 +1334,7 @@ async function generateNovelAI(baseUrl: string, apiKey: string, request: ImageGe
     model,
   );
   const seed = resolveSeed(request.imageDefaults);
+  const referenceImages = collectNovelAiReferenceImages(request);
 
   const parameters: Record<string, unknown> = {
     width: request.width ?? 832,
@@ -1348,19 +1366,11 @@ async function generateNovelAI(baseUrl: string, apiKey: string, request: ImageGe
       use_coords: false,
       use_order: true,
     };
-    if (request.referenceImage) {
-      parameters.reference_image_multiple = [request.referenceImage];
-      parameters.reference_information_extracted_multiple = [1];
-      parameters.reference_strength_multiple = [0.6];
-    } else if (request.referenceImages?.length) {
-      parameters.reference_image_multiple = request.referenceImages;
-      parameters.reference_information_extracted_multiple = request.referenceImages.map(() => 1);
-      parameters.reference_strength_multiple = request.referenceImages.map(() => 0.6);
-    } else {
-      parameters.reference_image_multiple = [];
-      parameters.reference_information_extracted_multiple = [];
-      parameters.reference_strength_multiple = [];
-    }
+  }
+  if (isV4 || referenceImages.length > 0) {
+    parameters.reference_image_multiple = referenceImages;
+    parameters.reference_information_extracted_multiple = referenceImages.map(() => 1);
+    parameters.reference_strength_multiple = referenceImages.map(() => 0.6);
   }
 
   const body: Record<string, unknown> = {

@@ -27,7 +27,12 @@ import {
 import { eq } from "drizzle-orm";
 import { listCharacterSprites } from "../../services/game/sprite.service.js";
 import { DATA_DIR } from "../../utils/data-dir.js";
-import { normalizeAgentMaxParallelJobs, type ResolvedAgent } from "../../services/agents/agent-pipeline.js";
+import {
+  AGENT_PHASE_MAX_CONCURRENT_GROUPS,
+  normalizeAgentMaxParallelJobs,
+  settleAgentJobsWithConcurrencyLimit,
+  type ResolvedAgent,
+} from "../../services/agents/agent-pipeline.js";
 import { executeAgent, executeAgentBatch, normalizeAgentContextSize } from "../../services/agents/agent-executor.js";
 import type { LLMToolDefinition } from "../../services/llm/base-provider.js";
 import { getLocalSidecarProvider, LOCAL_SIDECAR_MODEL } from "../../services/llm/local-sidecar.js";
@@ -341,13 +346,13 @@ function normalizeWrapFormat(value: unknown): WrapFormat {
 async function resolveRetryAgentWrapFormat(args: {
   chat: any;
   chatMode: ChatMode;
-  conn: any;
+  conn: any | null;
   presets: ReturnType<typeof createPromptsStorage>;
 }): Promise<WrapFormat> {
   const candidates = buildGenerationPromptPresetCandidates({
     chatMode: args.chatMode,
     chatPromptPresetId: args.chat.promptPresetId,
-    connectionPromptPresetId: args.conn.promptPresetId,
+    connectionPromptPresetId: args.conn?.promptPresetId,
   });
   for (const candidate of candidates) {
     const preset = await args.presets.getById(candidate.id);
@@ -925,46 +930,99 @@ async function resolveRetryAgents(args: {
     (agent) => agentTypeSet.has(agent.id) && !resolvedTypeSet.has(agent.id),
   );
 
-  let connId = chat.connectionId;
-  if (connId === "random") {
-    const pool = await conns.listRandomPool();
-    if (!pool.length) {
-      throw new Error("No connections are marked for the random pool");
+  const setupConfig = parseSettingsRecord(chatMeta.gameSetupConfig);
+  const gameSceneConnectionId =
+    typeof chatMeta.gameSceneConnectionId === "string" ? chatMeta.gameSceneConnectionId.trim() : "";
+  const setupSceneConnectionId =
+    typeof setupConfig.sceneConnectionId === "string" ? setupConfig.sceneConnectionId.trim() : "";
+  const defaultAgentConn = await conns.getDefaultForAgents();
+  type RetryAgentConnectionResolution = {
+    entry: {
+      connectionId: string | null;
+      provider: any;
+      model: string;
+      customParameters: Record<string, unknown>;
+      maxOutputTokens: number | null;
+      maxParallelJobs: number;
+    } | null;
+    unavailableReason?: string;
+    connectionName?: string;
+  };
+  let connForPromptDefaults: any | null = null;
+  const resolveStoredRetryConnection = (
+    connectionId: string | null,
+    storedConn: any,
+  ): RetryAgentConnectionResolution => {
+    const model = typeof storedConn.model === "string" ? storedConn.model.trim() : "";
+    if (!model) {
+      return { entry: null, unavailableReason: "no model is selected", connectionName: storedConn.name };
     }
-    const picked = pool[Math.floor(Math.random() * pool.length)];
-    connId = picked.id;
-  }
 
-  const conn = connId ? await conns.getWithKey(connId) : null;
-  if (!conn) {
-    throw new Error("No connection configured");
-  }
+    const baseUrl = resolveBaseUrl(storedConn);
+    if (!baseUrl) {
+      return {
+        entry: null,
+        unavailableReason: "the Base URL is empty or cannot be resolved",
+        connectionName: storedConn.name,
+      };
+    }
 
-  const baseUrl = resolveBaseUrl(conn);
-  if (!baseUrl) {
-    throw new Error("Cannot resolve provider URL");
-  }
+    const knownModel = findKnownModel(storedConn.provider as APIProvider, model);
+    connForPromptDefaults ??= storedConn;
+    return {
+      entry: {
+        connectionId,
+        provider: createLLMProvider(
+          storedConn.provider,
+          baseUrl,
+          storedConn.apiKey,
+          storedConn.maxContext,
+          storedConn.openrouterProvider,
+          storedConn.maxTokensOverride,
+        ),
+        model,
+        customParameters: parseStoredGenerationParameters(storedConn.defaultParameters)?.customParameters ?? {},
+        maxOutputTokens: knownModel?.maxOutput && knownModel.maxOutput > 0 ? Math.floor(knownModel.maxOutput) : null,
+        maxParallelJobs: Number(storedConn.maxParallelJobs) || 1,
+      },
+    };
+  };
+  const resolveFallbackRetryConnection = async (): Promise<RetryAgentConnectionResolution> => {
+    let connId =
+      typeof chat.connectionId === "string" && chat.connectionId.trim()
+        ? chat.connectionId.trim()
+        : gameSceneConnectionId || setupSceneConnectionId || defaultAgentConn?.id || null;
 
-  const provider = createLLMProvider(
-    conn.provider,
-    baseUrl,
-    conn.apiKey,
-    conn.maxContext,
-    conn.openrouterProvider,
-    conn.maxTokensOverride,
-  );
-  const chatConnectionMaxParallelJobs = Number(conn.maxParallelJobs) || 1;
-  const chatConnectionCustomParameters =
-    parseStoredGenerationParameters(conn.defaultParameters)?.customParameters ?? {};
-  const chatConnectionKnownModel = findKnownModel(conn.provider as APIProvider, conn.model.trim());
-  const chatConnectionMaxOutputTokens =
-    chatConnectionKnownModel?.maxOutput && chatConnectionKnownModel.maxOutput > 0
-      ? Math.floor(chatConnectionKnownModel.maxOutput)
-      : null;
+    if (!connId) {
+      return {
+        entry: null,
+        unavailableReason: "no chat, game scene, or default agent connection is configured",
+      };
+    }
+
+    if (connId === "random") {
+      const pool = await conns.listRandomPool();
+      if (!pool.length) {
+        return {
+          entry: null,
+          unavailableReason: "no connections are marked for the random pool",
+        };
+      }
+      const picked = pool[Math.floor(Math.random() * pool.length)];
+      connId = picked.id;
+    }
+
+    const fallbackConn = await conns.getWithKey(connId);
+    if (!fallbackConn) {
+      return { entry: null, unavailableReason: "the configured fallback connection was deleted" };
+    }
+
+    return resolveStoredRetryConnection(null, fallbackConn);
+  };
+  const fallbackConnection = await resolveFallbackRetryConnection();
   const resolvedAgents: ResolvedRetryAgent[] = [];
   const skippedLocalSidecarAgents: string[] = [];
   const defaultAgentConnectionAgents: string[] = [];
-  const defaultAgentConn = await conns.getDefaultForAgents();
   const localSidecarAvailableForTrackers =
     sidecarModelService.getConfig().useForTrackers && sidecarModelService.getConfiguredModelRef() !== null;
   const unavailableConnectionWarnings = new Map<
@@ -988,31 +1046,9 @@ async function resolveRetryAgents(args: {
       });
     }
   };
-  const resolveRetryAgentConnection = async (
-    connectionId: string | null,
-  ): Promise<{
-    entry: {
-      connectionId: string | null;
-      provider: any;
-      model: string;
-      customParameters: Record<string, unknown>;
-      maxOutputTokens: number | null;
-      maxParallelJobs: number;
-    } | null;
-    unavailableReason?: string;
-    connectionName?: string;
-  }> => {
+  const resolveRetryAgentConnection = async (connectionId: string | null): Promise<RetryAgentConnectionResolution> => {
     if (!connectionId) {
-      return {
-        entry: {
-          connectionId: null,
-          provider,
-          model: conn.model,
-          customParameters: chatConnectionCustomParameters,
-          maxOutputTokens: chatConnectionMaxOutputTokens,
-          maxParallelJobs: chatConnectionMaxParallelJobs,
-        },
-      };
+      return fallbackConnection;
     }
 
     if (isLocalSidecarConnectionId(connectionId) && localSidecarAvailableForTrackers) {
@@ -1033,40 +1069,7 @@ async function resolveRetryAgents(args: {
       return { entry: null, unavailableReason: "the configured connection was deleted" };
     }
 
-    const model = typeof agentConn.model === "string" ? agentConn.model.trim() : "";
-    if (!model) {
-      return { entry: null, unavailableReason: "no model is selected", connectionName: agentConn.name };
-    }
-
-    const agentBaseUrl = resolveBaseUrl(agentConn);
-    if (!agentBaseUrl) {
-      return {
-        entry: null,
-        unavailableReason: "the Base URL is empty or cannot be resolved",
-        connectionName: agentConn.name,
-      };
-    }
-
-    return {
-      entry: {
-        connectionId,
-        provider: createLLMProvider(
-          agentConn.provider,
-          agentBaseUrl,
-          agentConn.apiKey,
-          agentConn.maxContext,
-          agentConn.openrouterProvider,
-          agentConn.maxTokensOverride,
-        ),
-        model,
-        customParameters: parseStoredGenerationParameters(agentConn.defaultParameters)?.customParameters ?? {},
-        maxOutputTokens: (() => {
-          const knownModel = findKnownModel(agentConn.provider as APIProvider, model);
-          return knownModel?.maxOutput && knownModel.maxOutput > 0 ? Math.floor(knownModel.maxOutput) : null;
-        })(),
-        maxParallelJobs: Number(agentConn.maxParallelJobs) || 1,
-      },
-    };
+    return resolveStoredRetryConnection(connectionId, agentConn);
   };
   const defaultAgentConnection = defaultAgentConn
     ? await resolveRetryAgentConnection(defaultAgentConn.id as string)
@@ -1203,7 +1206,7 @@ async function resolveRetryAgents(args: {
     );
   }
 
-  return { conn, enabledConfigs, resolvedAgents, warnings };
+  return { conn: connForPromptDefaults, enabledConfigs, resolvedAgents, warnings };
 }
 
 const retryProviderIds = new WeakMap<object, number>();
@@ -1966,9 +1969,19 @@ async function executeRetryBatches(
       }));
   });
 
+  if (jobGroups.length > AGENT_PHASE_MAX_CONCURRENT_GROUPS) {
+    logger.warn(
+      "[retry-agents] Limiting %d job groups to %d concurrent agent request group(s)",
+      jobGroups.length,
+      AGENT_PHASE_MAX_CONCURRENT_GROUPS,
+    );
+  }
+
   const results: AgentResult[] = [];
-  const groupSettled = await Promise.allSettled(
-    jobGroups.map(async (group) => {
+  const groupSettled = await settleAgentJobsWithConcurrencyLimit(
+    jobGroups,
+    AGENT_PHASE_MAX_CONCURRENT_GROUPS,
+    async (group) => {
       const toolAgents = group.agents.filter((agent) => agent.resolved.toolContext?.tools.length);
       const batchAgents = group.agents.filter((agent) => !agent.resolved.toolContext?.tools.length);
       const groupResults: AgentResult[] = [];
@@ -1990,7 +2003,7 @@ async function executeRetryBatches(
       }
 
       return groupResults;
-    }),
+    },
   );
 
   for (const outcome of groupSettled) {
@@ -2617,12 +2630,15 @@ async function applyRetryResultEffects(args: {
           const rawSavedNegativePrompt = illustratorAgent?.resolved.settings?.imageNegativePrompt;
           const imagePositivePrompt = typeof rawImagePositivePrompt === "string" ? rawImagePositivePrompt.trim() : "";
           const savedNegativePrompt = typeof rawSavedNegativePrompt === "string" ? rawSavedNegativePrompt.trim() : "";
+          const chatGameImageConnectionId =
+            typeof chatMeta.gameImageConnectionId === "string" ? chatMeta.gameImageConnectionId.trim() : "";
           const configuredImgConnId = illustratorAgent?.resolved.settings?.imageConnectionId;
-          const imageConnectionOverride = typeof configuredImgConnId === "string" ? configuredImgConnId.trim() : "";
+          const agentImageConnectionId = typeof configuredImgConnId === "string" ? configuredImgConnId.trim() : "";
+          const imageConnectionOverride = chatGameImageConnectionId || agentImageConnectionId;
           let imgConnFull = imageConnectionOverride ? await conns.getWithKey(imageConnectionOverride) : null;
           if (imageConnectionOverride && !imgConnFull) {
             logger.warn(
-              "[retry-agents] Illustrator image connection override %s could not be resolved; falling back to default Illustrator connection",
+              "[retry-agents] Illustrator image connection %s could not be resolved; falling back to default Illustrator connection",
               imageConnectionOverride,
             );
           }

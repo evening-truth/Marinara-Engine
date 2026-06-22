@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Panel: Characters (overhauled — search, folders, avatars)
 // ──────────────────────────────────────────────
-import { useState, useMemo, useCallback, useLayoutEffect, useRef, type UIEvent } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, type UIEvent } from "react";
 import { toast } from "sonner";
 import {
   useCharacters,
@@ -42,6 +42,7 @@ import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { estimateCharacterCardTokens, formatEstimatedTokens } from "../../lib/character-token-count";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
+import { TouchDragHandle } from "../ui/TouchDragHandle";
 
 type CharacterRow = {
   id: string;
@@ -118,6 +119,23 @@ function getCharacterPreviewMetadata(char: ParsedCharacterRow): string | null {
   return null;
 }
 
+function usePanelMobileOverlay() {
+  const [isMobileOverlay, setIsMobileOverlay] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileOverlay(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return isMobileOverlay;
+}
+
 export function CharactersPanel() {
   const { data: characters, isLoading } = useCharacters();
   const { data: groups } = useCharacterGroups();
@@ -143,6 +161,7 @@ export function CharactersPanel() {
   const pendingPanelScrollTopRef = useRef(0);
   const panelScrollFrameRef = useRef<number | null>(null);
   const suppressCharacterClickRef = useRef(false);
+  const isMobileOverlay = usePanelMobileOverlay();
   const handleFolderRenameGesture = useFolderRenameGesture();
   const [includedTags, setIncludedTags] = useState<Set<string>>(new Set());
   const [excludedTags, setExcludedTags] = useState<Set<string>>(new Set());
@@ -435,6 +454,7 @@ export function CharactersPanel() {
   useLayoutEffect(() => {
     const node = panelScrollRef.current;
     if (!node || isLoading) return;
+    if (isMobileOverlay) return;
     const restoreScroll = () => {
       const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
       node.scrollTop = Math.min(useUIStore.getState().characterPanelScrollTop, maxScrollTop);
@@ -442,7 +462,7 @@ export function CharactersPanel() {
     restoreScroll();
     const frame = window.requestAnimationFrame(restoreScroll);
     return () => window.cancelAnimationFrame(frame);
-  }, [isLoading, parsedGroups.length, sortedCharacters.length, visibleRootCharacters.length]);
+  }, [isLoading, isMobileOverlay, parsedGroups.length, sortedCharacters.length, visibleRootCharacters.length]);
 
   useLayoutEffect(
     () => () => {
@@ -935,6 +955,7 @@ export function CharactersPanel() {
                   return (
                     <div
                       key={memberId}
+                      data-touch-drag-card="character"
                       onClick={() => {
                         if (suppressCharacterClickRef.current) return;
                         if (selectionMode) {
@@ -961,11 +982,10 @@ export function CharactersPanel() {
                         event.dataTransfer.setData("text/plain", memberId);
                       }}
                       onDragEnd={() => setDraggedCharacterId(null)}
-                      onTouchStart={(event) => startCharacterTouchDrag(event, memberId)}
                       role="button"
                       tabIndex={0}
                       className={cn(
-                        "group/member flex cursor-pointer items-center gap-2 rounded-lg p-1.5 transition-all hover:bg-[var(--sidebar-accent)]",
+                        "group group/member flex touch-pan-y cursor-pointer items-center gap-2 rounded-lg p-1.5 transition-all hover:bg-[var(--sidebar-accent)]",
                         selectionMode &&
                           isBulkSelected &&
                           "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
@@ -990,6 +1010,18 @@ export function CharactersPanel() {
                           <Check size="0.75rem" />
                         </button>
                       )}
+                      <TouchDragHandle
+                        label="Drag character"
+                        size="0.75rem"
+                        onTouchStart={(event) => {
+                          startCharacterTouchDrag(event, memberId, {
+                            allowInteractiveTarget: true,
+                            sourceElement: event.currentTarget.closest<HTMLElement>(
+                              '[data-touch-drag-card="character"]',
+                            ),
+                          });
+                        }}
+                      />
                       <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
                         <div className="absolute inset-0 overflow-hidden rounded-lg">
                           {member.avatarPath ? (
@@ -1163,6 +1195,7 @@ export function CharactersPanel() {
           return (
             <div
               key={char.id}
+              data-touch-drag-card="character"
               onClick={() => {
                 if (suppressCharacterClickRef.current) return;
                 if (selectionMode) {
@@ -1180,9 +1213,8 @@ export function CharactersPanel() {
                 event.dataTransfer.setData("text/plain", char.id);
               }}
               onDragEnd={() => setDraggedCharacterId(null)}
-              onTouchStart={(event) => startCharacterTouchDrag(event, char.id)}
               className={cn(
-                "group relative flex items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)] cursor-pointer",
+                "group relative flex touch-pan-y cursor-pointer items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)]",
                 selectionMode &&
                   isBulkSelected &&
                   "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
@@ -1207,6 +1239,15 @@ export function CharactersPanel() {
                   <Check size="0.75rem" />
                 </button>
               )}
+              <TouchDragHandle
+                label="Drag character"
+                onTouchStart={(event) => {
+                  startCharacterTouchDrag(event, char.id, {
+                    allowInteractiveTarget: true,
+                    sourceElement: event.currentTarget.closest<HTMLElement>('[data-touch-drag-card="character"]'),
+                  });
+                }}
+              />
               {/* Avatar */}
               <div className="mari-avatar-placeholder mari-avatar-placeholder--character relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm">
                 {avatarUrl ? (

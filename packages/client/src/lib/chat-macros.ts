@@ -1,4 +1,4 @@
-import { resolveMacros, type MacroContext } from "@marinara-engine/shared";
+import { normalizeTextForMatch, resolveMacros, type MacroContext } from "@marinara-engine/shared";
 
 export interface MacroCharacterData {
   id?: string;
@@ -130,11 +130,11 @@ export function findCharacterByName(
   name: string | null | undefined,
 ): MacroCharacterData | undefined {
   if (!name) return undefined;
-  const needle = name.trim().toLowerCase();
+  const needle = normalizeTextForMatch(name);
   if (!needle) return undefined;
 
   for (const character of characters) {
-    if (character.name.trim().toLowerCase() === needle) {
+    if (normalizeTextForMatch(character.name) === needle) {
       return character;
     }
   }

@@ -223,13 +223,16 @@ Professor Mari is an expert on LLMs, especially roleplaying and immersive chat w
 ENFP 4w7, Choleric-Sanguine, Chaotic Neutral, Taurus. Mari's speech is typically laced with sarcasm, and she exerts a professor-like charisma. Her sense of humor can be described as messed up, and she'll often throw in a casual "lmao" or "kek" after making a dark joke about aborting a pregnant pause. Despite her outward confidence, her self-esteem is nonexistent; therefore, she's flustered easily when complimented. Anything that catches her attention, she can master with ease. However, she cannot force herself to maintain her attention on anything that is not of interest to her. Aka, she's a neurodivergent mess. Dedicated to helping the new users and kind to them.
 
 Workspace:
-You have access to read, grep, find, ls, edit, write, and bash tools in this workspace. Despite the tool name, bash commands must be portable because some users run Marinara on Windows or minimal mobile shells. Use bash only for simple commands such as \`mari db ...\`, \`mari code ...\`, or \`pnpm ...\`. Use read/grep/find/ls/edit/write for file work.
+You have access to read, grep, find, ls, edit, write, and bash tools in this workspace. These are private workspace tools. Never answer by dumping a bash command, \`mari ...\` command, or instructions for the user to run unless the user explicitly asks for the command. If app data or files need inspection, call the tool yourself, then summarize what you found.
+
+Despite the tool name, bash commands must be portable because some users run Marinara on Windows or minimal mobile shells. Use bash only as a private tool for simple commands such as \`mari db ...\`, \`mari code ...\`, or \`pnpm ...\`. Use read/grep/find/ls/edit/write for file work.
 
 Live app data is best handled through Marinara-aware commands. \`mari db\` is the general priority interface because it reads the running server state and carries storage knowledge such as parsed JSON fields, validation, timestamps, approval flow, journals, and cache refresh. Narrow helpers are useful when they exist because they wrap common \`mari db\` style work in a friendlier command.
 
-Always prioritize using db commands over writing raw files to the codebase. If you need to write raw files, think why you must and if there is no cli command to help you.
+Always prioritize db commands over writing raw files to the codebase. If you need to write raw files, think why you must and whether there is a CLI command to help you.
 
 Portable shell rules:
+- Do not output standalone shell commands as the final answer. If a command is needed, call the bash tool.
 - Do not use heredocs, command substitution, inline \`cat > file\`, \`sed -i\`, \`awk\`, \`xargs\`, \`rm\`, \`cp\`, \`mv\`, or POSIX-only environment syntax in bash commands.
 - Do not build JSON/CSS/script payloads with shell quoting. Use the write tool to create a temporary file, then pass it to \`mari db ... --json-file "<path>"\`, \`mari themes ... --css-file "<path>"\`, or the relevant \`mari\` file flag.
 - If a shell command fails with missing bash, bad quoting, or syntax errors, immediately retry with a simpler \`mari ...\` command or the dedicated read/grep/find/ls/edit/write tools.
@@ -254,7 +257,7 @@ Raw DB row contracts to remember when a narrow helper is unavailable:
 - Raw text booleans such as \`custom_tools.enabled\` are stored as \`"true"\` or \`"false"\`. The CLI normalizes JSON booleans on write, but readback should show strings.
 - Prefer \`mari db patch\` for repairing existing rows so metadata such as \`createdAt\` is preserved. If using replace, include every required row field or verify the preview before applying.
 
-Workspace files are useful for learning how Marinara works, or finding content YOU CAN NOT FIND WITH DB CLI COMMANDS. USE THOSE FIRST.
+Workspace files are useful for learning how Marinara works, answering source-code questions, or finding content you cannot find with DB CLI commands. Do not inspect source files instead of live app data when the user asks about characters, chats, agents, tools, extensions, presets, lorebooks, or other saved app content.
 
 Completion claims need tool evidence. Good evidence includes saved app data plus readback state, file diffs, validation output, or health/status results. Preview, planning, and draft output should be described as preview, planning, and draft output. Browser approval may be required internally; user-facing text should frame it as approving or saving the preview.
 
@@ -278,6 +281,31 @@ function parseJsonObject(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "string") return null;
   try {
     const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function recordProperty(value: Record<string, unknown> | null | undefined, key: string): Record<string, unknown> | null {
+  const raw = value?.[key];
+  return isRecord(raw) ? raw : null;
+}
+
+function parseLooseJsonObject(value: unknown): Record<string, unknown> | null {
+  const strict = parseJsonObject(value);
+  if (strict) return strict;
+  if (typeof value !== "string") return null;
+
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  const normalized = trimmed
+    .replace(/([{,]\s*)([A-Za-z_][\w.-]*)(\s*:)/g, '$1"$2"$3')
+    .replace(/:\s*'([^']*)'/g, (_, inner: string) => `: ${JSON.stringify(inner)}`)
+    .replace(/,\s*}/g, "}");
+
+  try {
+    const parsed = JSON.parse(normalized) as unknown;
     return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
@@ -504,12 +532,42 @@ function isLocalSidecarConnection(connection: WorkspaceConnection): boolean {
 
 function parseToolArgumentsValue(value: unknown): Record<string, unknown> {
   if (isRecord(value)) return value;
-  if (typeof value === "string") return parseJsonObject(value) ?? {};
+  if (typeof value === "string") return parseLooseJsonObject(value) ?? {};
   return {};
 }
 
+function isPrivateNetworkBaseUrl(baseUrl: unknown): boolean {
+  if (typeof baseUrl !== "string" || !baseUrl.trim()) return false;
+  try {
+    const raw = baseUrl.trim();
+    const { hostname } = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);
+    const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "0.0.0.0" ||
+      host === "::1" ||
+      host === "host.docker.internal" ||
+      host.endsWith(".local")
+    ) {
+      return true;
+    }
+    const parts = host.split(".").map((part) => Number(part));
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    const [a, b] = parts as [number, number, number, number];
+    return (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 169 && b === 254) ||
+      (a === 192 && b === 168)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function shouldUseJsonToolProtocol(connection: WorkspaceConnection): boolean {
-  return isLocalSidecarConnection(connection) || bool(connection.treatAsLocalEndpoint);
+  return isLocalSidecarConnection(connection) || bool(connection.treatAsLocalEndpoint) || isPrivateNetworkBaseUrl(connection.baseUrl);
 }
 
 function jsonToolProtocolInstruction(tools: LLMToolDefinition[]): string {
@@ -524,10 +582,64 @@ function jsonToolProtocolInstruction(tools: LLMToolDefinition[]): string {
 If you need a workspace tool, respond with only JSON in this shape:
 {"tool_calls":[{"name":"tool_name","arguments":{}}]}
 You may include multiple tool_calls when they are independent. Do not wrap the JSON in markdown. Do not add prose around tool_calls.
+Never use XML tags, <tool_code>, <|tool_call>, call:tool_name{...}, or raw shell text for tool calls. The only valid tool-call response is the JSON object above.
+There is no tool named mari_db. For Marinara app data, call the bash tool with a portable command such as {"tool_calls":[{"name":"bash","arguments":{"command":"mari characters list"}}]}.
+For app-data lookup or edits, call a workspace tool yourself. Do not answer with only a bash command or \`mari ...\` command text.
+If the user asks you to create, read, list, search, update, or delete Marinara app data, your first response must call a tool. Never answer with only "give me a sec", "I'll check", or another promise to do the work later.
 If no tool is needed, answer normally in plain text.
 
 Available tools:
 ${toolList}`;
+}
+
+function getLastUserText(messages: ChatMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user" && message.content.trim()) return message.content;
+  }
+  return "";
+}
+
+function needsWorkspaceToolForRequest(text: string): boolean {
+  if (!text.trim()) return false;
+  const action =
+    /\b(create|make|add|write|update|edit|delete|remove|read|show|list|search|find|fetch|open|inspect|check|look\s+up|load)\b/i;
+  const target =
+    /\b(character|card|persona|lore\s*book|lorebook|entry|preset|chat|agent|tool|extension|setting|connection|image|avatar|sprite|file|code|workspace|database|db)\b/i;
+  return action.test(text) && target.test(text);
+}
+
+function isPromiseOnlyToolResponse(content: string): boolean {
+  const trimmed = content.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > 500) return false;
+  return [
+    /\b(give|gimme)\s+me\s+(?:a\s+)?(?:sec|second|moment|minute)\b/i,
+    /\b(?:one|just)\s+(?:sec|second|moment|minute)\b/i,
+    /\b(?:let\s+me|i['’]?ll|i\s+will|i\s+can|i['’]?m\s+going\s+to|i\s+am\s+going\s+to)\b[\s\S]{0,120}\b(?:check|look|read|create|make|add|update|edit|fetch|inspect|handle|take\s+care|do\s+that)\b/i,
+    /\b(?:working\s+on\s+it|on\s+it|i['’]?m\s+on\s+it|i\s+am\s+on\s+it)\b/i,
+  ].some((pattern) => pattern.test(trimmed));
+}
+
+function withToolPromiseRetryInstruction(messages: ChatMessage[], previousContent: string): ChatMessage[] {
+  const lastUserText = getLastUserText(messages);
+  const retryMessage: ChatMessage = {
+    role: "system",
+    contextKind: "prompt",
+    content: [
+      "The previous assistant response promised workspace or Marinara app-data work but did not call a tool.",
+      "Retry the current request now. If the request needs app data or workspace changes, call the appropriate tool as JSON tool_calls.",
+      "Do not repeat a promise-only answer. If the work is impossible, explain the blocker plainly.",
+      lastUserText ? `Current user request: ${lastUserText.slice(0, 1000)}` : "",
+      previousContent ? `Previous assistant response: ${previousContent.slice(0, 500)}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+  const firstNonSystemIndex = messages.findIndex((message) => message.role !== "system");
+  return firstNonSystemIndex === -1
+    ? [retryMessage, ...messages]
+    : [...messages.slice(0, firstNonSystemIndex), retryMessage, ...messages.slice(firstNonSystemIndex)];
 }
 
 function extractJsonToolPayload(content: string): Record<string, unknown> | null {
@@ -543,12 +655,8 @@ function extractJsonToolPayload(content: string): Record<string, unknown> | null
   ].filter((candidate): candidate is string => !!candidate);
 
   for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as unknown;
-      if (isRecord(parsed)) return parsed;
-    } catch {
-      // Try the next candidate.
-    }
+    const parsed = parseLooseJsonObject(candidate);
+    if (parsed) return parsed;
   }
   return null;
 }
@@ -559,28 +667,158 @@ function rawJsonToolCalls(payload: Record<string, unknown>): unknown[] {
   const single = payload.tool_call ?? payload.toolCall;
   if (single !== undefined) return [single];
   if (typeof payload.name === "string") return [payload];
+  if (typeof payload.command === "string") return [{ name: "mari_db", arguments: payload }];
   return [];
 }
 
-function parseJsonToolProtocolCalls(content: string, tools: LLMToolDefinition[]): LLMToolCall[] {
-  const payload = extractJsonToolPayload(content);
-  if (!payload) return [];
-  const knownTools = new Set(tools.map((tool) => tool.function.name));
-  const calls: LLMToolCall[] = [];
-  rawJsonToolCalls(payload).forEach((raw, index) => {
-    if (!isRecord(raw) || typeof raw.name !== "string" || !knownTools.has(raw.name)) return;
-    const args = parseToolArgumentsValue(raw.arguments ?? raw.args ?? raw.input ?? {});
+function makeRecoveredToolCall(name: string, args: Record<string, unknown>, index: number): LLMToolCall {
+  return {
+    id: `mari_recovered_tool_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  };
+}
+
+function normalizeMariCliCommand(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const command = value
+    .trim()
+    .replace(/^```(?:bash|shell|sh|cmd|powershell)?\s*([\s\S]*?)\s*```$/i, "$1")
+    .replace(/^`([\s\S]*)`$/, "$1")
+    .replace(/^\$+\s*/, "")
+    .trim();
+  if (!command || command.length > 800 || /[\r\n]/.test(command) || /[;&|`$<>]/.test(command)) return null;
+  if (/^mari(?:\s|$)/i.test(command)) return command;
+  if (
+    /^(?:db|characters|personas|lorebooks|chats|presets|images|themes|wiki|extensions|agents|tools|code)(?:\s|$)/i.test(
+      command,
+    )
+  ) {
+    return `mari ${command}`;
+  }
+  return null;
+}
+
+function toolCallFromRaw(
+  raw: unknown,
+  index: number,
+  knownTools: Set<string>,
+  hasBashTool: boolean,
+): LLMToolCall | null {
+  if (!isRecord(raw) || typeof raw.name !== "string") return null;
+  const args = parseToolArgumentsValue(raw.arguments ?? raw.args ?? raw.input ?? {});
+  if (knownTools.has(raw.name)) {
     const id =
       typeof raw.id === "string" && raw.id.trim()
         ? raw.id.trim()
         : `mari_json_tool_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`;
-    calls.push({
+    return {
       id,
       type: "function",
       function: { name: raw.name, arguments: JSON.stringify(args) },
+    };
+  }
+
+  const normalizedName = raw.name.trim().toLowerCase().replace(/[-.]/g, "_");
+  if (!hasBashTool || !["mari", "mari_cli", "mari_command", "mari_db"].includes(normalizedName)) return null;
+
+  const command = normalizeMariCliCommand(
+    args.command ?? args.cmd ?? args.query ?? args.input ?? args.text ?? raw.command ?? raw.content,
+  );
+  return command ? makeRecoveredToolCall("bash", { command }, index) : null;
+}
+
+function parsePseudoToolSnippet(snippet: string, index: number): Record<string, unknown> | null {
+  const trimmed = snippet.trim();
+  if (!trimmed) return null;
+  const jsonPayload = parseLooseJsonObject(trimmed);
+  if (jsonPayload) {
+    return typeof jsonPayload.name === "string" ? jsonPayload : { name: "mari_db", arguments: jsonPayload };
+  }
+
+  const callMatch = trimmed.match(/^(?:call\s*:\s*)?([A-Za-z_][\w.-]*)\s*(\{[\s\S]*\})\s*$/);
+  if (callMatch) {
+    return {
+      name: callMatch[1],
+      arguments: parseLooseJsonObject(callMatch[2]) ?? {},
+    };
+  }
+
+  const command = normalizeMariCliCommand(trimmed);
+  return command ? { name: "mari_db", arguments: { command }, id: `mari_pseudo_${index}` } : null;
+}
+
+function extractTaggedToolSnippets(content: string): string[] {
+  const snippets: string[] = [];
+  const patterns = [
+    /<\|tool_call\|?>([\s\S]*?)(?:<tool_call\|>|<\|\/tool_call\|>|<\/tool_call>|$)/gi,
+    /<tool_call>([\s\S]*?)(?:<\/tool_call>|<\/arg_value>|$)/gi,
+    /<tool_code>([\s\S]*?)<\/tool_code>/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of content.matchAll(pattern)) {
+      const snippet = match[1]?.trim();
+      if (snippet) snippets.push(snippet);
+    }
+  }
+  if (snippets.length === 0) {
+    const trimmed = content.trim();
+    if (/^(?:call\s*:\s*)?[A-Za-z_][\w.-]*\s*\{[\s\S]*\}$/.test(trimmed)) snippets.push(trimmed);
+  }
+  return snippets;
+}
+
+function parseJsonToolProtocolCalls(content: string, tools: LLMToolDefinition[]): LLMToolCall[] {
+  const payload = extractJsonToolPayload(content);
+  const knownTools = new Set(tools.map((tool) => tool.function.name));
+  const hasBashTool = knownTools.has("bash");
+  const calls: LLMToolCall[] = [];
+  if (payload) {
+    rawJsonToolCalls(payload).forEach((raw, index) => {
+      const call = toolCallFromRaw(raw, index, knownTools, hasBashTool);
+      if (call) calls.push(call);
     });
+  }
+  if (calls.length > 0) return calls;
+
+  extractTaggedToolSnippets(content).forEach((snippet, index) => {
+    const raw = parsePseudoToolSnippet(snippet, index);
+    const call = toolCallFromRaw(raw, index, knownTools, hasBashTool);
+    if (call) calls.push(call);
   });
   return calls;
+}
+
+function extractBareMariCommand(content: string): string | null {
+  const trimmed = content.trim();
+  if (!trimmed || trimmed.length > 800) return null;
+  const fenced = trimmed.match(/^```(?:bash|shell|sh|cmd|powershell)?\s*([\s\S]*?)\s*```$/i)?.[1]?.trim();
+  const candidate = (fenced ?? trimmed.replace(/^`([\s\S]*)`$/, "$1")).trim();
+  const lines = candidate
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+  if (lines.length !== 1) return null;
+  const command = lines[0]!.replace(/^\$+\s*/, "").trim();
+  if (!/^mari(?:\s|$)/i.test(command)) return null;
+  if (/[;&|`$<>]/.test(command)) return null;
+  return command;
+}
+
+function parseBareMariCommandToolCall(content: string, tools: LLMToolDefinition[]): LLMToolCall[] {
+  if (!tools.some((tool) => tool.function.name === "bash")) return [];
+  const command = extractBareMariCommand(content);
+  if (!command) return [];
+  return [
+    {
+      id: `mari_bare_command_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: "function",
+      function: {
+        name: "bash",
+        arguments: JSON.stringify({ command }),
+      },
+    },
+  ];
 }
 
 async function runJsonToolProtocol(
@@ -601,8 +839,9 @@ async function runJsonToolProtocol(
       : [...messages.slice(0, firstNonSystemIndex), protocolMessage, ...messages.slice(firstNonSystemIndex)];
   const result = await provider.chatComplete(fallbackMessages, { ...baseOptions, stream: false });
   const toolCalls = parseJsonToolProtocolCalls(result.content ?? "", tools);
-  if (toolCalls.length === 0) return result;
-  return { ...result, content: null, toolCalls, finishReason: "tool_calls" };
+  const fallbackToolCalls = toolCalls.length > 0 ? toolCalls : parseBareMariCommandToolCall(result.content ?? "", tools);
+  if (fallbackToolCalls.length === 0) return result;
+  return { ...result, content: null, toolCalls: fallbackToolCalls, finishReason: "tool_calls" };
 }
 
 function emptyUsage(): AssistantMessage["usage"] {
@@ -707,6 +946,7 @@ export class ProfessorMariWorkspaceService {
   private sessionConnectionId: string | null = null;
   private workspaceRoot = getMonorepoRoot();
   private lastError: string | null = null;
+  private createFreshSessionOnNextEnsure = false;
 
   constructor(private readonly app: FastifyInstance) {}
 
@@ -748,11 +988,12 @@ export class ProfessorMariWorkspaceService {
     await this.session?.abort();
   }
 
-  async reset() {
+  async reset(options: { clearHistory?: boolean } = {}) {
     await this.session
       ?.abort()
       .catch((err) => logger.warn(err, "[Professor Mari] failed to abort session during reset"));
     await this.disposeSession();
+    if (options.clearHistory) this.createFreshSessionOnNextEnsure = true;
     this.lastError = null;
   }
 
@@ -976,9 +1217,9 @@ export class ProfessorMariWorkspaceService {
           });
           pi.registerTool({
             ...bashTool,
-            description: `${bashTool.description}\nMarinara portability: use simple cross-platform commands. Prefer direct mari commands and the read/grep/find/ls/edit/write tools over bash-only syntax. For JSON/CSS/script payloads, write a temp file first and pass it with --json-file, --css-file, or the relevant file flag.`,
+            description: `${bashTool.description}\nMarinara portability: use simple cross-platform commands as private tool calls. Prefer direct mari commands and the read/grep/find/ls/edit/write tools over bash-only syntax. Do not tell the user to run commands unless they explicitly ask. For JSON/CSS/script payloads, write a temp file first and pass it with --json-file, --css-file, or the relevant file flag.`,
             promptSnippet:
-              "Run simple portable shell commands. Prefer mari commands and built-in file tools; avoid bash-only syntax.",
+              "Run simple portable shell commands privately. Prefer mari commands and built-in file tools; avoid bash-only syntax.",
             execute: async (id: string, params: any, signal: AbortSignal, onUpdate: any) => {
               const command = typeof params?.command === "string" ? params.command : "";
               const compatibilityIssue = windowsShellCompatibilityIssue(command);
@@ -1001,6 +1242,11 @@ export class ProfessorMariWorkspaceService {
     });
     await loader.reload();
 
+    const sessionDir = join(DATA_DIR, ".mari-workspace", "pi-sessions");
+    const sessionManager = this.createFreshSessionOnNextEnsure
+      ? SessionManager.create(this.workspaceRoot, sessionDir)
+      : SessionManager.continueRecent(this.workspaceRoot, sessionDir);
+
     const result = await createAgentSession({
       cwd: this.workspaceRoot,
       agentDir: join(DATA_DIR, ".mari-workspace", "pi-agent"),
@@ -1010,11 +1256,12 @@ export class ProfessorMariWorkspaceService {
       authStorage,
       modelRegistry,
       resourceLoader: loader,
-      sessionManager: SessionManager.inMemory(this.workspaceRoot),
+      sessionManager,
       settingsManager,
     });
     this.session = result.session;
     this.sessionConnectionId = sessionKey;
+    this.createFreshSessionOnNextEnsure = false;
     this.lastError = result.modelFallbackMessage ?? null;
     return result.session;
   }
@@ -1112,12 +1359,13 @@ export class ProfessorMariWorkspaceService {
             options?.reasoning === "xhigh" ? "xhigh" : options?.reasoning === "minimal" ? "low" : options?.reasoning,
           serviceTier: normalizeServiceTier(defaultParameters?.serviceTier),
           openrouterProvider: connection.openrouterProvider,
-          customParameters: mergeCustomParameters(defaultParameters, null),
+          customParameters: mergeCustomParameters({}, recordProperty(defaultParameters, "customParameters")),
           signal: options?.signal,
           onThinking: pushThinkingDelta,
         };
-        const result =
-          tools?.length && shouldUseJsonToolProtocol(connection)
+        const useJsonToolProtocol = Boolean(tools?.length && shouldUseJsonToolProtocol(connection));
+        let result =
+          tools?.length && useJsonToolProtocol
             ? await runJsonToolProtocol(provider, messages, baseOptions, tools)
             : tools?.length
               ? await provider.chatComplete(messages, {
@@ -1128,10 +1376,33 @@ export class ProfessorMariWorkspaceService {
                 })
               : await provider.chatComplete(messages, { ...baseOptions, stream: true, onToken: pushTextDelta });
 
-        if (result.content && !sawTextDelta) pushTextDelta(result.content);
+        let recoveredToolCalls =
+          tools?.length && result.toolCalls.length === 0 && result.content
+            ? parseJsonToolProtocolCalls(result.content, tools)
+            : [];
+        let resultToolCalls = result.toolCalls.length > 0 ? result.toolCalls : recoveredToolCalls;
+        if (
+          tools?.length &&
+          useJsonToolProtocol &&
+          resultToolCalls.length === 0 &&
+          result.content &&
+          needsWorkspaceToolForRequest(getLastUserText(messages)) &&
+          isPromiseOnlyToolResponse(result.content)
+        ) {
+          result = await runJsonToolProtocol(
+            provider,
+            withToolPromiseRetryInstruction(messages, result.content),
+            baseOptions,
+            tools,
+          );
+          recoveredToolCalls =
+            result.toolCalls.length === 0 && result.content ? parseJsonToolProtocolCalls(result.content, tools) : [];
+          resultToolCalls = result.toolCalls.length > 0 ? result.toolCalls : recoveredToolCalls;
+        }
+        if (result.content && !sawTextDelta && resultToolCalls.length === 0) pushTextDelta(result.content);
         if (isLengthFinishReason(result.finishReason)) output.stopReason = "length";
         finishText();
-        emitToolCalls(result.toolCalls);
+        emitToolCalls(resultToolCalls);
 
         output.usage = mapUsage(result.usage);
         stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });

@@ -820,6 +820,8 @@ export async function processLorebooks(
     generationTriggers?: string[];
     /** Resolves prompt macros for final included lorebook entries. May apply macro side effects. */
     resolveContent?: LorebookFinalContentResolver;
+    /** Optional random source for probability and weighted group selection. */
+    random?: () => number;
   },
 ): Promise<LorebookScanResult> {
   const storage = createLorebooksStorage(db);
@@ -915,6 +917,7 @@ export async function processLorebooks(
     additionalMatchingSourceText: matchingContext.additionalMatchingSourceText,
     timingStates,
     currentMessageIndex,
+    ...(options?.random ? { random: options.random } : {}),
   };
 
   // Determine recursion settings from relevant enabled lorebooks only.

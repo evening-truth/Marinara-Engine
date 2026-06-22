@@ -6,6 +6,7 @@ import { execFile } from "child_process";
 import { platform, homedir } from "os";
 import { readdir, stat } from "fs/promises";
 import { resolve as pathResolve } from "path";
+import { normalizeTextForMatch } from "@marinara-engine/shared";
 import { importSTChat } from "../services/import/st-chat.importer.js";
 import {
   importSTCharacter,
@@ -485,13 +486,13 @@ export async function importRoutes(app: FastifyInstance) {
       const firstLine = text.split("\n")[0];
       if (firstLine) {
         const header = JSON.parse(firstLine);
-        const headerName = (header.character_name ?? "").toLowerCase().trim();
+        const headerName = normalizeTextForMatch(header.character_name);
         if (headerName) {
           const allChars = await app.db.select().from(charactersTable);
           for (const ch of allChars) {
             try {
               const charData = JSON.parse(ch.data);
-              if ((charData?.name ?? "").toLowerCase().trim() === headerName) {
+              if (normalizeTextForMatch(charData?.name) === headerName) {
                 characterId = ch.id;
                 break;
               }
@@ -921,7 +922,8 @@ export async function importRoutes(app: FastifyInstance) {
       return reply.send(invalidTagImportModeResponse());
     }
     if (characterTagImportMode) options.characterTagImportMode = characterTagImportMode;
-    const rawBulkRegexScriptScope = (req.body as { options?: { regexScriptScope?: unknown } }).options?.regexScriptScope;
+    const rawBulkRegexScriptScope = (req.body as { options?: { regexScriptScope?: unknown } }).options
+      ?.regexScriptScope;
     const bulkRegexScriptScope = readRegexScriptScope(rawBulkRegexScriptScope);
     if (rawBulkRegexScriptScope !== undefined && bulkRegexScriptScope === undefined) {
       return reply.send(invalidRegexScriptScopeResponse());

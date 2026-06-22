@@ -530,7 +530,7 @@ export class GoogleProvider extends BaseLLMProvider {
 
   async *chat(messages: ChatMessage[], options: ChatOptions): AsyncGenerator<string, LLMUsage | void, unknown> {
     const suppressModelParameters = this.shouldSuppressModelParameters(options);
-    const configuredMaxTokens = suppressModelParameters ? undefined : this.applyMaxTokensCap(options.maxTokens ?? 4096);
+    const configuredMaxTokens = this.applyMaxTokensCap(options.maxTokens ?? 4096);
     const contextFit = this.fitMessagesToContext(messages, { ...options, maxTokens: configuredMaxTokens });
     messages = contextFit.messages;
     this.logContextTrim(contextFit, options.model || "gemini-2.0-flash");
@@ -612,22 +612,24 @@ export class GoogleProvider extends BaseLLMProvider {
       contents,
     };
 
-    if (!suppressModelParameters) {
-      const outputMaxTokens = maxTokens ?? 4096;
-      body.generationConfig = {
-        temperature: options.temperature ?? 1,
-        maxOutputTokens: outputMaxTokens,
-        topP: options.topP ?? 1,
-        ...(typeof options.topK === "number" && Number.isFinite(options.topK)
-          ? { topK: Math.max(0, Math.trunc(options.topK)) }
-          : {}),
-        ...(options.frequencyPenalty ? { frequencyPenalty: options.frequencyPenalty } : {}),
-        ...(options.presencePenalty ? { presencePenalty: options.presencePenalty } : {}),
-        ...(thinkingConfig ? { thinkingConfig } : {}),
-        ...googleResponseFormatConfig(options.responseFormat),
-        ...(options.stop?.length ? { stopSequences: options.stop } : {}),
-      };
-    }
+    const outputMaxTokens = maxTokens ?? 4096;
+    body.generationConfig = {
+      maxOutputTokens: outputMaxTokens,
+      ...(!suppressModelParameters
+        ? {
+            temperature: options.temperature ?? 1,
+            topP: options.topP ?? 1,
+            ...(typeof options.topK === "number" && Number.isFinite(options.topK)
+              ? { topK: Math.max(0, Math.trunc(options.topK)) }
+              : {}),
+            ...(options.frequencyPenalty ? { frequencyPenalty: options.frequencyPenalty } : {}),
+            ...(options.presencePenalty ? { presencePenalty: options.presencePenalty } : {}),
+            ...(thinkingConfig ? { thinkingConfig } : {}),
+            ...googleResponseFormatConfig(options.responseFormat),
+            ...(options.stop?.length ? { stopSequences: options.stop } : {}),
+          }
+        : {}),
+    };
 
     if (systemMessages.length > 0) {
       body.systemInstruction = {

@@ -13,6 +13,7 @@ import {
   inferImageSource,
 } from "@marinara-engine/shared";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
+import { resetMemoryRecallVectorizerCache } from "../services/memory-recall-embedding.js";
 import { createLLMProvider } from "../services/llm/provider-registry.js";
 import { fetchOpenAIChatGPTModels, getOpenAIChatGPTAuth } from "../services/llm/openai-chatgpt-auth.js";
 import { buildGoogleVertexModelUrl, googleAuthHeadersForVertex } from "../services/llm/providers/google.provider.js";
@@ -251,12 +252,16 @@ export async function connectionsRoutes(app: FastifyInstance) {
 
   app.post("/", async (req) => {
     const input = createConnectionSchema.parse(req.body);
-    return storage.create(input);
+    const created = await storage.create(input);
+    resetMemoryRecallVectorizerCache();
+    return created;
   });
 
   app.patch<{ Params: { id: string } }>("/:id", async (req) => {
     const data = createConnectionSchema.partial().parse(req.body);
-    return storage.update(req.params.id, data);
+    const updated = await storage.update(req.params.id, data);
+    resetMemoryRecallVectorizerCache();
+    return updated;
   });
 
   app.post<{ Params: { id: string } }>("/:id/image", async (req, reply) => {
@@ -310,11 +315,13 @@ export async function connectionsRoutes(app: FastifyInstance) {
       }
     }
     await storage.updateDefaultParameters(req.params.id, params);
+    resetMemoryRecallVectorizerCache();
     return { success: true };
   });
 
   app.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
     await storage.remove(req.params.id);
+    resetMemoryRecallVectorizerCache();
     return reply.status(204).send();
   });
 

@@ -10,7 +10,7 @@ import { ModelDownloadModal } from "./components/modals/ModelDownloadModal";
 import { AppDialogRenderer } from "./components/ui/AppDialogRenderer";
 import { ChibiProfessorMariEasterEgg } from "./components/ui/ChibiProfessorMariEasterEgg";
 import { CsrfOriginWarningBanner } from "./components/diagnostics/CsrfOriginWarningBanner";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import {
   getDefaultAppAccentColor,
   getDefaultAppBackgroundColor,
@@ -64,9 +64,11 @@ const APP_ACCENT_CUSTOM_VARIABLES = [
   "--marinara-chat-chrome-accent",
   "--marinara-chat-chrome-accent-gradient",
 ] as const;
-const ACCENT_RGB_TICK_MS = 120;
-const ACCENT_RGB_SOLID_CYCLE_MS = 5_200;
-const ACCENT_RGB_GRADIENT_STOP_MS = 4_500;
+const ACCENT_RGB_TICK_MS = 500;
+const ACCENT_RGB_SOLID_CYCLE_MS = 7_200;
+const ACCENT_RGB_GRADIENT_STOP_MS = 6_000;
+const TOAST_DURATION_MS = 6_000;
+const TOAST_VISIBLE_LIMIT = 3;
 
 function stripFontFamilyQuotes(family: string): string {
   const trimmed = family.trim();
@@ -163,10 +165,11 @@ function clearCustomAppAccentVariables(root: HTMLElement) {
   APP_ACCENT_CUSTOM_VARIABLES.forEach((variable) => root.style.removeProperty(variable));
 }
 
-function canRunAccentAnimation() {
+function canRunAccentAnimation(reducedMotionQuery: MediaQueryList) {
   return (
     document.visibilityState === "visible" &&
-    !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    document.hasFocus() &&
+    !reducedMotionQuery.matches
   );
 }
 
@@ -269,6 +272,34 @@ export function App() {
 
   useEffect(() => {
     const root = document.documentElement;
+    const syncEffectsPausedState = () => {
+      if (document.visibilityState === "visible" && document.hasFocus()) {
+        delete root.dataset.marinaraEffectsPaused;
+      } else {
+        root.dataset.marinaraEffectsPaused = "true";
+      }
+    };
+
+    syncEffectsPausedState();
+    document.addEventListener("visibilitychange", syncEffectsPausedState);
+    window.addEventListener("focus", syncEffectsPausedState);
+    window.addEventListener("blur", syncEffectsPausedState);
+    window.addEventListener("pageshow", syncEffectsPausedState);
+    window.addEventListener("pagehide", syncEffectsPausedState);
+
+    return () => {
+      document.removeEventListener("visibilitychange", syncEffectsPausedState);
+      window.removeEventListener("focus", syncEffectsPausedState);
+      window.removeEventListener("blur", syncEffectsPausedState);
+      window.removeEventListener("pageshow", syncEffectsPausedState);
+      window.removeEventListener("pagehide", syncEffectsPausedState);
+      delete root.dataset.marinaraEffectsPaused;
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     const accent = appAccentColor.trim();
     const defaultAccent = getDefaultAppAccentColor(theme);
     const accentSource = accent || defaultAccent;
@@ -282,7 +313,7 @@ export function App() {
       : [animatedSolidAccent];
     const accentAnimationEnabled = appAccentRgbMode || appAccentPulseMode;
 
-    let accentAnimationTimer: ReturnType<typeof window.setInterval> | null = null;
+    let accentAnimationTimer: ReturnType<typeof window.setTimeout> | null = null;
 
     const setAccentModeDataset = () => {
       if (accentIsGradient) {
@@ -327,24 +358,37 @@ export function App() {
 
     const stopAccentAnimation = () => {
       if (accentAnimationTimer !== null) {
-        window.clearInterval(accentAnimationTimer);
+        window.clearTimeout(accentAnimationTimer);
         accentAnimationTimer = null;
       }
       delete root.dataset.marinaraAccentAnimation;
       applyStaticAccent();
     };
 
+    const queueAccentAnimationTick = () => {
+      if (accentAnimationTimer !== null) return;
+
+      accentAnimationTimer = window.setTimeout(() => {
+        accentAnimationTimer = null;
+        if (!accentAnimationEnabled || !canRunAccentAnimation(reducedMotionQuery)) {
+          stopAccentAnimation();
+          return;
+        }
+
+        applyLiveAccent();
+        queueAccentAnimationTick();
+      }, ACCENT_RGB_TICK_MS);
+    };
+
     const startAccentAnimation = () => {
       root.dataset.marinaraAccentAnimation =
         animatedAccentIsGradient && animatedGradientStops.length > 1 ? "gradient" : "solid";
       applyLiveAccent();
-      if (accentAnimationTimer === null) {
-        accentAnimationTimer = window.setInterval(applyLiveAccent, ACCENT_RGB_TICK_MS);
-      }
+      queueAccentAnimationTick();
     };
 
     const syncAccentAnimationState = () => {
-      if (accentAnimationEnabled && canRunAccentAnimation()) {
+      if (accentAnimationEnabled && canRunAccentAnimation(reducedMotionQuery)) {
         startAccentAnimation();
       } else {
         stopAccentAnimation();
@@ -359,7 +403,6 @@ export function App() {
       applyStaticAccent();
     }
     syncAccentAnimationState();
-    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("focus", syncAccentAnimationState);
     window.addEventListener("blur", syncAccentAnimationState);
@@ -375,7 +418,7 @@ export function App() {
       window.removeEventListener("pagehide", syncAccentAnimationState);
       reducedMotionQuery.removeEventListener("change", syncAccentAnimationState);
       if (accentAnimationTimer !== null) {
-        window.clearInterval(accentAnimationTimer);
+        window.clearTimeout(accentAnimationTimer);
       }
       delete root.dataset.marinaraAccentAnimation;
     };
@@ -534,21 +577,36 @@ export function App() {
       )}
       <AppDialogRenderer />
       <CsrfOriginWarningBanner />
-      <Toaster
-        position="top-center"
-        offset="4rem"
-        theme={theme}
-        closeButton
-        toastOptions={{
-          style: {
-            background: "var(--card)",
-            border: "1px solid var(--border)",
-            color: "var(--foreground)",
-            userSelect: "text",
-            WebkitUserSelect: "text",
-          },
+      <div
+        onClickCapture={(event) => {
+          if (!(event.target instanceof Element)) return;
+          if (
+            event.target.closest(
+              "[data-close-button],button[aria-label^='Close'],button[aria-label^='Dismiss']",
+            )
+          ) {
+            toast.dismiss();
+          }
         }}
-      />
+      >
+        <Toaster
+          position="top-center"
+          offset="4rem"
+          theme={theme}
+          closeButton
+          duration={TOAST_DURATION_MS}
+          visibleToasts={TOAST_VISIBLE_LIMIT}
+          toastOptions={{
+            style: {
+              background: "var(--card)",
+              border: "1px solid var(--border)",
+              color: "var(--foreground)",
+              userSelect: "text",
+              WebkitUserSelect: "text",
+            },
+          }}
+        />
+      </div>
     </>
   );
 }

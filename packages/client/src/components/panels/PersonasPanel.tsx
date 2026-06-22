@@ -40,6 +40,7 @@ import { cn, getAvatarCropStyle, parseAvatarCropJson } from "../../lib/utils";
 import { api } from "../../lib/api-client";
 import { SelectionActionBar } from "../ui/SelectionActionBar";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
+import { TouchDragHandle } from "../ui/TouchDragHandle";
 
 type PersonaRow = {
   id: string;
@@ -750,6 +751,7 @@ export function PersonasPanel() {
                         return (
                           <div
                             key={pid}
+                            data-touch-drag-card="persona"
                             onClick={() => {
                               if (suppressPersonaClickRef.current) return;
                               if (selectionMode) {
@@ -777,16 +779,15 @@ export function PersonasPanel() {
                               event.dataTransfer.setData("text/plain", pid);
                             }}
                             onDragEnd={() => setDraggedPersonaId(null)}
-                            onTouchStart={(event) => startPersonaTouchDrag(event, pid)}
                             role="button"
                             tabIndex={0}
-	                            className={cn(
-	                              "group/member flex cursor-pointer items-center gap-2 rounded-lg p-1.5 text-xs transition-all hover:bg-[var(--sidebar-accent)]",
-	                              selectionMode &&
-	                                isBulkSelected &&
-	                                "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
-	                              draggedPersonaId === pid && "opacity-50",
-	                            )}
+                            className={cn(
+                              "group group/member flex touch-pan-y cursor-pointer items-center gap-2 rounded-lg p-1.5 text-xs transition-all hover:bg-[var(--sidebar-accent)]",
+                              selectionMode &&
+                                isBulkSelected &&
+                                "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+                              draggedPersonaId === pid && "opacity-50",
+                            )}
                           >
                             {selectionMode && (
                               <button
@@ -796,16 +797,28 @@ export function PersonasPanel() {
                                   toggleSelection(pid);
                                 }}
                                 className={cn(
-	                                  "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
-	                                  isBulkSelected
-	                                    ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]"
-	                                    : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
-	                                )}
+                                  "flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+                                  isBulkSelected
+                                    ? "border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]"
+                                    : "border-[var(--muted-foreground)]/40 bg-[var(--secondary)] text-transparent",
+                                )}
                                 aria-label={isBulkSelected ? "Deselect persona" : "Select persona"}
                               >
                                 <Check size="0.75rem" />
                               </button>
                             )}
+                            <TouchDragHandle
+                              label="Drag persona"
+                              size="0.75rem"
+                              onTouchStart={(event) => {
+                                startPersonaTouchDrag(event, pid, {
+                                  allowInteractiveTarget: true,
+                                  sourceElement: event.currentTarget.closest<HTMLElement>(
+                                    '[data-touch-drag-card="persona"]',
+                                  ),
+                                });
+                              }}
+                            />
                             <div className="mari-avatar-placeholder mari-avatar-placeholder--persona relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg">
                               {p.avatarPath ? (
                                 <img
@@ -905,15 +918,16 @@ export function PersonasPanel() {
           return (
             <div
               key={persona.id}
-	              className={cn(
-	                "group relative flex items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)] cursor-pointer",
-	                selectionMode &&
-	                  isBulkSelected &&
-	                  "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
-	                active &&
-	                  "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
-	                draggedPersonaId === persona.id && "opacity-50",
-	              )}
+              data-touch-drag-card="persona"
+              className={cn(
+                "group relative flex touch-pan-y cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+                selectionMode &&
+                  isBulkSelected &&
+                  "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+                active &&
+                  "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+                draggedPersonaId === persona.id && "opacity-50",
+              )}
               onClick={() => {
                 if (suppressPersonaClickRef.current) return;
                 if (selectionMode) {
@@ -931,7 +945,6 @@ export function PersonasPanel() {
                 event.dataTransfer.setData("text/plain", persona.id);
               }}
               onDragEnd={() => setDraggedPersonaId(null)}
-              onTouchStart={(event) => startPersonaTouchDrag(event, persona.id)}
             >
               {selectionMode && (
                 <button
@@ -951,6 +964,15 @@ export function PersonasPanel() {
                   <Check size="0.75rem" />
                 </button>
               )}
+              <TouchDragHandle
+                label="Drag persona"
+                onTouchStart={(event) => {
+                  startPersonaTouchDrag(event, persona.id, {
+                    allowInteractiveTarget: true,
+                    sourceElement: event.currentTarget.closest<HTMLElement>('[data-touch-drag-card="persona"]'),
+                  });
+                }}
+              />
               {/* Avatar */}
               <button
                 onClick={(e) => handleAvatarClick(e, persona.id)}

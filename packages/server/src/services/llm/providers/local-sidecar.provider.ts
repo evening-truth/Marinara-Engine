@@ -5,10 +5,13 @@ import { sidecarModelService } from "../../sidecar/sidecar-model.service.js";
 import { sidecarProcessService } from "../../sidecar/sidecar-process.service.js";
 import { resolveSidecarRequestModel } from "../../sidecar/sidecar-request-model.js";
 import { getEmbeddingRequestTimeoutMs } from "../../../config/runtime-config.js";
+import { logger } from "../../../lib/logger.js";
 
 function isNotFoundError(error: unknown): boolean {
   return error instanceof Error && /\(404\)|\b404\b|\(501\)|\b501\b|not enabled|not supported/i.test(error.message);
 }
+
+let warnedNativeToolCallsDisabled = false;
 
 export class LocalSidecarProvider extends BaseLLMProvider {
   constructor() {
@@ -37,9 +40,10 @@ export class LocalSidecarProvider extends BaseLLMProvider {
       );
     }
     if (sidecarModelService.getResolvedBackend() === "llama_cpp" && !config.enableNativeToolCalls) {
-      throw new Error(
-        "Local sidecar native tool calls are disabled. Open Local AI Model > Runtime Settings and enable Native Tool Calls before using tools with the local sidecar.",
-      );
+      if (!warnedNativeToolCallsDisabled) {
+        warnedNativeToolCallsDisabled = true;
+        logger.warn("[local-sidecar] Native tool calls are disabled; attempting textual tool-call fallback");
+      }
     }
   }
 
@@ -53,7 +57,8 @@ export class LocalSidecarProvider extends BaseLLMProvider {
         : undefined;
     return {
       ...options,
-      maxTokens: requestedMaxTokens !== undefined ? Math.min(requestedMaxTokens, config.maxTokens) : config.maxTokens,
+      // Chat/preset Advanced Parameters are per-request and should win over the local runtime fallback.
+      maxTokens: requestedMaxTokens ?? config.maxTokens,
       temperature: structuredOutput ? 0 : config.temperature,
       topP: structuredOutput ? 1 : config.topP,
       topK: structuredOutput ? 0 : config.topK,

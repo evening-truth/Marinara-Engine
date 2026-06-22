@@ -38,7 +38,9 @@ function encodeSegment(value: string | number | null | undefined) {
 }
 
 function normalizeComparableText(value: unknown) {
-  return typeof value === "string" ? value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ") : "";
+  return typeof value === "string"
+    ? value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ")
+    : "";
 }
 
 function stableIndexRef(index: number | null | undefined) {
@@ -61,11 +63,7 @@ function objectiveLockRef(rowOrIndex: ObjectiveLockRow | number | null | undefin
   return `index:${stableIndexRef(typeof rowOrIndex === "number" ? rowOrIndex : index)}`;
 }
 
-function replaceLockKey(
-  locks: TrackerFieldLocks,
-  legacyKey: string,
-  stableKey: string,
-) {
+function replaceLockKey(locks: TrackerFieldLocks, legacyKey: string, stableKey: string) {
   if (locks[legacyKey] !== true || legacyKey === stableKey) return;
   locks[stableKey] = true;
   delete locks[legacyKey];
@@ -460,7 +458,11 @@ export function normalizeTrackerFieldLocksForState(
 
   state.personaStats?.forEach((stat, index) => {
     for (const field of ["name", "value", "max"] as const) {
-      replaceLockKey(next, legacyPersonaStatTrackerLockKey(index, field), personaStatTrackerLockKey(stat, field, index));
+      replaceLockKey(
+        next,
+        legacyPersonaStatTrackerLockKey(index, field),
+        personaStatTrackerLockKey(stat, field, index),
+      );
     }
   });
 
@@ -531,7 +533,9 @@ function findCurrentCharacterMatch(
 ) {
   const id = typeof next.characterId === "string" ? next.characterId.trim() : "";
   if (id) {
-    const byId = currentCharacters.findIndex((character, index) => !usedCurrent.has(index) && character.characterId === id);
+    const byId = currentCharacters.findIndex(
+      (character, index) => !usedCurrent.has(index) && character.characterId === id,
+    );
     if (byId >= 0) return { index: byId, matchedByIdentity: true };
   }
   const name = normalizeComparableText(next.name);
@@ -579,7 +583,9 @@ function findCurrentNamedMatch<T extends { name?: string }>(
 ) {
   const name = normalizeComparableText(next.name);
   if (name) {
-    const byName = current.findIndex((item, index) => !usedCurrent.has(index) && normalizeComparableText(item.name) === name);
+    const byName = current.findIndex(
+      (item, index) => !usedCurrent.has(index) && normalizeComparableText(item.name) === name,
+    );
     if (byName >= 0) return { index: byName, matchedByIdentity: true };
   }
   return {
@@ -667,7 +673,8 @@ function mergeCustomTrackerFieldsWithGenericLocks(
   return mergeNamedRowsWithLocks(nextFields, currentFields, locks, {
     mergeRow: (field, currentField, currentIndex) => {
       const next = { ...field };
-      if (isTrackerFieldLocked(locks, customTrackerLockKey(currentField, "name", currentIndex))) next.name = currentField.name;
+      if (isTrackerFieldLocked(locks, customTrackerLockKey(currentField, "name", currentIndex)))
+        next.name = currentField.name;
       if (isTrackerFieldLocked(locks, customTrackerLockKey(currentField, "value", currentIndex))) {
         next.value = currentField.value;
       }
@@ -703,7 +710,12 @@ function mergeQuestObjectivesWithLocks(
     }
     usedCurrent.add(currentIndex);
     const next = { ...objective };
-    if (isTrackerFieldLocked(locks, questObjectiveTrackerLockKey(quest, questIndex, currentObjective, "text", currentIndex))) {
+    if (
+      isTrackerFieldLocked(
+        locks,
+        questObjectiveTrackerLockKey(quest, questIndex, currentObjective, "text", currentIndex),
+      )
+    ) {
       next.text = currentObjective.text;
     }
     if (
@@ -736,7 +748,10 @@ function mergeQuestsWithLocks(
     const currentIndex = match.index;
     const currentQuest = currentIndex >= 0 ? current[currentIndex] : null;
     if (!currentQuest) return quest;
-    if (!match.matchedByIdentity && hasLockWithPrefix(locks, `${questTrackerLockPrefix(currentQuest, currentIndex)}.`)) {
+    if (
+      !match.matchedByIdentity &&
+      hasLockWithPrefix(locks, `${questTrackerLockPrefix(currentQuest, currentIndex)}.`)
+    ) {
       usedCurrent.add(currentIndex);
       return quest;
     }
@@ -752,7 +767,13 @@ function mergeQuestsWithLocks(
       next.currentStage = currentQuest.currentStage;
     }
     if (Array.isArray(next.objectives)) {
-      next.objectives = mergeQuestObjectivesWithLocks(next.objectives, currentQuest.objectives, locks, currentQuest, currentIndex);
+      next.objectives = mergeQuestObjectivesWithLocks(
+        next.objectives,
+        currentQuest.objectives,
+        locks,
+        currentQuest,
+        currentIndex,
+      );
     }
     return next;
   });
@@ -855,12 +876,19 @@ export function applyTrackerFieldLocksToGameStatePatch<T extends Record<string, 
   }
 
   if (Array.isArray(next.presentCharacters)) {
-    next.presentCharacters = mergeCharactersWithLocks(next.presentCharacters as PresentCharacter[], currentState.presentCharacters, locks);
+    next.presentCharacters = mergeCharactersWithLocks(
+      next.presentCharacters as PresentCharacter[],
+      currentState.presentCharacters,
+      locks,
+    );
   }
 
   if (Array.isArray(next.personaStats)) {
-    next.personaStats = mergeStatsWithLocks(next.personaStats as CharacterStat[], currentState.personaStats, locks, (stat, index, field) =>
-      personaStatTrackerLockKey(stat, field, index),
+    next.personaStats = mergeStatsWithLocks(
+      next.personaStats as CharacterStat[],
+      currentState.personaStats,
+      locks,
+      (stat, index, field) => personaStatTrackerLockKey(stat, field, index),
     );
   }
 
@@ -871,10 +899,18 @@ export function applyTrackerFieldLocksToGameStatePatch<T extends Record<string, 
       playerStatsPatch.status = currentPlayerStats.status;
     }
     if (Array.isArray(playerStatsPatch.inventory)) {
-      playerStatsPatch.inventory = mergeInventoryWithLocks(playerStatsPatch.inventory, currentPlayerStats.inventory, locks);
+      playerStatsPatch.inventory = mergeInventoryWithLocks(
+        playerStatsPatch.inventory,
+        currentPlayerStats.inventory,
+        locks,
+      );
     }
     if (Array.isArray(playerStatsPatch.activeQuests)) {
-      playerStatsPatch.activeQuests = mergeQuestsWithLocks(playerStatsPatch.activeQuests, currentPlayerStats.activeQuests, locks);
+      playerStatsPatch.activeQuests = mergeQuestsWithLocks(
+        playerStatsPatch.activeQuests,
+        currentPlayerStats.activeQuests,
+        locks,
+      );
     }
     if (Array.isArray(playerStatsPatch.customTrackerFields)) {
       playerStatsPatch.customTrackerFields = mergeCustomTrackerFieldsWithGenericLocks(

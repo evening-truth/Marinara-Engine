@@ -58,8 +58,10 @@ const RIGHT_PANEL_BUTTONS: readonly RightPanelButtonConfig[] = [
 const SPOTIFY_TOPBAR_MIN_WIDTH = 320;
 const SPOTIFY_TOPBAR_MIN_WIDTH_WITH_VOLUME = 416;
 const SPOTIFY_TOPBAR_LAYOUT_BUFFER = 32;
-const TOPBAR_BUTTON_CLASS = "relative rounded-lg p-2 transition-all hover:bg-[var(--accent)] active:scale-95";
-const TOPBAR_PANEL_BUTTON_CLASS = "relative rounded-lg p-2 transition-all duration-200 max-sm:p-1.5";
+const TOPBAR_BUTTON_CLASS =
+  "mari-topbar-action relative flex h-8 w-8 items-center justify-center rounded-lg p-0 transition-all hover:bg-[var(--accent)] active:scale-95 max-sm:h-7 max-sm:w-7";
+const TOPBAR_PANEL_BUTTON_CLASS =
+  "mari-topbar-action relative flex h-8 w-8 items-center justify-center rounded-lg p-0 transition-all duration-200 max-sm:h-7 max-sm:w-7";
 const TOPBAR_ACTIVE_BUTTON_CLASS = "bg-[var(--accent)] shadow-sm";
 const TOPBAR_FORCE_HOVER_CLASS = "bg-[var(--accent)]";
 const TOPBAR_ACCENT_ICON_CLASS = "mari-topbar-accent-icon mari-accent-animated";
@@ -208,8 +210,8 @@ export function TopBar() {
       <div className="absolute inset-x-0 bottom-0 h-px bg-[var(--marinara-topbar-border)]" />
 
       {/* Left section: window controls + chat info */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <div ref={leftControlsRef} className="mari-rgb-icon-scope flex shrink-0 items-center gap-2">
+      <div className="mari-topbar-left flex min-w-0 flex-1 items-center gap-2">
+        <div ref={leftControlsRef} className="mari-topbar-left-controls mari-rgb-icon-scope flex shrink-0 items-center gap-2">
           <button
             onClick={toggleSidebar}
             data-tour="sidebar-toggle"
@@ -225,7 +227,7 @@ export function TopBar() {
             )}
             title="Chats"
           >
-            <MessageSquareText size="0.9375rem" className={TOPBAR_ACCENT_ICON_CLASS}>
+            <MessageSquareText size={15} className={TOPBAR_ACCENT_ICON_CLASS}>
               <defs>
                 <linearGradient
                   id={CHAT_TOPBAR_GRADIENT_ID}
@@ -265,7 +267,7 @@ export function TopBar() {
             )}
             title="Home"
           >
-            <Home size="0.9375rem" className={TOPBAR_ACCENT_ICON_CLASS} />
+            <Home size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
             {isHomeActive && (
               <span className="mari-topbar-active-underline absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full" />
             )}
@@ -280,7 +282,7 @@ export function TopBar() {
         ref={rightNavRef}
         data-tour="panel-buttons"
         aria-label="Panel navigation"
-        className="mari-rgb-icon-scope flex shrink-0 items-center justify-end gap-0.5 rounded-xl p-1 max-sm:gap-0 max-sm:p-0.5"
+        className="mari-topbar-panel-nav mari-rgb-icon-scope flex shrink-0 items-center justify-end gap-0.5 rounded-xl p-1 max-sm:gap-0 max-sm:p-0.5"
       >
         {/* Browser */}
         <button
@@ -298,7 +300,7 @@ export function TopBar() {
           )}
           title="Browser"
         >
-          <Bot size="0.9375rem" className={TOPBAR_ACCENT_ICON_CLASS} />
+          <Bot size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
           {isBotBrowserActive && (
             <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-lime-400 via-green-500 to-cyan-500" />
           )}
@@ -319,7 +321,7 @@ export function TopBar() {
           )}
           title="Characters"
         >
-          <Users size="0.9375rem" className={TOPBAR_ACCENT_ICON_CLASS} />
+          <Users size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
           {isCharactersPanelActive && (
             <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-pink-400 to-rose-500" />
           )}
@@ -343,7 +345,7 @@ export function TopBar() {
               )}
               title={label}
             >
-              <Icon size="0.9375rem" className={TOPBAR_ACCENT_ICON_CLASS} />
+              <Icon size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
               {isActive && (
                 <span
                   className={cn(
@@ -375,7 +377,7 @@ export function TopBar() {
           )}
           title="Settings"
         >
-          <Settings size="0.9375rem" className={TOPBAR_ACCENT_ICON_CLASS} />
+          <Settings size={15} className={TOPBAR_ACCENT_ICON_CLASS} />
           {rightPanelOpen && rightPanel === "settings" && (
             <span className="absolute -bottom-0.5 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full bg-gradient-to-r from-gray-400 to-gray-500" />
           )}

@@ -63,7 +63,7 @@ async function withPatchQueue<T>(
   }
 }
 
-async function withMetadataPatchQueue<T>(chatId: string, operation: () => Promise<T>): Promise<T> {
+export async function withChatMetadataPatchQueue<T>(chatId: string, operation: () => Promise<T>): Promise<T> {
   return withPatchQueue(metadataPatchQueues, chatId, operation);
 }
 
@@ -390,7 +390,7 @@ export function createChatsStorage(db: DB) {
       patchOrUpdater: MetadataPatch | MetadataUpdater,
       opts: { touchUpdatedAt?: boolean } = {},
     ) {
-      return withMetadataPatchQueue(id, async () => {
+      return withChatMetadataPatchQueue(id, async () => {
         const existing = await this.getById(id);
         if (!existing) return null;
 
@@ -426,7 +426,7 @@ export function createChatsStorage(db: DB) {
         | Promise<{ metadata: MetadataPatch; characterIds: string[] }>,
       opts: { touchUpdatedAt?: boolean } = {},
     ) {
-      return withMetadataPatchQueue(id, async () => {
+      return withChatMetadataPatchQueue(id, async () => {
         const existing = await this.getById(id);
         if (!existing) return null;
 

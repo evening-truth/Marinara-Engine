@@ -10,6 +10,9 @@ import { createConnectionsStorage } from "./storage/connections.storage.js";
 
 type ConnectionStorage = ReturnType<typeof createConnectionsStorage>;
 type ConnectionWithKey = NonNullable<Awaited<ReturnType<ConnectionStorage["getWithKey"]>>>;
+const VECTOR_VERDICT_TTL_MS = 60_000;
+
+let cachedVectorizerVerdict: { key: string; available: boolean; at: number } | null = null;
 
 function parseMetadata(raw: unknown): Record<string, unknown> {
   if (!raw) return {};
@@ -34,6 +37,28 @@ function resolveBaseUrl(connection: { baseUrl: string | null; provider: string }
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function buildVectorizerCacheKey(options: {
+  chatMetadata?: unknown;
+  connectionId?: string | null;
+  activeConnection?: ConnectionWithKey | null;
+  activeBaseUrl?: string | null;
+}): string {
+  const chatMeta = parseMetadata(options.chatMetadata);
+  const active = options.activeConnection ?? null;
+  return JSON.stringify({
+    connectionId: options.connectionId ?? active?.id ?? "default",
+    activeBaseUrl: options.activeBaseUrl ?? "",
+    provider: active?.provider ?? "",
+    embeddingConnectionId: nonEmptyString(chatMeta.embeddingConnectionId) ?? nonEmptyString(active?.embeddingConnectionId) ?? "",
+    embeddingBaseUrl: nonEmptyString(active?.embeddingBaseUrl) ?? "",
+    embeddingModel: nonEmptyString(active?.embeddingModel) ?? "",
+  });
+}
+
+export function resetMemoryRecallVectorizerCache(): void {
+  cachedVectorizerVerdict = null;
 }
 
 function isLocalSidecarEmbeddingSupported(): boolean {
@@ -142,6 +167,12 @@ export async function isMemoryRecallVectorizerAvailable(
     activeBaseUrl?: string | null;
   },
 ): Promise<boolean> {
-  if ((await resolveMemoryRecallEmbeddingSource(db, options)) !== null) return true;
-  return isLocalEmbedderAvailable();
+  const key = buildVectorizerCacheKey(options);
+  const now = Date.now();
+  if (cachedVectorizerVerdict?.key === key && now - cachedVectorizerVerdict.at < VECTOR_VERDICT_TTL_MS) {
+    return cachedVectorizerVerdict.available;
+  }
+  const available = (await resolveMemoryRecallEmbeddingSource(db, options)) !== null || isLocalEmbedderAvailable();
+  cachedVectorizerVerdict = { key, available, at: now };
+  return available;
 }

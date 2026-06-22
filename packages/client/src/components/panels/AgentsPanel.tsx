@@ -72,6 +72,7 @@ import {
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
 import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
+import { TouchDragHandle } from "../ui/TouchDragHandle";
 
 type JsonRecord = Record<string, unknown>;
 const BUILT_IN_AGENT_TYPE_SET = new Set(BUILT_IN_AGENTS.map((agent) => agent.id));
@@ -450,10 +451,10 @@ export function AgentsPanel() {
     onCancel: cancelAgentTouchDrag,
   });
   const startAgentCardTouchDrag = useCallback(
-    (event: TouchEvent<HTMLDivElement>, agentId: string) => {
+    (event: TouchEvent<HTMLButtonElement>, agentId: string) => {
       startAgentTouchDrag(event, agentId, {
         allowInteractiveTarget: true,
-        sourceElement: event.currentTarget,
+        sourceElement: event.currentTarget.closest<HTMLElement>("[data-agent-card]"),
       });
     },
     [startAgentTouchDrag],
@@ -1156,7 +1157,7 @@ function renderAgentCard({
   isDragging?: boolean;
   onDragStart?: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragEnd?: () => void;
-  onTouchStart?: (event: TouchEvent<HTMLDivElement>) => void;
+  onTouchStart?: (event: TouchEvent<HTMLButtonElement>) => void;
   suppressClickRef?: { current: boolean };
 }) {
   const iconContent = imagePath ? (
@@ -1177,13 +1178,12 @@ function renderAgentCard({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onTouchStart={onTouchStart}
       onClick={() => {
         if (suppressClickRef?.current) return;
         if (selectionMode && onToggleSelected) onToggleSelected();
       }}
       className={cn(
-        "group relative flex cursor-pointer items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)]",
+        "group relative flex touch-pan-y cursor-pointer items-center gap-2.5 rounded-xl p-2 transition-all hover:bg-[var(--sidebar-accent)]",
         selectionMode &&
           selected &&
           "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
@@ -1201,6 +1201,14 @@ function renderAgentCard({
         >
           <Check size="0.75rem" />
         </div>
+      )}
+      {onTouchStart && (
+        <TouchDragHandle
+          label="Drag agent"
+          onTouchStart={(event) => {
+            onTouchStart(event);
+          }}
+        />
       )}
       <button
         type="button"

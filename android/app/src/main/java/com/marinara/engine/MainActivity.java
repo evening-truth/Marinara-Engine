@@ -21,7 +21,9 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -65,7 +67,14 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileUploadCallback;
     private boolean isDownloadingTermux;
     private boolean pendingStartAfterTermuxInstall;
+    private boolean isCheckingServer;
+    private boolean mainFrameLoadFailed;
+    private boolean connectionRetryPaused;
+    private String currentMainFrameUrl;
+    private long currentMainFrameNavigationId;
+    private long activeServerMainFrameNavigationId;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable retryConnectionRunnable = this::tryConnect;
 
     @Override
     @SuppressLint("SetJavaScriptEnabled")
@@ -140,7 +149,10 @@ public class MainActivity extends Activity {
         actions.addView(termuxButton, buildActionButtonLayoutParams());
 
         Button retryButton = buildActionButton("Retry connection");
-        retryButton.setOnClickListener(v -> tryConnect());
+        retryButton.setOnClickListener(v -> {
+            resumeConnectionRetryLoop();
+            tryConnect();
+        });
         actions.addView(retryButton, buildActionButtonLayoutParams());
 
         container.addView(actions);
@@ -201,17 +213,47 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                currentMainFrameUrl = url;
+                currentMainFrameNavigationId++;
+                if (isServerUrl(url)) {
+                    activeServerMainFrameNavigationId = currentMainFrameNavigationId;
+                    mainFrameLoadFailed = false;
+                } else {
+                    activeServerMainFrameNavigationId = 0;
+                }
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (url.startsWith(SERVER_URL)) {
+                if (isActiveServerMainFrame(url) && !mainFrameLoadFailed) {
                     showWebView();
                 }
             }
 
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                // Server not ready yet — retry
-                retryConnection();
+                if (isActiveServerMainFrame(failingUrl)) {
+                    handleServerLoadFailure();
+                }
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                String failingUrl = request.getUrl().toString();
+                if (request.isForMainFrame() && isActiveServerMainFrame(failingUrl)) {
+                    handleServerLoadFailure();
+                }
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+                String failingUrl = request.getUrl().toString();
+                if (request.isForMainFrame() && isActiveServerMainFrame(failingUrl)) {
+                    handleServerLoadFailure();
+                }
             }
         });
 
@@ -236,28 +278,137 @@ public class MainActivity extends Activity {
     }
 
     private void tryConnect() {
-        statusText.setText("Connecting to Marinara Engine…\nIf this is your first launch, tap Install / Start Marinara.");
-        webView.loadUrl(SERVER_URL);
+        if (isCheckingServer) return;
+        cancelPendingConnectionRetry();
+        showBootstrap("Connecting to Marinara Engine…\nIf this is your first launch, tap Install / Start Marinara.", true);
+
+        isCheckingServer = true;
+        new Thread(() -> {
+            boolean reachable = isServerReachable();
+            runOnUiThread(() -> {
+                isCheckingServer = false;
+                if (connectionRetryPaused) return;
+                if (reachable) {
+                    mainFrameLoadFailed = false;
+                    statusText.setText("Opening Marinara Engine…");
+                    webView.loadUrl(SERVER_URL);
+                } else {
+                    retryConnection();
+                }
+            });
+        }).start();
     }
 
     private void retryConnection() {
-        statusText.setText("Waiting for Marinara Engine…\nTap Install / Start Marinara if the local server is not running yet.");
-        handler.postDelayed(this::tryConnect, RETRY_DELAY_MS);
+        showBootstrap("Waiting for Marinara Engine…\nTap Install / Start Marinara if the local server is not running yet.", true);
+        scheduleConnectionRetry();
     }
 
     private void showWebView() {
+        cancelPendingConnectionRetry();
         splashView.setVisibility(View.GONE);
         webView.setVisibility(View.VISIBLE);
     }
 
+    private void showBootstrap(String message, boolean showSpinner) {
+        statusText.setText(message);
+        spinner.setVisibility(showSpinner ? View.VISIBLE : View.GONE);
+        splashView.setVisibility(View.VISIBLE);
+        webView.setVisibility(View.INVISIBLE);
+    }
+
+    private void handleServerLoadFailure() {
+        mainFrameLoadFailed = true;
+        webView.stopLoading();
+        if (connectionRetryPaused) return;
+        retryConnection();
+    }
+
+    private void scheduleConnectionRetry() {
+        if (connectionRetryPaused) return;
+        cancelPendingConnectionRetry();
+        handler.postDelayed(retryConnectionRunnable, RETRY_DELAY_MS);
+    }
+
+    private void cancelPendingConnectionRetry() {
+        handler.removeCallbacks(retryConnectionRunnable);
+    }
+
+    private void pauseConnectionRetryLoop() {
+        connectionRetryPaused = true;
+        cancelPendingConnectionRetry();
+    }
+
+    private void resumeConnectionRetryLoop() {
+        connectionRetryPaused = false;
+    }
+
+    private boolean isServerReachable() {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(SERVER_URL).openConnection();
+            connection.setConnectTimeout(1_000);
+            connection.setReadTimeout(1_500);
+            connection.setInstanceFollowRedirects(false);
+            connection.setUseCaches(false);
+            connection.setRequestProperty("User-Agent", "MarinaraEngine/Android");
+            int status = connection.getResponseCode();
+            return status >= 200 && status < 300;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private boolean isServerUrl(String url) {
+        if (url == null) return false;
+        try {
+            Uri serverUri = Uri.parse(SERVER_URL);
+            Uri candidateUri = Uri.parse(url);
+            return textEquals(serverUri.getScheme(), candidateUri.getScheme())
+                    && hostsReferToSameServer(serverUri.getHost(), candidateUri.getHost())
+                    && serverUri.getPort() == candidateUri.getPort();
+        } catch (Exception e) {
+            return url.startsWith(SERVER_URL);
+        }
+    }
+
+    private boolean isActiveServerMainFrame(String url) {
+        return activeServerMainFrameNavigationId == currentMainFrameNavigationId
+                && textEquals(currentMainFrameUrl, url)
+                && isServerUrl(url);
+    }
+
+    private boolean hostsReferToSameServer(String left, String right) {
+        if (textEquals(left, right)) return true;
+        return isLoopbackHost(left) && isLoopbackHost(right);
+    }
+
+    private boolean isLoopbackHost(String host) {
+        if (host == null) return false;
+        String normalized = host.toLowerCase();
+        return "localhost".equals(normalized)
+                || "127.0.0.1".equals(normalized)
+                || "::1".equals(normalized)
+                || "[::1]".equals(normalized);
+    }
+
+    private boolean textEquals(String left, String right) {
+        return left == null ? right == null : left.equals(right);
+    }
+
     private void startTermuxSetup() {
+        pauseConnectionRetryLoop();
         if (!isTermuxInstalled()) {
             startTermuxInstallFlow();
             return;
         }
 
         if (!hasTermuxRunCommandPermission()) {
-            statusText.setText("Android needs one permission so Marinara can start Termux for you.\nApprove Run commands in Termux environment.");
+            showBootstrap("Android needs one permission so Marinara can start Termux for you.\nApprove Run commands in Termux environment.", false);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 requestPermissions(new String[]{TERMUX_RUN_COMMAND_PERMISSION}, TERMUX_PERMISSION_REQUEST);
             }
@@ -269,8 +420,9 @@ public class MainActivity extends Activity {
 
     private void startTermuxInstallFlow() {
         pendingStartAfterTermuxInstall = true;
+        pauseConnectionRetryLoop();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
-            statusText.setText("Android needs permission to let Marinara install Termux.\nEnable Allow from this source, then return here.");
+            showBootstrap("Android needs permission to let Marinara install Termux.\nEnable Allow from this source, then return here.", false);
             try {
                 Intent intent = new Intent(
                         Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
@@ -278,7 +430,7 @@ public class MainActivity extends Activity {
                 );
                 startActivityForResult(intent, UNKNOWN_APP_SOURCES_REQUEST);
             } catch (ActivityNotFoundException e) {
-                statusText.setText("Android blocked the built-in Termux installer.\nUse Get Termux manually, then return here.");
+                showBootstrap("Android blocked the built-in Termux installer.\nUse Get Termux manually, then return here.", false);
                 openTermuxDownload();
             }
             return;
@@ -289,9 +441,9 @@ public class MainActivity extends Activity {
 
     private void downloadAndInstallTermux() {
         if (isDownloadingTermux) return;
+        pauseConnectionRetryLoop();
         isDownloadingTermux = true;
-        statusText.setText("Downloading Termux from F-Droid…\nAndroid will ask you before installing it.");
-        spinner.setVisibility(View.VISIBLE);
+        showBootstrap("Downloading Termux from F-Droid…\nAndroid will ask you before installing it.", true);
 
         new Thread(() -> {
             try {
@@ -303,7 +455,7 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     isDownloadingTermux = false;
-                    statusText.setText("Could not download Termux automatically.\nOpening the F-Droid page instead.");
+                    showBootstrap("Could not download Termux automatically.\nOpening the F-Droid page instead.", false);
                     openTermuxDownload();
                 });
             }
@@ -395,9 +547,9 @@ public class MainActivity extends Activity {
             );
             session.commit(pendingIntent.getIntentSender());
             session.close();
-            statusText.setText("Termux is ready to install.\nApprove the Android install prompt, then return here.");
+            showBootstrap("Termux is ready to install.\nApprove the Android install prompt, then return here.", false);
         } catch (Exception e) {
-            statusText.setText("Android blocked the built-in Termux installer.\nUse Get Termux manually, then return here.");
+            showBootstrap("Android blocked the built-in Termux installer.\nUse Get Termux manually, then return here.", false);
             openTermuxDownload();
         }
     }
@@ -432,13 +584,14 @@ public class MainActivity extends Activity {
 
         try {
             startService(intent);
-            statusText.setText("Termux setup launched.\nWatch Termux finish installing, then this shell will connect automatically.");
+            resumeConnectionRetryLoop();
+            showBootstrap("Termux setup launched.\nWatch Termux finish installing, then this shell will connect automatically.", true);
             handler.postDelayed(this::openTermux, 500);
-            handler.postDelayed(this::tryConnect, RETRY_DELAY_MS);
+            scheduleConnectionRetry();
         } catch (SecurityException e) {
             showTermuxExternalAppsInstructions();
         } catch (IllegalStateException | ActivityNotFoundException e) {
-            statusText.setText("Android blocked the Termux setup launch.\nOpen Termux, run ./start-termux.sh, then return here.");
+            showBootstrap("Android blocked the Termux setup launch.\nOpen Termux, run ./start-termux.sh, then return here.", false);
             openTermux();
         }
     }
@@ -468,7 +621,8 @@ public class MainActivity extends Activity {
             clipboard.setPrimaryClip(ClipData.newPlainText("Marinara Termux setup", TERMUX_EXTERNAL_APPS_COMMAND));
             Toast.makeText(this, "Copied Termux permission command", Toast.LENGTH_LONG).show();
         }
-        statusText.setText("Termux blocked external setup.\nPaste the copied allow-external-apps command once, then return and tap Install / Start Marinara.");
+        pauseConnectionRetryLoop();
+        showBootstrap("Termux blocked external setup.\nPaste the copied allow-external-apps command once, then return and tap Install / Start Marinara.", false);
         openTermux();
     }
 
@@ -502,14 +656,15 @@ public class MainActivity extends Activity {
         if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
             Intent confirmationIntent = intent.getParcelableExtra(Intent.EXTRA_INTENT);
             if (confirmationIntent != null) {
-                statusText.setText("Approve the Termux install prompt.\nMarinara will continue setup afterward.");
+                pauseConnectionRetryLoop();
+                showBootstrap("Approve the Termux install prompt.\nMarinara will continue setup afterward.", false);
                 startActivity(confirmationIntent);
             }
             return;
         }
 
         if (status == PackageInstaller.STATUS_SUCCESS) {
-            statusText.setText("Termux installed.\nContinuing Marinara setup…");
+            showBootstrap("Termux installed.\nContinuing Marinara setup…", true);
             pendingStartAfterTermuxInstall = false;
             startTermuxSetup();
             return;
@@ -517,10 +672,10 @@ public class MainActivity extends Activity {
 
         String message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
         if (status == PackageInstaller.STATUS_FAILURE_ABORTED) {
-            statusText.setText("Termux installation was cancelled.\nTap Install / Start Marinara to try again.");
+            showBootstrap("Termux installation was cancelled.\nTap Install / Start Marinara to try again.", false);
             return;
         }
-        statusText.setText("Termux installation failed.\n" + (message != null ? message : "Use Get Termux manually, then return here."));
+        showBootstrap("Termux installation failed.\n" + (message != null ? message : "Use Get Termux manually, then return here."), false);
     }
 
     @Override
@@ -535,7 +690,7 @@ public class MainActivity extends Activity {
         super.onResume();
         if (pendingStartAfterTermuxInstall && isTermuxInstalled()) {
             pendingStartAfterTermuxInstall = false;
-            statusText.setText("Termux installed.\nContinuing Marinara setup…");
+            showBootstrap("Termux installed.\nContinuing Marinara setup…", true);
             startTermuxSetup();
         }
     }
@@ -547,7 +702,7 @@ public class MainActivity extends Activity {
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             sendTermuxSetupCommand();
         } else {
-            statusText.setText("Run commands permission was not granted.\nGrant it from Android App Info > Permissions, then tap Install / Start Marinara.");
+            showBootstrap("Run commands permission was not granted.\nGrant it from Android App Info > Permissions, then tap Install / Start Marinara.", false);
         }
     }
 
@@ -574,7 +729,7 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls()) {
                 downloadAndInstallTermux();
             } else {
-                statusText.setText("Install permission was not enabled.\nEnable Allow from this source, or use Get Termux manually.");
+                showBootstrap("Install permission was not enabled.\nEnable Allow from this source, or use Get Termux manually.", false);
             }
         }
         super.onActivityResult(requestCode, resultCode, data);
@@ -582,6 +737,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        cancelPendingConnectionRetry();
         handler.removeCallbacksAndMessages(null);
         if (webView != null) {
             webView.destroy();

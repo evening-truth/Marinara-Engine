@@ -1342,7 +1342,11 @@ function SectionsTab({
                         MARKER
                       </span>
                     )}
-                    {group && <span className="mari-editor-chip px-1.5 py-0.5 text-[0.5625rem]">{group.name}</span>}
+                    {group && (
+                      <span className="mari-editor-chip shrink-0 whitespace-nowrap px-1.5 py-0.5 text-[0.5625rem]">
+                        {group.name}
+                      </span>
+                    )}
                     <span className="hidden shrink-0 text-[0.625rem] text-[var(--muted-foreground)] sm:inline">
                       {role}
                     </span>

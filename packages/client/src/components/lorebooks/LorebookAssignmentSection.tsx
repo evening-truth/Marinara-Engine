@@ -1,7 +1,14 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { BookOpen, Check, Loader2, Plus, Search, Trash2, X } from "lucide-react";
-import type { Chat, ChatMode, Lorebook, LorebookScope, LorebookScopeMode } from "@marinara-engine/shared";
+import {
+  includesTextForMatch,
+  type Chat,
+  type ChatMode,
+  type Lorebook,
+  type LorebookScope,
+  type LorebookScopeMode,
+} from "@marinara-engine/shared";
 import { useChats } from "../../hooks/use-chats";
 import { useLorebooks, useUpdateLorebook } from "../../hooks/use-lorebooks";
 import { DEFAULT_LOREBOOK_SCOPE, normalizeLorebookScope } from "../../lib/lorebook-scope";
@@ -84,10 +91,10 @@ export function LorebookAssignmentSection({ ownerType, ownerId, ownerName }: Lor
   );
 
   const filteredLorebooks = useMemo(() => {
-    const query = draft?.search.trim().toLowerCase() ?? "";
+    const query = draft?.search ?? "";
     return (lorebooks as Lorebook[]).filter((lorebook) => {
       if (!query) return true;
-      return `${lorebook.name} ${lorebook.description}`.toLowerCase().includes(query);
+      return includesTextForMatch(`${lorebook.name} ${lorebook.description ?? ""}`, query);
     });
   }, [draft?.search, lorebooks]);
 

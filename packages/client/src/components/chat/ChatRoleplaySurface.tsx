@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 import {
   Suspense,
   lazy,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -165,6 +166,23 @@ function getMobileFloatingPanelFrame(
   const top = Math.max(MOBILE_FLOATING_PANEL_PADDING, rect.bottom);
   const maxHeight = Math.max(160, window.innerHeight - top - MOBILE_FLOATING_PANEL_PADDING);
   return { top, left, width, maxHeight };
+}
+
+function useIsMobileToolbarViewport() {
+  const [isMobileViewport, setIsMobileViewport] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia("(max-width: 767px)").matches,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileViewport(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return isMobileViewport;
 }
 
 function WeatherEffectsConnected() {
@@ -648,6 +666,7 @@ function SummaryButton({
   summaryContextSize,
   summaryPromptTemplates,
   activeSummaryPromptTemplateId,
+  summaryConnectionId,
   automaticSummaryEnabled,
   activeAgentIds,
   summaryRunInterval,
@@ -661,6 +680,7 @@ function SummaryButton({
   summaryContextSize: number;
   summaryPromptTemplates?: ComponentProps<typeof SummaryPopover>["promptTemplates"];
   activeSummaryPromptTemplateId?: string | null;
+  summaryConnectionId?: string | null;
   automaticSummaryEnabled: boolean;
   activeAgentIds: string[];
   summaryRunInterval?: number;
@@ -730,6 +750,7 @@ function SummaryButton({
             contextSize={summaryContextSize}
             promptTemplates={summaryPromptTemplates}
             activePromptTemplateId={activeSummaryPromptTemplateId}
+            summaryConnectionId={summaryConnectionId}
             automaticSummaryEnabled={automaticSummaryEnabled}
             activeAgentIds={activeAgentIds}
             summaryRunInterval={summaryRunInterval}
@@ -745,28 +766,40 @@ function SummaryButton({
   );
 }
 
-function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMeta: Record<string, any> }) {
-  const [open, setOpen] = useState(false);
+function AuthorNotesButton({
+  chatId,
+  chatMeta,
+  open,
+  onOpenChange,
+  renderPanel,
+  mobilePanel,
+}: {
+  chatId: string | null;
+  chatMeta: Record<string, any>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  renderPanel: boolean;
+  mobilePanel: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [mobileFrame, setMobileFrame] = useState<MobileFloatingPanelFrame | null>(null);
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const compact = useUIStore((s) => s.centerCompact);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !renderPanel) return;
     const handle = (e: MouseEvent) => {
       const target = e.target as Node;
       if (ref.current?.contains(target) || panelRef.current?.contains(target)) return;
-      setOpen(false);
+      onOpenChange(false);
     };
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, [open]);
+  }, [onOpenChange, open, renderPanel]);
 
   useLayoutEffect(() => {
-    if (!open || !isMobile) return;
+    if (!open || !renderPanel || !mobilePanel) return;
     const update = () => setMobileFrame(getMobileFloatingPanelFrame(buttonRef.current, 288));
     update();
     window.addEventListener("resize", update);
@@ -775,16 +808,16 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [isMobile, open]);
+  }, [mobilePanel, open, renderPanel]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !renderPanel) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") onOpenChange(false);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open]);
+  }, [onOpenChange, open, renderPanel]);
 
   if (!chatId) return null;
 
@@ -794,14 +827,15 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
     <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
       <button
         ref={buttonRef}
-        onClick={() => setOpen(!open)}
+        onClick={() => onOpenChange(!open)}
         className={getChatToolbarButtonClass({ active: hasNotes, compact, open })}
         title="Author's Notes"
       >
         <PenLine size="0.875rem" />
       </button>
       {open &&
-        (isMobile ? (
+        renderPanel &&
+        (mobilePanel ? (
           createPortal(
             <div
               ref={panelRef}
@@ -827,12 +861,12 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
                   </div>
                 }
               >
-                <AuthorNotesPanel
-                  chatId={chatId}
-                  chatMeta={chatMeta}
-                  isMobile={isMobile}
-                  onClose={() => setOpen(false)}
-                />
+                  <AuthorNotesPanel
+                    chatId={chatId}
+                    chatMeta={chatMeta}
+                    isMobile={mobilePanel}
+                    onClose={() => onOpenChange(false)}
+                  />
               </Suspense>
             </div>,
             document.body,
@@ -850,8 +884,8 @@ function AuthorNotesButton({ chatId, chatMeta }: { chatId: string | null; chatMe
               <AuthorNotesPanel
                 chatId={chatId}
                 chatMeta={chatMeta}
-                isMobile={isMobile}
-                onClose={() => setOpen(false)}
+                isMobile={mobilePanel}
+                onClose={() => onOpenChange(false)}
               />
             </Suspense>
           </div>
@@ -1085,6 +1119,17 @@ export function ChatRoleplaySurface({
   const topChromeRef = useRef<HTMLDivElement>(null);
   const inputChromeRef = useRef<HTMLDivElement>(null);
   const [chromeHeights, setChromeHeights] = useState({ top: 0, bottom: 0 });
+  const [authorNotesOpenOwner, setAuthorNotesOpenOwner] = useState<"expanded" | "compact" | null>(null);
+  const isMobileToolbarViewport = useIsMobileToolbarViewport();
+  const compactToolbarOwnsAuthorNotes = centerCompact || isMobileToolbarViewport;
+  const authorNotesOwner = compactToolbarOwnsAuthorNotes ? "compact" : "expanded";
+  const authorNotesOpen = authorNotesOpenOwner === authorNotesOwner;
+  const setAuthorNotesOpen = useCallback(
+    (open: boolean) => {
+      setAuthorNotesOpenOwner(open ? authorNotesOwner : null);
+    },
+    [authorNotesOwner],
+  );
   const hideEchoChamberOnMobile =
     sidebarOpen || rightPanelOpen || settingsOpen || filesOpen || galleryOpen || wizardOpen;
   const showSpriteOverlay = expressionAgentEnabled && spriteCharacterIds.length > 0 && spriteDisplayModes.length > 0;
@@ -1107,6 +1152,7 @@ export function ChatRoleplaySurface({
   useEffect(() => {
     initialLoadSettledRef.current = false;
     prevMessageKeysRef.current = new Set();
+    setAuthorNotesOpenOwner(null);
   }, [activeChatId]);
 
   const [transcriptWindowStart, setTranscriptWindowStart] = useState<number | null>(null);
@@ -1315,6 +1361,9 @@ export function ChatRoleplaySurface({
                           ? chatMeta.activeSummaryPromptTemplateId
                           : null
                       }
+                      summaryConnectionId={
+                        typeof chatMeta.summaryConnectionId === "string" ? chatMeta.summaryConnectionId : null
+                      }
                       automaticSummaryEnabled={automaticSummaryEnabled}
                       activeAgentIds={summaryActiveAgentIds}
                       summaryRunInterval={summaryRunInterval}
@@ -1328,7 +1377,14 @@ export function ChatRoleplaySurface({
                       chatCharIds={chatCharIds}
                       characterMap={characterMap}
                     />
-                    <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />
+                    <AuthorNotesButton
+                      chatId={chat?.id ?? null}
+                      chatMeta={chatMeta}
+                      open={authorNotesOpen}
+                      onOpenChange={setAuthorNotesOpen}
+                      renderPanel={!compactToolbarOwnsAuthorNotes}
+                      mobilePanel={false}
+                    />
                     <ChatToolbarButton icon={<Image size="0.875rem" />} title="Gallery" onClick={onOpenGallery} />
                     {chat?.connectedChatId && (
                       <ChatToolbarButton
@@ -1406,6 +1462,9 @@ export function ChatRoleplaySurface({
                               ? chatMeta.activeSummaryPromptTemplateId
                               : null
                           }
+                          summaryConnectionId={
+                            typeof chatMeta.summaryConnectionId === "string" ? chatMeta.summaryConnectionId : null
+                          }
                           automaticSummaryEnabled={automaticSummaryEnabled}
                           activeAgentIds={summaryActiveAgentIds}
                           summaryRunInterval={summaryRunInterval}
@@ -1419,7 +1478,14 @@ export function ChatRoleplaySurface({
                           chatCharIds={chatCharIds}
                           characterMap={characterMap}
                         />
-                        <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />
+                        <AuthorNotesButton
+                          chatId={chat?.id ?? null}
+                          chatMeta={chatMeta}
+                          open={authorNotesOpen}
+                          onOpenChange={setAuthorNotesOpen}
+                          renderPanel={compactToolbarOwnsAuthorNotes}
+                          mobilePanel
+                        />
                         <ChatToolbarButton icon={<Image size="0.875rem" />} title="Gallery" onClick={onOpenGallery} />
                         {chat?.connectedChatId && (
                           <ChatToolbarButton
@@ -1464,6 +1530,9 @@ export function ChatRoleplaySurface({
                             ? chatMeta.activeSummaryPromptTemplateId
                             : null
                         }
+                        summaryConnectionId={
+                          typeof chatMeta.summaryConnectionId === "string" ? chatMeta.summaryConnectionId : null
+                        }
                         automaticSummaryEnabled={automaticSummaryEnabled}
                         activeAgentIds={summaryActiveAgentIds}
                         summaryRunInterval={summaryRunInterval}
@@ -1477,7 +1546,14 @@ export function ChatRoleplaySurface({
                         chatCharIds={chatCharIds}
                         characterMap={characterMap}
                       />
-                      <AuthorNotesButton chatId={chat?.id ?? null} chatMeta={chatMeta} />
+                      <AuthorNotesButton
+                        chatId={chat?.id ?? null}
+                        chatMeta={chatMeta}
+                        open={authorNotesOpen}
+                        onOpenChange={setAuthorNotesOpen}
+                        renderPanel={compactToolbarOwnsAuthorNotes}
+                        mobilePanel
+                      />
                       <ChatToolbarButton icon={<Image size="0.875rem" />} title="Gallery" onClick={onOpenGallery} />
                       {chat?.connectedChatId && (
                         <ChatToolbarButton

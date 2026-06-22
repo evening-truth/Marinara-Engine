@@ -14,6 +14,8 @@ import type { AgentResult, AgentContext, AgentPhase } from "@marinara-engine/sha
 import type { BaseLLMProvider } from "../llm/base-provider.js";
 import { executeAgent, executeAgentBatch, type AgentExecConfig, type AgentToolContext } from "./agent-executor.js";
 import { logger } from "../../lib/logger.js";
+import { settleAgentJobsWithConcurrencyLimit } from "./agent-concurrency.js";
+export { settleAgentJobsWithConcurrencyLimit } from "./agent-concurrency.js";
 
 /** A fully resolved agent ready for execution. */
 export interface ResolvedAgent extends AgentExecConfig {
@@ -44,6 +46,9 @@ interface AgentGroup {
   maxParallelJobs: number;
   agents: ResolvedAgent[];
 }
+
+export const AGENT_PHASE_MAX_CONCURRENT_GROUPS = 8;
+const AGENT_GROUP_MAX_CONCURRENT_TOOL_CALLS = 4;
 
 export function normalizeAgentMaxParallelJobs(value: unknown): number {
   const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
@@ -176,13 +181,40 @@ async function executeGroup(
           return results;
         })
       : Promise.resolve([] as AgentResult[]);
-  const toolResultsPromise = Promise.all(
-    toolAgents.map((agent) =>
+  if (toolAgents.length > AGENT_GROUP_MAX_CONCURRENT_TOOL_CALLS) {
+    logger.warn(
+      "[agent-pipeline] Limiting %d tool-using agent request(s) to %d concurrent request(s)",
+      toolAgents.length,
+      AGENT_GROUP_MAX_CONCURRENT_TOOL_CALLS,
+    );
+  }
+  const toolResultsPromise = settleAgentJobsWithConcurrencyLimit(
+    toolAgents,
+    AGENT_GROUP_MAX_CONCURRENT_TOOL_CALLS,
+    (agent) =>
       executeAgent(agent, buildAgentContext(agent, context), agent.provider, agent.model, agent.toolContext).then((result) => {
         safeOnResult(result);
         return result;
       }),
-    ),
+  ).then((settled) =>
+    settled.map((entry, index) => {
+      if (entry.status === "fulfilled") return entry.value;
+
+      const agent = toolAgents[index]!;
+      logger.error(entry.reason, "[agent-pipeline] Tool agent FAILED for %s", agent.type);
+      const errorResult: AgentResult = {
+        agentId: agent.id,
+        agentType: agent.type,
+        type: "context_injection",
+        data: null,
+        tokensUsed: 0,
+        durationMs: 0,
+        success: false,
+        error: entry.reason instanceof Error ? entry.reason.message : "Tool agent execution failed",
+      };
+      safeOnResult(errorResult);
+      return errorResult;
+    }),
   );
 
   const [batchResults, toolResults] = await Promise.all([batchResultsPromise, toolResultsPromise]);
@@ -216,8 +248,20 @@ async function executePhase(
     groups.map((g) => `[${g.agents.map((a) => a.type).join(", ")}] (model: ${g.model})`),
   );
 
-  // Run groups in parallel (different providers/models can work concurrently)
-  const settled = await Promise.allSettled(groups.map((group) => executeGroup(group, context, onResult)));
+  if (groups.length > AGENT_PHASE_MAX_CONCURRENT_GROUPS) {
+    logger.warn(
+      '[agent-pipeline] Phase "%s": limiting %d job groups to %d concurrent agent request group(s)',
+      phase,
+      groups.length,
+      AGENT_PHASE_MAX_CONCURRENT_GROUPS,
+    );
+  }
+
+  const settled = await settleAgentJobsWithConcurrencyLimit(
+    groups,
+    AGENT_PHASE_MAX_CONCURRENT_GROUPS,
+    (group) => executeGroup(group, context, onResult),
+  );
 
   const results: AgentResult[] = [];
   for (let i = 0; i < settled.length; i++) {

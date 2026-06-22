@@ -290,7 +290,7 @@ export const SIDECAR_DEFAULT_CONFIG: SidecarConfig = {
   topP: 0.95,
   topK: 64,
   gpuLayers: -1,
-  enableNativeToolCalls: false,
+  enableNativeToolCalls: true,
   runtimePreference: "auto",
 };
 

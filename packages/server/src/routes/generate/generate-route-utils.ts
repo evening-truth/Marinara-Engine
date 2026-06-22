@@ -3,6 +3,7 @@ import {
   PROVIDERS,
   applyTrackerFieldLocksToGameStatePatch,
   generationParametersSchema,
+  normalizeTextForMatch,
   normalizeThinkingTagPairs,
   parseTrackerFieldLocks,
   type CharacterStat,
@@ -1041,7 +1042,7 @@ function trackerCharacterIdKey(character: Record<string, unknown>) {
 }
 
 function trackerCharacterNameKey(character: Record<string, unknown>) {
-  return typeof character.name === "string" ? character.name.trim().toLowerCase() : "";
+  return normalizeTextForMatch(character.name);
 }
 
 function trackerCharacterKey(character: Record<string, unknown>) {

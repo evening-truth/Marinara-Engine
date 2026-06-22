@@ -78,7 +78,7 @@ export function GameExtraPromptSection({
                 value={promptPresetId ?? ""}
                 onChange={(event) => onPromptPresetChange(event.target.value || null)}
                 disabled={promptPresets.length === 0}
-                className="min-w-0 flex-1 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-w-0 flex-1 truncate rounded-lg bg-[var(--secondary)] px-3 py-2 pr-8 text-xs text-[var(--foreground)] outline-none ring-1 ring-[var(--border)] transition-shadow focus:ring-[var(--primary)]/40 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <option value="">{promptPresets.length === 0 ? "No presets available" : "Default game prompt"}</option>
                 {promptPresets.length > 0 &&
@@ -103,7 +103,7 @@ export function GameExtraPromptSection({
           <div className="flex items-center justify-between gap-2 rounded-lg bg-[var(--secondary)] px-3 py-2 ring-1 ring-[var(--border)]">
             <div className="min-w-0">
               <span className="block text-[0.6875rem] font-medium text-[var(--foreground)]">Game Prompt</span>
-              <span className="block text-[0.625rem] text-[var(--muted-foreground)]">
+              <span className="block truncate text-[0.625rem] text-[var(--muted-foreground)]">
                 {storedValue
                   ? "Using chat-local edit"
                   : promptPresetId

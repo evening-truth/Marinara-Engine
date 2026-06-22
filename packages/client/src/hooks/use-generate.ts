@@ -2208,6 +2208,12 @@ export function useGenerate() {
         if (canInspectPageFocus) {
           document.removeEventListener("visibilitychange", flushBackgroundedTypewriter);
         }
+        const stillOwnerAtCleanupStart =
+          useChatStore.getState().abortControllers.get(params.chatId) === abortController;
+        if (stillOwnerAtCleanupStart) {
+          useChatStore.getState().clearPerChatState(params.chatId);
+          useChatStore.getState().setAbortController(params.chatId, null);
+        }
 
         if (shouldRefreshGameState) {
           // Refresh game state from DB so HUD/sidebar trackers settle on the
@@ -2267,7 +2273,7 @@ export function useGenerate() {
         // because two generations can target the same chat (e.g. autonomous
         // + user send). The latest generation replaces the AbortController,
         // so the superseded one knows it no longer owns the state.
-        const stillOwner = useChatStore.getState().abortControllers.get(params.chatId) === abortController;
+        const stillOwner = stillOwnerAtCleanupStart;
         const partialContent = normalizeLineBreakSpacing(fullBuffer + pendingText).trim();
         const unpersistedPartialMessage: Message | null =
           receivedContent && persistedMessages.size === 0 && partialContent && !params.regenerateMessageId
@@ -2337,9 +2343,6 @@ export function useGenerate() {
             setTypingCharacterName(null);
             setDelayedCharacterInfo(null);
           }
-          // Always clean up per-chat tracking for this generation
-          useChatStore.getState().clearPerChatState(params.chatId);
-          useChatStore.getState().setAbortController(params.chatId, null);
         } else {
           // Not the owner but still need messages up to date
           if (isGameGeneration || (receivedContent && persistedForRefresh.length === 0)) {

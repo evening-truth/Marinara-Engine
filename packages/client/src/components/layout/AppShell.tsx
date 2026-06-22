@@ -91,6 +91,7 @@ const TRACKER_PANEL_DESKTOP_EXIT_EASE = [0.4, 0, 1, 1] as const;
 const TRACKER_PANEL_TOGGLE_SELECTOR = '[data-tracker-panel-toggle="roleplay-hud"]';
 const TRACKER_PANEL_ANCHOR_SELECTOR = '[data-tracker-panel-anchor="roleplay-hud"]';
 const TOP_BAR_SELECTOR = '[data-component="TopBar"]';
+const MOBILE_SHELL_PANEL_TOP_CLASS = "top-[calc(env(safe-area-inset-top)_+_3rem)]";
 const CENTER_COMPACT_WIDTH = 768;
 const CENTER_COMPACT_HYSTERESIS = 80;
 const CENTER_COMPACT_SCAN_DEPTH = 6;
@@ -245,7 +246,7 @@ export function AppShell() {
   const desktopCenterWidth = Math.max(0, viewportWidth - desktopReservedSidebarWidth - desktopReservedRightPanelWidth);
   const centerSqueezedByPanels =
     !isMobile && (sidebarOpen || rightPanelOpen) && viewportWidth > 0 && desktopCenterWidth < CENTER_COMPACT_WIDTH;
-  const shellOverlayMode = isMobile || centerSqueezedByPanels;
+  const shellOverlayMode = isMobile;
   const chatUiInsetLeft = !shellOverlayMode && sidebarOpen ? Math.round(liveSidebarWidth) : 0;
   const chatUiInsetRight = !shellOverlayMode && rightPanelOpen ? Math.round(liveRightPanelWidth) : 0;
 
@@ -780,7 +781,10 @@ export function AppShell() {
 
       {/* Overlay sidebar backdrop */}
       {sidebarOpen && shellOverlayMode && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+        <div
+          className={cn("fixed inset-x-0 bottom-0 z-30 bg-black/50 backdrop-blur-sm", MOBILE_SHELL_PANEL_TOP_CLASS)}
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
       {/* Left sidebar - Chat list */}
@@ -793,7 +797,10 @@ export function AppShell() {
           sidebarDragWidth == null && "transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]",
           sidebarOpen && !shellOverlayMode && "mari-shell-panel-edge mari-shell-panel-edge--right md:relative",
           shellOverlayMode &&
-            "fixed inset-y-0 left-0 z-50 h-screen max-h-screen pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-[max(env(safe-area-inset-top),0.5rem)] shadow-2xl supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:max-h-[100dvh]",
+            cn(
+              "fixed bottom-0 left-0 z-40 max-h-none pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-2xl",
+              MOBILE_SHELL_PANEL_TOP_CLASS,
+            ),
           !sidebarOpen && shellOverlayMode && "!w-0",
         )}
         style={{ width: sidebarOpen ? (shellOverlayMode ? "100vw" : liveSidebarWidth) : 0 }}
@@ -856,7 +863,7 @@ export function AppShell() {
               } as CSSProperties
             }
           >
-            <Suspense fallback={<MainPaneFallback />}>{detailView ?? <ChatArea />}</Suspense>
+            <Suspense fallback={<MainPaneFallback />}>{shellOverlayMode ? <ChatArea /> : (detailView ?? <ChatArea />)}</Suspense>
           </div>
         </div>
         {/* Floating avatar notification bubbles (right edge) */}
@@ -869,7 +876,10 @@ export function AppShell() {
 
       {/* Overlay tracker panel backdrop */}
       {trackerPanelVisible && shellOverlayMode && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => setTrackerPanelOpen(false)} />
+        <div
+          className={cn("fixed inset-x-0 bottom-0 z-30 bg-black/50 backdrop-blur-sm", MOBILE_SHELL_PANEL_TOP_CLASS)}
+          onClick={() => setTrackerPanelOpen(false)}
+        />
       )}
 
       {/* Overlay tracker panel */}
@@ -885,7 +895,8 @@ export function AppShell() {
               data-component="TrackerDataSidebarMobile"
               aria-label="Tracker data panel"
               className={cn(
-                "mari-tracker-panel !fixed inset-y-0 z-50 h-screen max-h-screen w-screen max-w-none overflow-hidden bg-zinc-950/95 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-[max(env(safe-area-inset-top),0.5rem)] shadow-2xl ring-1 ring-zinc-700/80 backdrop-blur-xl supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:max-h-[100dvh]",
+                "mari-tracker-panel !fixed bottom-0 z-40 w-screen max-w-none overflow-hidden bg-zinc-950/95 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-2xl ring-1 ring-zinc-700/80 backdrop-blur-xl",
+                MOBILE_SHELL_PANEL_TOP_CLASS,
                 trackerPanelSide === "left" ? "left-0" : "right-0",
               )}
               style={trackerPanelBackgroundStyle}
@@ -900,7 +911,10 @@ export function AppShell() {
 
       {/* Overlay right panel backdrop */}
       {rightPanelOpen && shellOverlayMode && (
-        <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={() => closeRightPanel()} />
+        <div
+          className={cn("fixed inset-x-0 bottom-0 z-30 bg-black/50 backdrop-blur-sm", MOBILE_SHELL_PANEL_TOP_CLASS)}
+          onClick={() => closeRightPanel()}
+        />
       )}
 
       {/* Right panel - Context / Settings */}
@@ -915,7 +929,10 @@ export function AppShell() {
               transition={{ type: "spring", damping: 28, stiffness: 350 }}
               data-component="RightPanelMobile"
               aria-label="Settings and tools panel"
-              className="mari-right-panel !fixed inset-y-0 right-0 z-50 h-screen max-h-screen !w-full overflow-hidden bg-[var(--background)]/80 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-[max(env(safe-area-inset-top),0.5rem)] shadow-2xl backdrop-blur-xl supports-[height:100dvh]:h-[100dvh] supports-[height:100dvh]:max-h-[100dvh]"
+              className={cn(
+                "mari-right-panel !fixed bottom-0 right-0 z-40 !w-full overflow-hidden bg-[var(--background)]/80 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-2xl backdrop-blur-xl",
+                MOBILE_SHELL_PANEL_TOP_CLASS,
+              )}
               style={{ "--mari-right-panel-width": "100vw" } as CSSProperties}
             >
               <Suspense fallback={<SidePanelFallback />}>
@@ -948,6 +965,26 @@ export function AppShell() {
             </div>
           )}
         </aside>
+      )}
+
+      {shellOverlayMode && detailView && (
+        <AnimatePresence mode="wait">
+          <motion.aside
+            key="mobile-detail"
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 24 }}
+            transition={{ type: "spring", damping: 30, stiffness: 360 }}
+            data-component="MobileDetailSheet"
+            aria-label="Detail editor"
+            className={cn(
+              "mari-mobile-detail-sheet !fixed bottom-0 right-0 z-40 !w-full overflow-hidden bg-[var(--background)]/95 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-2xl backdrop-blur-xl",
+              MOBILE_SHELL_PANEL_TOP_CLASS,
+            )}
+          >
+            <Suspense fallback={<MainPaneFallback />}>{detailView}</Suspense>
+          </motion.aside>
+        </AnimatePresence>
       )}
       {!shellOverlayMode && rightPanelOpen && (
         <div

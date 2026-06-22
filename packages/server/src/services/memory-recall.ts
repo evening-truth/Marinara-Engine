@@ -11,6 +11,7 @@ import { newId, now } from "../utils/id-generator.js";
 import { localEmbed } from "./local-embedder.js";
 import { logger } from "../lib/logger.js";
 const isLite = process.env.MARINARA_LITE === "true" || process.env.MARINARA_LITE === "1";
+let warnedUnavailableEmbeddingSource = false;
 
 /** How many messages per chunk. */
 const CHUNK_SIZE = 5;
@@ -87,7 +88,10 @@ export async function embedMemoryRecallTexts(
   const localEmbeddings = await localEmbedder(texts, options.signal);
   if (localEmbeddings) return localEmbeddings;
 
-  logger.warn("[memory-recall] Local embeddings are unavailable and no embedding connection is configured");
+  if (!warnedUnavailableEmbeddingSource) {
+    warnedUnavailableEmbeddingSource = true;
+    logger.warn("[memory-recall] No embedder configured; memory recall is disabled until an embedding source is available");
+  }
   return [];
 }
 
@@ -170,7 +174,7 @@ export async function chunkAndEmbedMessages(
     embeddings.length !== chunksToCreate.length ||
     embeddings.some((embedding) => !Array.isArray(embedding) || embedding.length === 0)
   ) {
-    logger.warn(
+    logger.debug(
       "[memory-recall] Skipping %d memory chunk(s) for chat %s because embedding generation returned %d/%d usable vectors",
       chunksToCreate.length,
       chatId,

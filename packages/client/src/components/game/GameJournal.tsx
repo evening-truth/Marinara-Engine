@@ -12,7 +12,7 @@ import { api } from "../../lib/api-client";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../lib/markdown";
 import { AnimatedText } from "./AnimatedText";
 
-import type { GameNpc } from "@marinara-engine/shared";
+import { normalizeTextForMatch, type GameNpc } from "@marinara-engine/shared";
 
 interface JournalEntry {
   timestamp: string;
@@ -85,7 +85,7 @@ function isMobileGameViewport(): boolean {
 const TRAILING_REPUTATION_LABEL = /(devoted|allied|friendly|neutral|unfriendly|hostile|enemy)$/i;
 
 function normalizeNpcName(value: string): string {
-  return value.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  return normalizeTextForMatch(value).replace(/[_-]+/g, " ");
 }
 
 function cleanNpcDisplayName(value: string): string {
@@ -399,7 +399,7 @@ function NpcsView({
   const handleNpcPortraitAvatarClick = useCallback(
     (npcName: string) => {
       if (isMobileGameViewport() && onNpcPortraitGenerate && npcPortraitGenerationEnabled === true) {
-        const normalizedName = npcName.trim().toLowerCase();
+        const normalizedName = normalizeNpcName(npcName);
         setMobilePortraitActionsNpc((current) => (current === normalizedName ? null : normalizedName));
         return;
       }
@@ -444,7 +444,7 @@ function NpcsView({
         const showReputation = entry.npc.reputation !== 0;
         const canUploadPortrait = !!onNpcPortraitClick;
         const canGeneratePortrait = !!onNpcPortraitGenerate && npcPortraitGenerationEnabled === true;
-        const portraitGenerating = generatingNpcPortraitNames?.has(entry.npc.name.trim().toLowerCase()) ?? false;
+        const portraitGenerating = generatingNpcPortraitNames?.has(normalizeNpcName(entry.npc.name)) ?? false;
         const isRemoving = removingNpcName
           ? normalizeNpcName(cleanNpcDisplayName(removingNpcName)) === normalizeNpcName(name)
           : false;
@@ -481,7 +481,7 @@ function NpcsView({
                       disabled={portraitGenerating}
                       className={cn(
                         "absolute -right-1 -top-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-black/75 text-white/75 opacity-0 ring-1 ring-white/15 transition-opacity disabled:cursor-wait md:group-hover/journal-avatar:opacity-100",
-                        (portraitGenerating || mobilePortraitActionsNpc === entry.npc.name.trim().toLowerCase()) &&
+                        (portraitGenerating || mobilePortraitActionsNpc === normalizeNpcName(entry.npc.name)) &&
                           "max-md:opacity-100",
                       )}
                       title="Generate NPC portrait"

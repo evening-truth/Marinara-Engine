@@ -31,6 +31,7 @@ function mergeTrackerCardPortraitFields(baseRaw: unknown, portraitRaw: unknown) 
 export const characterKeys = {
   all: ["characters"] as const,
   list: () => [...characterKeys.all, "list"] as const,
+  listWithBuiltIns: () => [...characterKeys.all, "list", "with-built-ins"] as const,
   detail: (id: string) => [...characterKeys.all, "detail", id] as const,
   versions: (id: string) => [...characterKeys.detail(id), "versions"] as const,
   gallery: (id: string) => [...characterKeys.all, "gallery", id] as const,
@@ -45,11 +46,24 @@ export const characterKeys = {
 
 // ── Characters ──
 
-export function useCharacters(enabled = true) {
+type UseCharactersOptions =
+  | boolean
+  | {
+      enabled?: boolean;
+      includeBuiltIn?: boolean;
+    };
+
+export function useCharacters(options: UseCharactersOptions = true) {
+  const enabled = typeof options === "boolean" ? options : (options.enabled ?? true);
+  const includeBuiltIn = typeof options === "object" ? options.includeBuiltIn === true : false;
+
   return useQuery({
-    queryKey: characterKeys.list(),
+    queryKey: includeBuiltIn ? characterKeys.listWithBuiltIns() : characterKeys.list(),
     queryFn: async () => {
-      const characters = await api.get<Array<{ id?: unknown }>>("/characters");
+      const characters = await api.get<Array<{ id?: unknown }>>(
+        includeBuiltIn ? "/characters?includeBuiltIn=true" : "/characters",
+      );
+      if (includeBuiltIn) return characters;
       return characters.filter((character) => character.id !== PROFESSOR_MARI_ID);
     },
     enabled,

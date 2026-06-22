@@ -46,7 +46,13 @@ import { useUIStore, type UserStatus } from "../../stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import type { Chat, ChatFolder, ChatMode } from "@marinara-engine/shared";
+import {
+  includesTextForMatch,
+  normalizeTextForMatch,
+  type Chat,
+  type ChatFolder,
+  type ChatMode,
+} from "@marinara-engine/shared";
 import { Modal } from "../ui/Modal";
 import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata } from "../../lib/chat-display";
@@ -152,7 +158,7 @@ export function ChatSidebar() {
   const setActiveChatId = useChatStore((s) => s.setActiveChatId);
   const unreadCounts = useChatStore((s) => s.unreadCounts);
   const hydrateUnread = useChatStore((s) => s.hydrateUnread);
-  const { data: allCharacters } = useCharacters();
+  const { data: allCharacters } = useCharacters({ includeBuiltIn: true });
   const hasAnyDetailOpen = useUIStore((s) => s.hasAnyDetailOpen);
   const editorDirty = useUIStore((s) => s.editorDirty);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
@@ -284,7 +290,7 @@ export function ChatSidebar() {
   }, [activeTag, allTags]);
 
   const filtered = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = normalizeTextForMatch(searchQuery);
 
     return modeChats.filter((chat) => {
       const tags = getChatTags(chat);
@@ -296,9 +302,9 @@ export function ChatSidebar() {
         .filter(Boolean);
 
       return (
-        toSearchText(chat.name).toLowerCase().includes(query) ||
-        tags.some((tag) => tag.toLowerCase().includes(query)) ||
-        characterNames.some((name) => name.toLowerCase().includes(query))
+        includesTextForMatch(toSearchText(chat.name), query) ||
+        tags.some((tag) => includesTextForMatch(tag, query)) ||
+        characterNames.some((name) => includesTextForMatch(name, query))
       );
     });
   }, [modeChats, searchQuery, activeTag, charLookup]);
@@ -505,11 +511,13 @@ export function ChatSidebar() {
 
   const handleNewChat = useCallback(
     (mode: ChatMode) => {
+      if (createChat.isPending) return;
       const connectionRows = ((connections ?? []) as Array<{ id: string }>).filter((connection) => !!connection.id);
       if (connectionRows.length === 0) {
-        if (mode === "conversation" || mode === "roleplay") {
+        if (mode !== "visual_novel") {
           setPendingNewChatMode(mode);
         }
+        if (typeof window !== "undefined" && window.innerWidth < 768) setSidebarOpen(false);
         return;
       }
 
@@ -528,6 +536,7 @@ export function ChatSidebar() {
         {
           onSuccess: async (chat) => {
             setActiveChatId(chat.id);
+            if (typeof window !== "undefined" && window.innerWidth < 768) setSidebarOpen(false);
             if (starred) {
               try {
                 await applyChatPreset.mutateAsync({ presetId: starred.id, chatId: chat.id });
@@ -546,6 +555,7 @@ export function ChatSidebar() {
       createChat,
       setActiveChatId,
       setPendingNewChatMode,
+      setSidebarOpen,
       hasAnyDetailOpen,
       closeAllDetails,
       chatPresetsData,
@@ -654,7 +664,7 @@ export function ChatSidebar() {
     [moveChatMut],
   );
 
-  const startTouchDrag = useCallback((chatId: string, event: React.PointerEvent<HTMLDivElement>) => {
+  const startTouchDrag = useCallback((chatId: string, event: React.PointerEvent<HTMLElement>) => {
     if (event.pointerType === "mouse") return;
     const drag = {
       chatId,
@@ -671,7 +681,7 @@ export function ChatSidebar() {
     event.currentTarget.setPointerCapture(event.pointerId);
   }, []);
 
-  const updateTouchDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+  const updateTouchDrag = useCallback((event: React.PointerEvent<HTMLElement>) => {
     const drag = touchDragRef.current;
     if (!drag) return;
     drag.lastX = event.clientX;
@@ -680,7 +690,7 @@ export function ChatSidebar() {
   }, []);
 
   const finishTouchDrag = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
+    (event: React.PointerEvent<HTMLElement>) => {
       const drag = touchDragRef.current;
       if (!drag) return;
       if (drag.timer !== null) {
@@ -727,22 +737,19 @@ export function ChatSidebar() {
     exitMultiSelect();
   }, [selectedChatIds, deleteChat, activeChatId, setActiveChatId, exitMultiSelect]);
 
-  const handleBatchExport = useCallback(
-    async () => {
-      if (selectedChatIds.size === 0) return;
-      try {
-        await bulkExportChats.mutateAsync({
-          chatIds: [...selectedChatIds],
-          format: "jsonl",
-          scope: "selected",
-        });
-        exitMultiSelect();
-      } catch (err) {
-        toast.error(err instanceof Error ? `Export failed: ${err.message}` : "Export failed");
-      }
-    },
-    [selectedChatIds, bulkExportChats, exitMultiSelect],
-  );
+  const handleBatchExport = useCallback(async () => {
+    if (selectedChatIds.size === 0) return;
+    try {
+      await bulkExportChats.mutateAsync({
+        chatIds: [...selectedChatIds],
+        format: "jsonl",
+        scope: "selected",
+      });
+      exitMultiSelect();
+    } catch (err) {
+      toast.error(err instanceof Error ? `Export failed: ${err.message}` : "Export failed");
+    }
+  }, [selectedChatIds, bulkExportChats, exitMultiSelect]);
 
   // ── Chat row renderer (shared between unfiled + folder sections) ──
   const renderChatRow = ({ chat, branchCount }: (typeof displayChats)[number]) => {
@@ -768,10 +775,6 @@ export function ChatSidebar() {
           setDraggedChatId(null);
           setIsRootDropTarget(false);
         }}
-        onPointerDown={(event) => startTouchDrag(chat.id, event)}
-        onPointerMove={updateTouchDrag}
-        onPointerUp={finishTouchDrag}
-        onPointerCancel={finishTouchDrag}
         onClick={async () => {
           if (suppressTouchDragClickRef.current) {
             suppressTouchDragClickRef.current = false;
@@ -801,7 +804,7 @@ export function ChatSidebar() {
           if (window.innerWidth < 768) setSidebarOpen(false);
         }}
         className={cn(
-          "group relative flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150",
+          "group relative flex w-full touch-pan-y items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-all duration-150",
           multiSelectMode && isSelected
             ? "mari-chrome-accent-surface mari-accent-animated"
             : isActive
@@ -820,6 +823,22 @@ export function ChatSidebar() {
             )}
           </div>
         )}
+        <button
+          type="button"
+          aria-label="Drag chat"
+          title="Drag chat"
+          className="mari-chrome-accent-text-muted mari-accent-animated flex h-8 w-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-md opacity-100 transition-all hover:bg-[var(--marinara-chat-chrome-highlight-bg)] hover:text-[var(--marinara-chat-chrome-button-text-hover)] active:cursor-grabbing active:scale-95 md:h-7 md:w-5 md:opacity-0 md:group-hover:opacity-100"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            startTouchDrag(chat.id, event);
+          }}
+          onPointerMove={updateTouchDrag}
+          onPointerUp={finishTouchDrag}
+          onPointerCancel={finishTouchDrag}
+        >
+          <GripVertical size="0.8125rem" />
+        </button>
 
         {/* Active indicator */}
         {isActive && (
@@ -830,9 +849,12 @@ export function ChatSidebar() {
         <div className="relative flex-shrink-0">
           {(() => {
             const charIds = normalizeChatCharacterIds((chat as { characterIds?: unknown }).characterIds);
-            const chatCharStatuses = chat.mode === "conversation"
-              ? (parseChatMetadata(chat.metadata).conversationCharacterStatuses as Record<string, { status?: string }> | undefined)
-              : undefined;
+            const chatCharStatuses =
+              chat.mode === "conversation"
+                ? (parseChatMetadata(chat.metadata).conversationCharacterStatuses as
+                    | Record<string, { status?: string }>
+                    | undefined)
+                : undefined;
             const avatars = charIds
               .slice(0, 3)
               .map((id) => {
@@ -1082,6 +1104,7 @@ export function ChatSidebar() {
         />
         <button
           onClick={handleNewChatFromTab}
+          disabled={createChat.isPending}
           className={cn(
             "mari-chrome-control mari-chrome-control--primary mari-chat-mode-action flex-1 text-xs",
             activeModeConfig.logoModeClass,
@@ -1290,6 +1313,7 @@ export function ChatSidebar() {
             </p>
             <button
               onClick={handleNewChatFromTab}
+              disabled={createChat.isPending}
               className={cn(
                 "mari-chrome-control mari-chrome-control--compact mari-chat-mode-action mt-1",
                 activeModeConfig.logoModeClass,
@@ -1414,7 +1438,6 @@ export function ChatSidebar() {
           </div>
         )}
       </Modal>
-
     </nav>
   );
 }
@@ -1498,7 +1521,8 @@ function FolderRow({
       }}
       className={cn(
         "flex flex-col rounded-lg transition-colors",
-        isDropTarget && "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
+        isDropTarget &&
+          "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
       )}
     >
       {/* Folder header */}

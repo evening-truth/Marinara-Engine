@@ -80,6 +80,7 @@ import {
 import { handleFolderRenameKeyDown, useFolderRenameGesture } from "../../hooks/use-folder-rename-gesture";
 import { useTouchFolderDrag } from "../../hooks/use-touch-folder-drag";
 import { SmoothFolderContent } from "../ui/SmoothFolderContent";
+import { TouchDragHandle } from "../ui/TouchDragHandle";
 import { getTouchReorderDropIndex } from "../../lib/touch-reorder";
 
 type PresetRow = {
@@ -614,8 +615,9 @@ export function PresetsPanel() {
       return (
         <div
           key={preset.id}
+          data-touch-drag-card="preset"
           className={cn(
-            "group relative flex cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
+            "group relative flex touch-pan-y cursor-pointer items-center gap-3 rounded-xl p-2.5 transition-all hover:bg-[var(--sidebar-accent)]",
             selectionMode &&
               isBulkSelected &&
               "bg-[var(--marinara-chat-chrome-highlight-bg)] ring-1 ring-[var(--marinara-chat-chrome-button-border-active)]",
@@ -632,8 +634,16 @@ export function PresetsPanel() {
             event.dataTransfer.setData("text/plain", preset.id);
           }}
           onDragEnd={() => setDraggedPresetId(null)}
-          onTouchStart={(event) => startPresetTouchDrag(event, preset.id)}
         >
+          <TouchDragHandle
+            label="Drag preset"
+            onTouchStart={(event) => {
+              startPresetTouchDrag(event, preset.id, {
+                allowInteractiveTarget: true,
+                sourceElement: event.currentTarget.closest<HTMLElement>('[data-touch-drag-card="preset"]'),
+              });
+            }}
+          />
           <div
             className="flex min-w-0 flex-1 items-center gap-3"
             onClick={() => {
@@ -1198,7 +1208,7 @@ function RegexSection({
                 data-touch-reorder-item="preset-regex"
                 data-touch-reorder-index={index}
                 className={cn(
-                  "flex items-start gap-2.5 rounded-xl p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
+                  "flex flex-wrap items-start gap-2 rounded-xl p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
                   !enabled && "opacity-50",
                   draggedRegexId === script.id && "opacity-40",
                 )}
@@ -1248,9 +1258,12 @@ function RegexSection({
                   <GripVertical size="0.8125rem" />
                 </button>
                 <Regex size="0.875rem" className="mt-0.5 shrink-0 text-[var(--marinara-chat-chrome-button-text)]" />
-                <button className="min-w-0 flex-1 text-left" onClick={() => openRegexDetail(script.id)}>
+                <button
+                  className="min-w-0 flex-1 basis-[min(100%,10rem)] text-left"
+                  onClick={() => openRegexDetail(script.id)}
+                >
                   <div className="text-xs font-medium">{script.name}</div>
-                  <div className="mt-0.5 flex items-center gap-1">
+                  <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
                     {placements.map((placement) => (
                       <span
                         key={placement}
@@ -1259,54 +1272,56 @@ function RegexSection({
                         {placement === "ai_output" ? "AI" : "User"}
                       </span>
                     ))}
-                    <span className="max-w-[6.25rem] truncate font-mono text-[0.5625rem] text-[var(--muted-foreground)]">
+                    <span className="min-w-0 max-w-full truncate font-mono text-[0.5625rem] text-[var(--muted-foreground)]">
                       /{script.findRegex}/{script.flags}
                     </span>
                   </div>
                 </button>
-                <div
-                  className="mt-0.5 shrink-0"
-                  title={enabled ? "Disable regex" : "Enable regex"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                  }}
-                >
-                  <SettingsSwitch
-                    ariaLabel={enabled ? "Disable regex" : "Enable regex"}
-                    checked={enabled}
-                    onChange={(checked) => updateRegex.mutate({ id: script.id, enabled: checked })}
-                    className="p-0 hover:bg-transparent"
-                  />
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <div
+                    className="shrink-0"
+                    title={enabled ? "Disable regex" : "Enable regex"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                    }}
+                  >
+                    <SettingsSwitch
+                      ariaLabel={enabled ? "Disable regex" : "Enable regex"}
+                      checked={enabled}
+                      onChange={(checked) => updateRegex.mutate({ id: script.id, enabled: checked })}
+                      className="p-0 hover:bg-transparent"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="mari-chrome-control mari-chrome-control--small shrink-0 p-1"
+                    title="Edit regex"
+                    aria-label="Edit regex"
+                    onClick={() => openRegexDetail(script.id)}
+                  >
+                    <Pencil size="0.8125rem" />
+                  </button>
+                  <button
+                    type="button"
+                    className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger shrink-0 p-1"
+                    title="Delete regex"
+                    aria-label="Delete regex"
+                    onClick={async () => {
+                      if (
+                        await showConfirmDialog({
+                          title: "Delete Regex",
+                          message: `Delete "${script.name}"?`,
+                          confirmLabel: "Delete",
+                          tone: "destructive",
+                        })
+                      ) {
+                        deleteRegex.mutate(script.id);
+                      }
+                    }}
+                  >
+                    <Trash2 size="0.8125rem" className="text-[var(--destructive)]" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
-                  title="Edit regex"
-                  aria-label="Edit regex"
-                  onClick={() => openRegexDetail(script.id)}
-                >
-                  <Pencil size="0.8125rem" />
-                </button>
-                <button
-                  type="button"
-                  className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger mt-0.5 shrink-0 p-1"
-                  title="Delete regex"
-                  aria-label="Delete regex"
-                  onClick={async () => {
-                    if (
-                      await showConfirmDialog({
-                        title: "Delete Regex",
-                        message: `Delete "${script.name}"?`,
-                        confirmLabel: "Delete",
-                        tone: "destructive",
-                      })
-                    ) {
-                      deleteRegex.mutate(script.id);
-                    }
-                  }}
-                >
-                  <Trash2 size="0.8125rem" className="text-[var(--destructive)]" />
-                </button>
               </div>
             );
           })}
@@ -1398,14 +1413,17 @@ function FunctionsSection({
             <div
               key={tool.id}
               className={cn(
-                "flex items-start gap-2.5 rounded-xl p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
+                "flex flex-wrap items-start gap-2 rounded-xl p-2 transition-colors hover:bg-[var(--sidebar-accent)]",
                 !enabled && "opacity-50",
               )}
             >
               <Wrench size="0.875rem" className="mt-0.5 shrink-0 text-[var(--marinara-chat-chrome-button-text)]" />
-              <button className="min-w-0 flex-1 text-left" onClick={() => openToolDetail(tool.id)}>
+              <button
+                className="min-w-0 flex-1 basis-[min(100%,10rem)] text-left"
+                onClick={() => openToolDetail(tool.id)}
+              >
                 <div className="truncate font-mono text-xs font-medium">{tool.name}</div>
-                <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1">
                   <span className="rounded bg-[var(--secondary)] px-1 py-0.5 text-[0.5rem] text-[var(--muted-foreground)]">
                     {formatFunctionExecutionType(tool.executionType)}
                   </span>
@@ -1422,49 +1440,51 @@ function FunctionsSection({
                   {tool.description || "No description"}
                 </div>
               </button>
-              <div
-                className="mt-0.5 shrink-0"
-                title={enabled ? "Disable function" : "Enable function"}
-                onClick={(event) => {
-                  event.stopPropagation();
-                }}
-              >
-                <SettingsSwitch
-                  ariaLabel={enabled ? "Disable function" : "Enable function"}
-                  checked={enabled}
-                  onChange={(checked) => updateCustomTool.mutate({ id: tool.id, enabled: checked })}
-                  className="p-0 hover:bg-transparent"
-                />
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                <div
+                  className="shrink-0"
+                  title={enabled ? "Disable function" : "Enable function"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  <SettingsSwitch
+                    ariaLabel={enabled ? "Disable function" : "Enable function"}
+                    checked={enabled}
+                    onChange={(checked) => updateCustomTool.mutate({ id: tool.id, enabled: checked })}
+                    className="p-0 hover:bg-transparent"
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="mari-chrome-control mari-chrome-control--small shrink-0 p-1"
+                  title="Edit function"
+                  aria-label="Edit function"
+                  onClick={() => openToolDetail(tool.id)}
+                >
+                  <Pencil size="0.8125rem" />
+                </button>
+                <button
+                  type="button"
+                  className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger shrink-0 p-1"
+                  title="Delete function"
+                  aria-label="Delete function"
+                  onClick={async () => {
+                    if (
+                      await showConfirmDialog({
+                        title: "Delete Function",
+                        message: `Delete "${tool.name}"?`,
+                        confirmLabel: "Delete",
+                        tone: "destructive",
+                      })
+                    ) {
+                      deleteCustomTool.mutate(tool.id);
+                    }
+                  }}
+                >
+                  <Trash2 size="0.8125rem" className="text-[var(--destructive)]" />
+                </button>
               </div>
-              <button
-                type="button"
-                className="mari-chrome-control mari-chrome-control--small mt-0.5 shrink-0 p-1"
-                title="Edit function"
-                aria-label="Edit function"
-                onClick={() => openToolDetail(tool.id)}
-              >
-                <Pencil size="0.8125rem" />
-              </button>
-              <button
-                type="button"
-                className="mari-chrome-control mari-chrome-control--small mari-chrome-control--danger mt-0.5 shrink-0 p-1"
-                title="Delete function"
-                aria-label="Delete function"
-                onClick={async () => {
-                  if (
-                    await showConfirmDialog({
-                      title: "Delete Function",
-                      message: `Delete "${tool.name}"?`,
-                      confirmLabel: "Delete",
-                      tone: "destructive",
-                    })
-                  ) {
-                    deleteCustomTool.mutate(tool.id);
-                  }
-                }}
-              >
-                <Trash2 size="0.8125rem" className="text-[var(--destructive)]" />
-              </button>
             </div>
           );
         })

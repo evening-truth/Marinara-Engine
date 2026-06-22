@@ -1,4 +1,4 @@
-import { nameToXmlTag } from "@marinara-engine/shared";
+import { nameToXmlTag, normalizeTextForMatch } from "@marinara-engine/shared";
 import { pruneEmptyPromptWrappers } from "./runtime-agent-sections.js";
 
 export type GenerationPromptMessage = {
@@ -41,10 +41,9 @@ export function isStandaloneCharacterProfileBlock(content: string, characterName
 }
 
 function nameToMarkdownHeadingForMatch(name: string): string {
-  return name
-    .replace(/[^a-zA-Z0-9\s_-]/g, "")
-    .trim()
-    .toLowerCase();
+  return normalizeTextForMatch(name)
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .trim();
 }
 
 function removeXmlCharacterBlocks(content: string, characterName: string): string {
@@ -67,7 +66,9 @@ function removeXmlCharacterBlocks(content: string, characterName: string): strin
 function removeMarkdownCharacterBlocks(content: string, characterNames: string[]): string {
   if (!characterNames.length) return content;
   const targetHeadings = new Set(
-    characterNames.flatMap((name) => [name.trim().toLowerCase(), nameToMarkdownHeadingForMatch(name)]).filter(Boolean),
+    characterNames
+      .flatMap((name) => [normalizeTextForMatch(name), nameToMarkdownHeadingForMatch(name)])
+      .filter(Boolean),
   );
   const lines = content.split(/\r?\n/);
   const kept: string[] = [];
@@ -75,7 +76,7 @@ function removeMarkdownCharacterBlocks(content: string, characterNames: string[]
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
     const match = line.match(/^(#{1,6})\s+(.+?)\s*$/);
-    const heading = match?.[2]?.trim().toLowerCase();
+    const heading = normalizeTextForMatch(match?.[2]);
     if (!match || !heading || !targetHeadings.has(heading)) {
       kept.push(line);
       continue;
