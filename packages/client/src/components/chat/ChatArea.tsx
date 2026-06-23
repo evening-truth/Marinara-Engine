@@ -36,6 +36,7 @@ import { useChatStore } from "../../stores/chat.store";
 import { useGenerate } from "../../hooks/use-generate";
 import { characterKeys, spriteKeys, useCharacters, usePersonas, type SpriteInfo } from "../../hooks/use-characters";
 import { usePageActivity } from "../../hooks/use-page-activity";
+import { usePresenceClock } from "../../hooks/use-presence-clock";
 import { api, ApiError } from "../../lib/api-client";
 import { getChatDisplayName, getConnectedChatDisplayName, parseChatMetadata } from "../../lib/chat-display";
 import { getChatCharacterIds } from "../../lib/chat-macros";
@@ -55,6 +56,7 @@ import {
   type SpritePlacement,
   type SpriteSide,
 } from "@marinara-engine/shared";
+import { resolveLiveConversationStatus } from "../../lib/conversation-presence-status";
 import { useUIStore } from "../../stores/ui.store";
 import { useAgentStore } from "../../stores/agent.store";
 import { cn, parseAvatarCropJson } from "../../lib/utils";
@@ -627,6 +629,10 @@ export function ChatArea() {
     })),
   });
 
+  // A 60s-cadence clock so schedule/override-derived presence refreshes when time
+  // alone changes the effective status (mirrors the presence pill's refetch).
+  const presenceNow = usePresenceClock();
+
   // Build character lookup map. Cold launches can render chat detail before the
   // full library list has produced every active character, so merge exact
   // per-chat character fetches as a rescue path.
@@ -636,20 +642,37 @@ export function ChatArea() {
       const char = query.data;
       if (char?.id) map.set(char.id, toCharacterMapValue(char));
     }
-    // Overlay per-chat presence status so status dots reflect this chat, not the last chat to generate.
-    const chatStatuses = parseChatMetadata(chat?.metadata).conversationCharacterStatuses as
+    // Overlay per-chat presence status so status dots reflect this chat, not the last chat to
+    // generate. Prefer the live override/schedule-derived status (matching the presence pill, via
+    // the shared resolver) over the generation-time snapshot, which only refreshes on generation.
+    const convoMeta = parseChatMetadata(chat?.metadata);
+    const chatStatuses = convoMeta.conversationCharacterStatuses as
       | Record<string, { status?: string; activity?: string }>
       | undefined;
-    if (chatStatuses) {
-      for (const [id, info] of Object.entries(chatStatuses)) {
-        const existing = map.get(id);
-        if (existing && info.status) {
-          map.set(id, { ...existing, conversationStatus: info.status as any, conversationActivity: info.activity ?? existing.conversationActivity });
-        }
+    const presenceIds = new Set<string>([
+      ...Object.keys(chatStatuses ?? {}),
+      ...Object.keys((convoMeta.conversationStatusOverrides as Record<string, unknown> | undefined) ?? {}),
+      ...Object.keys((convoMeta.characterSchedules as Record<string, unknown> | undefined) ?? {}),
+    ]);
+    for (const id of presenceIds) {
+      const existing = map.get(id);
+      if (!existing) continue;
+      const live = resolveLiveConversationStatus(convoMeta, id, presenceNow);
+      if (live) {
+        map.set(id, { ...existing, conversationStatus: live.status, conversationActivity: live.activity });
+        continue;
+      }
+      const info = chatStatuses?.[id];
+      if (info?.status) {
+        map.set(id, {
+          ...existing,
+          conversationStatus: info.status as any,
+          conversationActivity: info.activity ?? existing.conversationActivity,
+        });
       }
     }
     return map;
-  }, [baseCharacterMap, missingCharacterQueries, chat?.metadata]);
+  }, [baseCharacterMap, missingCharacterQueries, chat?.metadata, presenceNow]);
 
   const characterNames = useMemo(
     () => chatCharIds.map((id) => characterMap.get(id)?.name).filter((n): n is string => !!n),

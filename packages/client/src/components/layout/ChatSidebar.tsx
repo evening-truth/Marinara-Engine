@@ -45,6 +45,7 @@ import { confirmNonEmptyFolderDelete, showConfirmDialog } from "../../lib/app-di
 import { useUIStore, type UserStatus } from "../../stores/ui.store";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { usePresenceClock } from "../../hooks/use-presence-clock";
 import { toast } from "sonner";
 import {
   includesTextForMatch,
@@ -53,6 +54,7 @@ import {
   type ChatFolder,
   type ChatMode,
 } from "@marinara-engine/shared";
+import { resolveLiveConversationStatus } from "../../lib/conversation-presence-status";
 import { Modal } from "../ui/Modal";
 import { Reorder, useDragControls } from "framer-motion";
 import { parseChatMetadata } from "../../lib/chat-display";
@@ -159,6 +161,9 @@ export function ChatSidebar() {
   const unreadCounts = useChatStore((s) => s.unreadCounts);
   const hydrateUnread = useChatStore((s) => s.hydrateUnread);
   const { data: allCharacters } = useCharacters({ includeBuiltIn: true });
+  // One interval for the whole list: a 60s-cadence clock so schedule/override-derived
+  // status dots refresh when time alone changes them, without per-row timers.
+  const presenceNow = usePresenceClock();
   const hasAnyDetailOpen = useUIStore((s) => s.hasAnyDetailOpen);
   const editorDirty = useUIStore((s) => s.editorDirty);
   const closeAllDetails = useUIStore((s) => s.closeAllDetails);
@@ -849,18 +854,20 @@ export function ChatSidebar() {
         <div className="relative flex-shrink-0">
           {(() => {
             const charIds = normalizeChatCharacterIds((chat as { characterIds?: unknown }).characterIds);
-            const chatCharStatuses =
-              chat.mode === "conversation"
-                ? (parseChatMetadata(chat.metadata).conversationCharacterStatuses as
-                    | Record<string, { status?: string }>
-                    | undefined)
-                : undefined;
+            const convoMeta = chat.mode === "conversation" ? parseChatMetadata(chat.metadata) : undefined;
+            const chatCharStatuses = convoMeta?.conversationCharacterStatuses as
+              | Record<string, { status?: string }>
+              | undefined;
+            // Prefer the live override/schedule-derived status (matching the presence pill) over the
+            // generation-time snapshot, which only refreshes on the next generated message.
+            const resolveConvoStatus = (id: string): string | undefined =>
+              resolveLiveConversationStatus(convoMeta, id, presenceNow)?.status ?? chatCharStatuses?.[id]?.status;
             const avatars = charIds
               .slice(0, 3)
               .map((id) => {
                 const base = charLookup.get(id);
                 if (!base) return null;
-                const chatStatus = chatCharStatuses?.[id]?.status;
+                const chatStatus = resolveConvoStatus(id);
                 return chatStatus ? { ...base, conversationStatus: chatStatus } : base;
               })
               .filter(Boolean) as {
