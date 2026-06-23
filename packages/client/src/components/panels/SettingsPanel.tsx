@@ -2076,7 +2076,6 @@ function ThemesSettings() {
   const updateTheme = useUpdateTheme();
   const deleteTheme = useDeleteTheme();
   const setActiveTheme = useSetActiveTheme();
-  const fileRef = useRef<HTMLInputElement>(null);
   const activeCustomTheme = syncedThemes.find((theme) => theme.isActive) ?? null;
   const isSavingTheme = createTheme.isPending || updateTheme.isPending || setActiveTheme.isPending;
 
@@ -2144,16 +2143,32 @@ function ThemesSettings() {
     }
   }, [createTheme, editingId, setActiveTheme, themeCss, themeName, updateTheme]);
 
-  const handleImportTheme = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleImportThemeFile = async (file: File) => {
     try {
       const text = await file.text();
       let importedThemeName: string;
       let importedThemeCss: string;
 
       if (file.name.endsWith(".json")) {
-        const parsed = JSON.parse(text);
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch (parseErr) {
+          try {
+            const sanitized = text.replace(/"([^"\\]|\\.)*"/g, (match) => {
+              return match
+                .replace(/\r/g, "")
+                .replace(/\n/g, "\\n")
+                .replace(/\t/g, "\\t");
+            });
+            parsed = JSON.parse(sanitized);
+          } catch {
+            throw parseErr;
+          }
+        }
+        // TODO: Validate the JSON structure to ensure it is a valid theme format rather than an extension or arbitrary JSON.
+        // Importing an extension as a theme is currently non-destructive since themes only inject CSS via `parsed.css`
+        // (ignoring any `parsed.js` executable script fields), but we should enforce schema checking in the future to avoid user confusion.
         importedThemeName =
           typeof parsed.name === "string" && parsed.name.trim() ? parsed.name : file.name.replace(/\.json$/, "");
         importedThemeCss = typeof parsed.css === "string" ? parsed.css : "";
@@ -2178,7 +2193,6 @@ function ThemesSettings() {
       console.error("[ThemesSettings] Failed to import theme:", err);
       toast.error("Failed to import theme. Ensure it's a valid CSS or JSON file.");
     }
-    e.target.value = "";
   };
 
   // ── CSS Editor View ──
@@ -2297,13 +2311,20 @@ function ThemesSettings() {
           <Plus size="0.875rem" /> Create Theme
         </button>
         <button
-          onClick={() => fileRef.current?.click()}
+          onClick={() => {
+            triggerFilePicker({
+              accept: ".css,.json",
+              onSelect: (files) => {
+                const file = files[0];
+                if (file) void handleImportThemeFile(file);
+              },
+            });
+          }}
           className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
         >
           <Download size="0.875rem" /> Import File
         </button>
       </div>
-      <input ref={fileRef} type="file" accept=".css,.json" className="hidden" onChange={handleImportTheme} />
 
       {/* Active theme: None option */}
       <div className="flex flex-col gap-1.5">
@@ -2453,17 +2474,50 @@ const CSS_TEMPLATE = `/* ══════════════════�
    You can also add any custom CSS below: */
 `;
 
+function triggerFilePicker(options: {
+  accept?: string;
+  multiple?: boolean;
+  webkitdirectory?: boolean;
+  onSelect: (files: FileList) => void;
+}) {
+  // Clean up any previously created/leaked inputs before spawning a new one!
+  const existing = document.querySelectorAll(".marinara-programmatic-picker");
+  existing.forEach((el) => el.parentNode?.removeChild(el));
+
+  const el = document.createElement("input");
+  el.type = "file";
+  el.className = "marinara-programmatic-picker";
+  el.style.position = "fixed";
+  el.style.top = "10px";
+  el.style.left = "10px";
+  el.style.zIndex = "99999";
+  el.style.opacity = "0";
+  if (options.accept) el.accept = options.accept;
+  if (options.multiple) el.multiple = true;
+  if (options.webkitdirectory) {
+    el.setAttribute("webkitdirectory", "");
+  }
+  el.addEventListener("change", (e) => {
+    const files = (e.target as HTMLInputElement).files;
+    if (files && files.length > 0) {
+      void options.onSelect(files);
+    }
+    if (el.parentNode === document.body) {
+      document.body.removeChild(el);
+    }
+  });
+  document.body.appendChild(el);
+  el.click();
+}
+
 function ExtensionsSettings() {
   const { data: extensions, isLoading } = useExtensions();
   const extensionList = extensions ?? [];
   const createExtension = useCreateExtension();
   const updateExtension = useUpdateExtension();
   const deleteExtension = useDeleteExtension();
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  const handleImportExtension = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleImportExtensionFile = async (file: File) => {
     try {
       const text = await file.text();
       const installedAt = new Date().toISOString();
@@ -2506,7 +2560,6 @@ function ExtensionsSettings() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to import extension.");
     }
-    e.target.value = "";
   };
 
   return (
@@ -2518,12 +2571,19 @@ function ExtensionsSettings() {
 
       {/* Import button */}
       <button
-        onClick={() => fileRef.current?.click()}
+        onClick={() => {
+          triggerFilePicker({
+            accept: ".json,.css,.js",
+            onSelect: (files) => {
+              const file = files[0];
+              if (file) void handleImportExtensionFile(file);
+            },
+          });
+        }}
         className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
       >
         <Download size="0.875rem" /> Import Extension (.json, .css, or .js)
       </button>
-      <input ref={fileRef} type="file" accept=".json,.css,.js" className="hidden" onChange={handleImportExtension} />
 
       {/* Extension list */}
       <div className="flex flex-col gap-1.5">
