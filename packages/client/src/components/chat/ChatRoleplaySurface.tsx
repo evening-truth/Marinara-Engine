@@ -421,17 +421,19 @@ function resolveChatSummaryInjectionHint(
     const isMarker = (section.isMarker as unknown) === true || (section.isMarker as unknown) === "true";
     return isMarker && readMarkerConfig(section.markerConfig)?.type === "chat_summary";
   });
+  const enabledSummarySections = summarySections.filter((section) => promptEnabled(section.enabled));
+  const activeSummarySections = enabledSummarySections.filter((section) => groupPathEnabled(section.groupId, groupsById));
 
   if (summarySections.length === 0) {
-    return "Active preset has no Chat Summary marker, so enabled summaries will not be inserted.";
+    return "Enabled summaries will be added at the end of the system prompt. Add an enabled Chat Summary marker to the active preset to choose a specific position.";
   }
-  if (!summarySections.some((section) => promptEnabled(section.enabled))) {
-    return "Chat Summary section is disabled in the active preset.";
+  if (activeSummarySections.length > 0) {
+    return "Enabled summaries will be inserted where the active preset's Chat Summary marker is placed.";
   }
-  if (!summarySections.some((section) => promptEnabled(section.enabled) && groupPathEnabled(section.groupId, groupsById))) {
-    return "Chat Summary section is inside a disabled preset group.";
+  if (enabledSummarySections.length === 0) {
+    return "The active preset's Chat Summary marker is disabled, so enabled summaries will be added at the end of the system prompt.";
   }
-  return null;
+  return "The active preset's Chat Summary marker is inside a disabled group, so enabled summaries will be added at the end of the system prompt.";
 }
 
 function ActiveContextLinksButton({
@@ -1098,6 +1100,7 @@ type RoleplaySurfaceProps = {
   onCloseFiles: () => void;
   onCloseGallery: () => void;
   onIllustrate?: () => void;
+  onGenerateBackground?: () => void | Promise<void>;
   onWizardFinish: () => void;
   onClosePeekPrompt: () => void;
   onResetSpritePlacements: () => void;
@@ -1207,6 +1210,7 @@ export function ChatRoleplaySurface({
   onCloseFiles,
   onCloseGallery,
   onIllustrate,
+  onGenerateBackground,
   onWizardFinish,
   onClosePeekPrompt,
   onResetSpritePlacements,
@@ -1976,6 +1980,7 @@ export function ChatRoleplaySurface({
         onCloseFiles={onCloseFiles}
         onCloseGallery={onCloseGallery}
         onIllustrate={onIllustrate}
+        onGenerateBackground={onGenerateBackground}
         onWizardFinish={onWizardFinish}
         onClosePeekPrompt={onClosePeekPrompt}
         onDeleteConfirm={onDeleteConfirm}

@@ -1,5 +1,13 @@
-import { nameToXmlTag, resolveMacros, type CharacterMacroProfile, type MacroContext } from "@marinara-engine/shared";
+import {
+  formatRpgStatsForPrompt,
+  nameToXmlTag,
+  resolveMacros,
+  type CharacterMacroProfile,
+  type MacroContext,
+  type RPGStatsConfig,
+} from "@marinara-engine/shared";
 import { wrapContent } from "../prompt/format-engine.js";
+import { sanitizePromptLeaf } from "../prompt/prompt-escaping.js";
 import { cardPromptText } from "./generation-text-utils.js";
 
 export type CharacterPromptInfo = {
@@ -109,7 +117,7 @@ export function buildCharacterMacroProfilesById(charInfo: CharacterPromptInfo[])
 function wrapFields(fields: Record<string, string>, format: WrapFormat): string[] {
   return Object.entries(fields)
     .filter(([, value]) => value.trim().length > 0)
-    .map(([key, value]) => wrapContent(value, key, format, 2));
+    .map(([key, value]) => wrapContent(sanitizePromptLeaf(value, format), key, format, 2));
 }
 
 function hasProfileBlock(content: string, name: string, description: string): boolean {
@@ -193,15 +201,10 @@ export function injectIdentityFallbackMessages(args: {
   if (args.persona?.personaStats) {
     const pStats = parseRecord(args.persona.personaStats);
     if (pStats?.rpgStats?.enabled) {
-      const rpg = pStats.rpgStats as {
-        attributes: Array<{ name: string; value: number }>;
-        hp: { value: number; max: number };
-      };
-      const rpgLines = [`Max HP: ${rpg.hp.max}`];
-      for (const attr of rpg.attributes) {
-        rpgLines.push(`${attr.name}: ${attr.value}`);
-      }
-      fieldParts.push(wrapContent(rpgLines.join("\n"), "rpg_attributes", args.wrapFormat, 2));
+      const rpgText = formatRpgStatsForPrompt(pStats.rpgStats as RPGStatsConfig);
+      fieldParts.push(
+        wrapContent(sanitizePromptLeaf(rpgText, args.wrapFormat), "rpg_attributes", args.wrapFormat, 2),
+      );
     }
   }
 

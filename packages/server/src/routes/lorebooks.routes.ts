@@ -134,6 +134,8 @@ type CachedLorebookScanEntry = {
   id: string;
   content: string;
   matchedKeys: string[];
+  matchType?: "keyword" | "semantic" | "constant" | "sticky";
+  semanticScore?: number;
 };
 
 type CachedLorebookScan = {
@@ -176,6 +178,15 @@ function normalizeCachedLorebookScan(raw: unknown): CachedLorebookScan | null {
             matchedKeys: Array.isArray(candidate.matchedKeys)
               ? candidate.matchedKeys.filter((key): key is string => typeof key === "string")
               : [],
+            ...(candidate.matchType === "keyword" ||
+            candidate.matchType === "semantic" ||
+            candidate.matchType === "constant" ||
+            candidate.matchType === "sticky"
+              ? { matchType: candidate.matchType }
+              : {}),
+            ...(typeof candidate.semanticScore === "number" && Number.isFinite(candidate.semanticScore)
+              ? { semanticScore: candidate.semanticScore }
+              : {}),
           },
         ];
       })
@@ -586,18 +597,25 @@ export async function lorebooksRoutes(app: FastifyInstance) {
 
   // ── Bulk operations ──
 
-  app.post<{ Params: { id: string } }>("/:id/entries/bulk", async (req) => {
-    const body = req.body as { entries: unknown[] };
-    const entries = (body.entries ?? []).map((e: unknown) => {
-      const { lorebookId, ...rest } = createLorebookEntrySchema.parse({
-        ...(e as Record<string, unknown>),
-        lorebookId: req.params.id,
+  app.post<{ Params: { id: string } }>("/:id/entries/bulk", async (req, reply) => {
+    try {
+      const body = req.body as { entries: unknown[] };
+      const entries = (body.entries ?? []).map((e: unknown) => {
+        const { lorebookId, ...rest } = createLorebookEntrySchema.parse({
+          ...(e as Record<string, unknown>),
+          lorebookId: req.params.id,
+        });
+        return rest;
       });
-      return rest;
-    });
-    const result = await storage.bulkCreateEntries(req.params.id, entries);
-    await syncCharacterBookFromLorebook(app.db, req.params.id);
-    return result;
+      const result = await storage.bulkCreateEntries(req.params.id, entries);
+      await syncCharacterBookFromLorebook(app.db, req.params.id);
+      return result;
+    } catch (err) {
+      if (err instanceof Error && err.message === "folderId does not belong to this lorebook") {
+        return reply.status(400).send({ error: err.message });
+      }
+      throw err;
+    }
   });
 
   app.post<{ Params: { id: string } }>("/:id/entries/transfer", async (req, reply) => {
@@ -638,20 +656,26 @@ export async function lorebooksRoutes(app: FastifyInstance) {
 
     const targetEntries = (await storage.listEntries(targetLorebookId)) as LorebookEntry[];
     const maxTargetOrder = targetEntries.reduce((max, entry) => Math.max(max, entry.order ?? 0), 0);
-    const created = [];
-    for (const [index, entry] of sourceEntries.entries()) {
-      created.push(
-        await storage.createEntry(
+    const created: LorebookEntry[] = [];
+    try {
+      for (const [index, entry] of sourceEntries.entries()) {
+        const transferred = (await storage.createEntry(
           buildTransferredEntryInput(entry, targetLorebookId, maxTargetOrder + (index + 1) * 10),
-        ),
-      );
-    }
-
-    if (operation === "move") {
-      for (const entry of sourceEntries) {
-        await storage.removeEntry(entry.id);
+        )) as LorebookEntry | null;
+        if (transferred) created.push(transferred);
       }
-      await syncCharacterBookFromLorebook(app.db, req.params.id);
+
+      if (operation === "move") {
+        for (const entry of sourceEntries) {
+          await storage.removeEntry(entry.id);
+        }
+        await syncCharacterBookFromLorebook(app.db, req.params.id);
+      }
+    } catch (err) {
+      if (created.length > 0) {
+        await Promise.allSettled(created.map((entry) => storage.removeEntry(entry.id)));
+      }
+      throw err;
     }
     await syncCharacterBookFromLorebook(app.db, targetLorebookId);
 
@@ -835,6 +859,8 @@ export async function lorebooksRoutes(app: FastifyInstance) {
       if (cachedScan) {
         const resolvedContentById = new Map(cachedScan.activatedEntries.map((entry) => [entry.id, entry.content]));
         const matchedKeysById = new Map(cachedScan.activatedEntries.map((entry) => [entry.id, entry.matchedKeys]));
+        const matchTypeById = new Map(cachedScan.activatedEntries.map((entry) => [entry.id, entry.matchType]));
+        const semanticScoreById = new Map(cachedScan.activatedEntries.map((entry) => [entry.id, entry.semanticScore]));
         const activeEntries =
           cachedScan.activatedEntries.length > 0
             ? await Promise.all(cachedScan.activatedEntries.map((entry) => storage.getEntry(entry.id))).then(
@@ -855,6 +881,8 @@ export async function lorebooksRoutes(app: FastifyInstance) {
             constant: (e as Record<string, unknown>).constant,
             selective: (e as Record<string, unknown>).selective === true,
             matchedKeys: matchedKeysById.get(String((e as Record<string, unknown>).id)) ?? [],
+            matchType: matchTypeById.get(String((e as Record<string, unknown>).id)),
+            semanticScore: semanticScoreById.get(String((e as Record<string, unknown>).id)),
           })),
           totalTokens: cachedScan.totalTokensEstimate,
           totalEntries: cachedScan.totalEntries,
@@ -975,6 +1003,8 @@ export async function lorebooksRoutes(app: FastifyInstance) {
 
     const resolvedContentById = new Map(result.activatedEntries.map((entry) => [entry.id, entry.content]));
     const matchedKeysById = new Map(result.activatedEntries.map((entry) => [entry.id, entry.matchedKeys]));
+    const matchTypeById = new Map(result.activatedEntries.map((entry) => [entry.id, entry.matchType]));
+    const semanticScoreById = new Map(result.activatedEntries.map((entry) => [entry.id, entry.semanticScore]));
 
     // Fetch full entry data for the activated IDs
     const activeEntries =
@@ -996,6 +1026,8 @@ export async function lorebooksRoutes(app: FastifyInstance) {
         constant: (e as Record<string, unknown>).constant,
         selective: (e as Record<string, unknown>).selective === true,
         matchedKeys: matchedKeysById.get(String((e as Record<string, unknown>).id)) ?? [],
+        matchType: matchTypeById.get(String((e as Record<string, unknown>).id)),
+        semanticScore: semanticScoreById.get(String((e as Record<string, unknown>).id)),
       })),
       totalTokens: result.totalTokensEstimate,
       totalEntries: result.totalEntries,

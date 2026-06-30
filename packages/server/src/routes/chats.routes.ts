@@ -26,6 +26,7 @@ import {
   normalizeTrackerFieldLocks,
   parseTrackerFieldLocks,
   normalizeTextForMatch,
+  formatRpgStatsForPrompt,
 } from "@marinara-engine/shared";
 import type {
   CharacterData,
@@ -37,6 +38,7 @@ import type {
   ExportEnvelope,
   GameNpc,
   LorebookEntryTimingState,
+  RPGStatsConfig,
 } from "@marinara-engine/shared";
 import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { createAgentsStorage } from "../services/storage/agents.storage.js";
@@ -96,66 +98,9 @@ const MEMORY_RECALL_IMPORT_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 const MEMORY_RECALL_IMPORT_BATCH_SIZE = 500;
 const PROFESSOR_MARI_INTERNAL_CHAT_MARKER = "professor-mari";
 
-type PromptChoiceBlockRow = {
-  variableName: string;
-  options: unknown;
-  multiSelect?: unknown;
-  randomPick?: unknown;
-  separator?: unknown;
-};
-
 function presetStringField(preset: Record<string, unknown> | null | undefined, field: string): string {
   const value = preset?.[field];
   return typeof value === "string" ? value.trim() : "";
-}
-
-function parsePromptChoiceOptions(value: unknown): Array<{ value: string }> {
-  try {
-    const parsed = typeof value === "string" ? JSON.parse(value) : value;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((option) => {
-      if (!option || typeof option !== "object" || Array.isArray(option)) return [];
-      const rawValue = (option as Record<string, unknown>).value;
-      return typeof rawValue === "string" ? [{ value: rawValue }] : [];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function resolvePromptChoiceVariables(
-  choiceBlocks: PromptChoiceBlockRow[],
-  chatChoices: Record<string, string | string[]>,
-): Record<string, string> {
-  const variables: Record<string, string> = {};
-  for (const block of choiceBlocks) {
-    const options = parsePromptChoiceOptions(block.options);
-    const optionValues = new Set(options.map((option) => option.value));
-    const fallback = options[0]?.value ?? "";
-    const selected = chatChoices[block.variableName];
-    const isMulti = block.multiSelect === true || block.multiSelect === "true";
-    const isRandom = block.randomPick === true || block.randomPick === "true";
-    const separator = typeof block.separator === "string" ? block.separator : ", ";
-
-    if (isMulti) {
-      const selectedValues = Array.isArray(selected)
-        ? selected.filter((value) => optionValues.has(value))
-        : typeof selected === "string" && optionValues.has(selected)
-          ? [selected]
-          : [];
-      if (selectedValues.length === 0) {
-        variables[block.variableName] = fallback;
-      } else if (isRandom) {
-        variables[block.variableName] = selectedValues[Math.floor(Math.random() * selectedValues.length)] ?? "";
-      } else {
-        variables[block.variableName] = selectedValues.join(separator);
-      }
-      continue;
-    }
-
-    variables[block.variableName] = typeof selected === "string" && optionValues.has(selected) ? selected : fallback;
-  }
-  return variables;
 }
 
 function parseSnapshotJson<T>(value: unknown, fallback: T): T {
@@ -458,6 +403,23 @@ function resolveEntryStateOverrides(value: unknown): EntryStateOverrides | undef
 export async function chatsRoutes(app: FastifyInstance) {
   const storage = createChatsStorage(app.db);
 
+  const cleanupEmptyRoleplayDmChats = async () => {
+    const allChats = await storage.list();
+    let removed = 0;
+    for (const chat of allChats) {
+      const metadata = parseChatMetadata(chat.metadata);
+      const isRoleplayDmThread = metadata.roleplayDmThread === true || typeof metadata.dmOriginChatId === "string";
+      if (!isRoleplayDmThread) continue;
+      if ((await storage.countMessages(chat.id)) > 0) continue;
+
+      await storage.remove(chat.id);
+      removed += 1;
+    }
+    if (removed > 0) {
+      logger.warn("[chats] Removed %d empty orphaned Roleplay DM chat(s)", removed);
+    }
+  };
+
   const clearConversationScheduleState = async (chat: Awaited<ReturnType<typeof storage.getById>>) => {
     if (!chat) return;
     const characterIds: string[] =
@@ -490,6 +452,7 @@ export async function chatsRoutes(app: FastifyInstance) {
 
   // List all chats
   app.get("/", async () => {
+    await cleanupEmptyRoleplayDmChats();
     const chats = await storage.list();
     return chats.filter((chat) => !shouldHideProfessorMariChat(chat)).map(sanitizeChatGameNpcAvatars);
   });
@@ -1697,8 +1660,6 @@ export async function chatsRoutes(app: FastifyInstance) {
         }
       }
 
-      // Keep swipe extra in sync so per-swipe data (like spriteExpressions) persists.
-      await storage.updateSwipeExtra(req.params.messageId, updated.activeSwipeIndex, partial);
       return updated;
     },
   );
@@ -2057,8 +2018,10 @@ export async function chatsRoutes(app: FastifyInstance) {
           }
 
           const mappedMessages = filteredMessages.map((m: any) => ({
+            id: typeof m.id === "string" ? m.id : null,
             role: m.role === "narrator" ? "system" : m.role,
             content: m.content as string,
+            characterId: typeof m.characterId === "string" && m.characterId ? m.characterId : null,
           }));
 
           // Strip trailing assistant messages — peek should show only what we SEND to the model
@@ -2118,10 +2081,7 @@ export async function chatsRoutes(app: FastifyInstance) {
             personaName,
             personaDescription,
             personaFields,
-            variables:
-              chatMode === "conversation" || chatMode === "game"
-                ? resolvePromptChoiceVariables(choiceBlocks as PromptChoiceBlockRow[], chatChoices)
-                : {},
+            variables: {},
             groupScenarioOverrideText:
               typeof chatMeta.groupScenarioText === "string" && (chatMeta.groupScenarioText as string).trim()
                 ? (chatMeta.groupScenarioText as string).trim()
@@ -2135,7 +2095,7 @@ export async function chatsRoutes(app: FastifyInstance) {
           // Apply regex scripts to prompt context (mirrors generate.routes.ts).
           const regexStore = createRegexScriptsStorage(app.db);
           applyRegexScriptsToPromptMessages(mappedMessages, await regexStore.list(), {
-            resolveMacros: (value) => resolveMacros(value, promptMacroContext, { trimResult: false }),
+            resolveMacros: (value, randomSeed) => resolveMacros(value, promptMacroContext, { trimResult: false, randomSeed }),
           });
           promptMacroContext.lastInput = [...mappedMessages]
             .reverse()
@@ -2467,15 +2427,14 @@ export async function chatsRoutes(app: FastifyInstance) {
                 fieldParts.push(wrapContent(resolvePromptMacros(personaFields.scenario), "scenario", wrapFormat, 2));
               // Include enabled RPG attributes
               if (personaStats?.rpgStats?.enabled) {
-                const rpg = personaStats.rpgStats as {
-                  attributes: Array<{ name: string; value: number }>;
-                  hp: { value: number; max: number };
-                };
-                const rpgLines = [`Max HP: ${rpg.hp.max}`];
-                for (const attr of rpg.attributes) {
-                  rpgLines.push(`${attr.name}: ${attr.value}`);
-                }
-                fieldParts.push(wrapContent(rpgLines.join("\n"), "rpg_attributes", wrapFormat, 2));
+                fieldParts.push(
+                  wrapContent(
+                    formatRpgStatsForPrompt(personaStats.rpgStats as RPGStatsConfig),
+                    "rpg_attributes",
+                    wrapFormat,
+                    2,
+                  ),
+                );
               }
               if (fieldParts.length > 0) {
                 const block = wrapContent(fieldParts.join("\n"), personaName, wrapFormat, 1);
@@ -2526,8 +2485,10 @@ export async function chatsRoutes(app: FastifyInstance) {
 
     // ── Last resort: return raw chat messages ──
     const mappedMessages = chatMessages.map((m: any) => ({
+      id: typeof m.id === "string" ? m.id : null,
       role: m.role === "narrator" ? "system" : m.role,
       content: m.content as string,
+      characterId: typeof m.characterId === "string" && m.characterId ? m.characterId : null,
     }));
     while (mappedMessages.length > 0 && mappedMessages[mappedMessages.length - 1]!.role === "assistant") {
       mappedMessages.pop();
@@ -2627,6 +2588,9 @@ export async function chatsRoutes(app: FastifyInstance) {
   const normalizeExportFormat = (value: unknown): ExportFormat =>
     typeof value === "string" && value.toLowerCase() === "text" ? "text" : "jsonl";
 
+  const normalizeExportBoolean = (value: unknown): boolean =>
+    value === true || value === "true" || value === "1" || value === 1;
+
   const parseExportCharacterIds = (raw: unknown): string[] => {
     if (Array.isArray(raw)) return raw.filter((id): id is string => typeof id === "string");
     if (typeof raw !== "string") return [];
@@ -2652,8 +2616,25 @@ export async function chatsRoutes(app: FastifyInstance) {
 
   const getExportThinking = (extra: Record<string, unknown>): string | null => {
     const value = extra.thinking ?? extra.reasoning ?? extra.reasoning_content;
-    return typeof value === "string" && value.trim().length > 0 ? value : null;
+    if (typeof value === "string" && value.trim().length > 0) return value;
+
+    if (Array.isArray(extra.reasoning_details)) {
+      const details = extra.reasoning_details
+        .map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+          const detailRecord = item as Record<string, unknown>;
+          const detail = detailRecord.text ?? detailRecord.summary ?? detailRecord.thinking ?? detailRecord.content;
+          return typeof detail === "string" && detail.trim().length > 0 ? detail.trim() : null;
+        })
+        .filter((detail): detail is string => detail !== null)
+        .join("\n\n");
+      return details || null;
+    }
+
+    return null;
   };
+
+  const EXPORT_REASONING_EXTRA_KEYS = new Set(["thinking", "reasoning", "reasoning_content", "reasoning_details"]);
 
   const INTERNAL_EXPORT_EXTRA_KEYS = new Set([
     "cachedPrompt",
@@ -2676,11 +2657,99 @@ export async function chatsRoutes(app: FastifyInstance) {
     return sanitized;
   };
 
+  const sanitizeJsonlMessageExtra = (extra: Record<string, unknown>): Record<string, unknown> => {
+    const sanitized = sanitizeExportExtra(extra);
+    for (const key of EXPORT_REASONING_EXTRA_KEYS) {
+      delete sanitized[key];
+    }
+    delete sanitized.marinara_swipes;
+    return sanitized;
+  };
+
   const sanitizeBranchedMessageExtra = (extra: Record<string, unknown>): Record<string, unknown> => {
     const sanitized = sanitizeExportExtra(extra);
     delete sanitized.summaryCandidate;
     delete sanitized.summaryDebug;
     return sanitized;
+  };
+
+  const isExportRecord = (value: unknown): value is Record<string, unknown> =>
+    !!value && typeof value === "object" && !Array.isArray(value);
+
+  const readExportName = (value: unknown): string | null =>
+    typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+  const addExportName = (names: Set<string>, value: unknown): void => {
+    const name = readExportName(value);
+    if (!name) return;
+    const normalized = normalizeTextForMatch(name);
+    if (normalized) names.add(normalized);
+  };
+
+  const stripJournalNpcTitlePrefix = (value: string): string => {
+    const trimmed = value.trim();
+    let offset = 0;
+    for (const char of trimmed) {
+      const isNumber = /[0-9]/.test(char);
+      const isLetter = char.toLocaleLowerCase() !== char.toLocaleUpperCase();
+      if (isNumber || isLetter) break;
+      offset += char.length;
+    }
+    return trimmed.slice(offset).replace(/^npc\s*[:\-]\s*/i, "").trim();
+  };
+
+  const collectExportJournalNpcNames = (
+    metadata: Record<string, unknown>,
+    charNameMap: Map<string, string>,
+  ): Set<string> => {
+    const names = new Set<string>();
+    for (const name of charNameMap.values()) addExportName(names, name);
+    for (const npc of Array.isArray(metadata.gameNpcs) ? metadata.gameNpcs : []) {
+      if (isExportRecord(npc)) addExportName(names, npc.name);
+    }
+    for (const card of Array.isArray(metadata.gameCharacterCards) ? metadata.gameCharacterCards : []) {
+      if (isExportRecord(card)) addExportName(names, card.name);
+    }
+    return names;
+  };
+
+  const sanitizeGameJournalForExport = (journal: unknown, knownNpcNames: Set<string>): unknown => {
+    if (!isExportRecord(journal) || knownNpcNames.size === 0) return journal;
+
+    const isKnownNpcName = (value: unknown): boolean => {
+      const direct = normalizeTextForMatch(value);
+      if (direct && knownNpcNames.has(direct)) return true;
+      if (typeof value !== "string") return false;
+      const stripped = normalizeTextForMatch(stripJournalNpcTitlePrefix(value));
+      return !!stripped && knownNpcNames.has(stripped);
+    };
+
+    const entries = Array.isArray(journal.entries)
+      ? journal.entries.filter((entry) => {
+          if (!isExportRecord(entry) || entry.type !== "npc") return true;
+          return isKnownNpcName(entry.title);
+        })
+      : journal.entries;
+    const npcLog = Array.isArray(journal.npcLog)
+      ? journal.npcLog.filter((entry) => isExportRecord(entry) && isKnownNpcName(entry.npcName))
+      : journal.npcLog;
+
+    return {
+      ...journal,
+      entries,
+      npcLog,
+    };
+  };
+
+  const sanitizeChatMetadataForJsonlExport = (
+    metadata: Record<string, unknown>,
+    knownNpcNames: Set<string>,
+  ): Record<string, unknown> => {
+    if (!("gameJournal" in metadata)) return metadata;
+    return {
+      ...metadata,
+      gameJournal: sanitizeGameJournalForExport(metadata.gameJournal, knownNpcNames),
+    };
   };
 
   const safeExportNamePart = (value: unknown, fallback: string): string => {
@@ -2695,7 +2764,12 @@ export async function chatsRoutes(app: FastifyInstance) {
     );
   };
 
-  const serializeChatTranscript = async (chat: ChatRow, format: ExportFormat) => {
+  const serializeChatTranscript = async (
+    chat: ChatRow,
+    format: ExportFormat,
+    options: { includeReasoning?: boolean } = {},
+  ) => {
+    const includeReasoning = options.includeReasoning === true;
     const msgs = await storage.listMessages(chat.id);
     const charIds = parseExportCharacterIds(chat.characterIds);
     const metadata = parseExportMetadata(chat.metadata);
@@ -2715,6 +2789,10 @@ export async function chatsRoutes(app: FastifyInstance) {
       }
     }
     const primaryCharName = (charIds[0] && charNameMap.get(charIds[0])) ?? chat.name;
+    const jsonlMetadata = sanitizeChatMetadataForJsonlExport(
+      metadata,
+      collectExportJournalNpcNames(metadata, charNameMap),
+    );
     const persona = await buildPersonaSnapshotForChat(app, chat);
     const { buildPromptMacroContext, resolvePromptMessageMacros } = await import("../services/prompt/index.js");
     const exportCharacterIds = resolveActiveCharacterIds(charIds, metadata, {
@@ -2758,7 +2836,7 @@ export async function chatsRoutes(app: FastifyInstance) {
         .map((msg) => {
           const name = getDisplayName(msg);
           const ts = msg.createdAt ? new Date(msg.createdAt).toLocaleString() : "";
-          const thinking = getExportThinking(parseExportMetadata(msg.extra));
+          const thinking = includeReasoning ? getExportThinking(parseExportMetadata(msg.extra)) : null;
           const parts = [`[${name}]${ts ? ` (${ts})` : ""}`, resolveExportMessageContent(msg)];
           if (thinking) parts.push(`[Thinking]\n${thinking}`);
           return parts.join("\n");
@@ -2781,10 +2859,10 @@ export async function chatsRoutes(app: FastifyInstance) {
         create_date: chat.createdAt,
         chat_metadata: {
           mode: chat.mode,
-          ...metadata,
+          ...jsonlMetadata,
           branchName,
           marinara_metadata: {
-            ...metadata,
+            ...jsonlMetadata,
             mode: chat.mode,
           },
         },
@@ -2793,8 +2871,8 @@ export async function chatsRoutes(app: FastifyInstance) {
 
     for (const msg of msgs) {
       const rawMessageExtra = parseExportMetadata(msg.extra);
-      const messageExtra = sanitizeExportExtra(rawMessageExtra);
-      const thinking = getExportThinking(rawMessageExtra);
+      const messageExtra = sanitizeJsonlMessageExtra(rawMessageExtra);
+      const thinking = includeReasoning ? getExportThinking(rawMessageExtra) : null;
       const swipes = await storage.getSwipes(msg.id);
       const activeContent = resolveExportMessageContent(msg);
       const exportSwipes =
@@ -2808,7 +2886,7 @@ export async function chatsRoutes(app: FastifyInstance) {
               extra:
                 swipe.index === msg.activeSwipeIndex
                   ? messageExtra
-                  : sanitizeExportExtra(parseExportMetadata(swipe.extra)),
+                  : sanitizeJsonlMessageExtra(parseExportMetadata(swipe.extra)),
               createdAt: swipe.createdAt,
             }))
           : [
@@ -2829,8 +2907,6 @@ export async function chatsRoutes(app: FastifyInstance) {
           mes: activeContent,
           ...(thinking
             ? {
-                thinking,
-                reasoning: thinking,
                 reasoning_content: thinking,
               }
             : {}),
@@ -2876,9 +2952,10 @@ export async function chatsRoutes(app: FastifyInstance) {
   };
 
   app.post<{
-    Body: { chatIds?: string[]; format?: string; scope?: "selected" | "all" };
+    Body: { chatIds?: string[]; format?: string; scope?: "selected" | "all"; includeReasoning?: boolean | string };
   }>("/export/bulk", async (req, reply) => {
     const format = normalizeExportFormat(req.body?.format);
+    const includeReasoning = normalizeExportBoolean(req.body?.includeReasoning);
     const scope = req.body?.scope === "all" ? "all" : "selected";
     const uniqueIds = [...new Set((req.body?.chatIds ?? []).filter((id): id is string => typeof id === "string"))];
 
@@ -2898,7 +2975,7 @@ export async function chatsRoutes(app: FastifyInstance) {
 
     for (let index = 0; index < chatsToExport.length; index++) {
       const chat = chatsToExport[index]!;
-      const serialized = await serializeChatTranscript(chat, format);
+      const serialized = await serializeChatTranscript(chat, format, { includeReasoning });
       const file = buildBulkExportFilename(
         chat,
         index,
@@ -2928,6 +3005,7 @@ export async function chatsRoutes(app: FastifyInstance) {
           {
             exportedAt: new Date().toISOString(),
             format,
+            includeReasoning,
             scope,
             count: chatsToExport.length,
             chats: manifest,
@@ -2947,18 +3025,22 @@ export async function chatsRoutes(app: FastifyInstance) {
   });
 
   // Export chat — supports JSONL (default, SillyTavern-compatible) and plain text
-  app.get<{ Params: { id: string }; Querystring: { format?: string } }>("/:id/export", async (req, reply) => {
-    const chat = await storage.getById(req.params.id);
-    if (!chat) return reply.status(404).send({ error: "Chat not found" });
+  app.get<{ Params: { id: string }; Querystring: { format?: string; includeReasoning?: string } }>(
+    "/:id/export",
+    async (req, reply) => {
+      const chat = await storage.getById(req.params.id);
+      if (!chat) return reply.status(404).send({ error: "Chat not found" });
 
-    const format = normalizeExportFormat(req.query.format);
-    const serialized = await serializeChatTranscript(chat as ChatRow, format);
+      const format = normalizeExportFormat(req.query.format);
+      const includeReasoning = normalizeExportBoolean(req.query.includeReasoning);
+      const serialized = await serializeChatTranscript(chat as ChatRow, format, { includeReasoning });
 
-    return reply
-      .header("Content-Type", serialized.contentType)
-      .header("Content-Disposition", `attachment; filename="${encodeURIComponent(chat.name)}.${serialized.extension}"`)
-      .send(serialized.content);
-  });
+      return reply
+        .header("Content-Type", serialized.contentType)
+        .header("Content-Disposition", `attachment; filename="${encodeURIComponent(chat.name)}.${serialized.extension}"`)
+        .send(serialized.content);
+    },
+  );
 
   // ── Branch (duplicate) ──
 
@@ -2975,6 +3057,11 @@ export async function chatsRoutes(app: FastifyInstance) {
     }
 
     const { upToMessageId } = (req.body ?? {}) as { upToMessageId?: string };
+
+    const msgs = await storage.listMessages(req.params.id);
+    if (upToMessageId && !msgs.some((msg) => msg.id === upToMessageId)) {
+      return reply.status(404).send({ error: "Cutoff message not found in source chat" });
+    }
 
     // Ensure the source chat belongs to a group so branches are linked
     let groupId = sourceChat.groupId as string | null;
@@ -3014,54 +3101,66 @@ export async function chatsRoutes(app: FastifyInstance) {
       branchName: "New Branch",
     });
 
-    // Copy messages from source chat, using the active swipe's content.
+    // Copy messages from source chat, preserving every swipe and the active index.
     // Preserve each message's original createdAt timestamp so ordering and
     // display times remain identical to the source chat.
-    const msgs = await storage.listMessages(req.params.id);
     const sourceToBranchedMessageId = new Map<string, string>();
+    const sourceToCopiedSwipeIndexes = new Map<string, number[]>();
     const copiedSourceMessages: typeof msgs = [];
+    const copiedMessageInputs: Parameters<typeof storage.createMessagesBatch>[1] = [];
 
     for (const msg of msgs) {
-      // Resolve the content from the active swipe (may differ from msg.content
-      // if the user swiped to an alternative response)
-      let content = msg.content;
-      if (msg.activeSwipeIndex > 0) {
-        const swipes = await storage.getSwipes(msg.id);
-        const activeSwipe = swipes.find((s: { index: number }) => s.index === msg.activeSwipeIndex);
-        if (activeSwipe) content = activeSwipe.content;
-      }
+      const swipes = await storage.getSwipes(msg.id);
+      const messageExtra = sanitizeBranchedMessageExtra(parseExportMetadata(msg.extra));
+      const activeSwipeIndex =
+        Number.isInteger(msg.activeSwipeIndex) && msg.activeSwipeIndex >= 0 ? msg.activeSwipeIndex : 0;
+      const copiedSwipes =
+        swipes.length > 0
+          ? swipes.map((swipe: { index: number; content: string; extra?: unknown; createdAt?: string | null }) => {
+              const swipeExtra = sanitizeBranchedMessageExtra(parseExportMetadata(swipe.extra));
+              const extra = swipe.index === activeSwipeIndex ? { ...swipeExtra, ...messageExtra } : swipeExtra;
+              return {
+                index: swipe.index,
+                content: swipe.index === activeSwipeIndex ? msg.content : swipe.content,
+                extra,
+                createdAt: swipe.createdAt ?? null,
+              };
+            })
+          : [
+              {
+                index: 0,
+                content: msg.content,
+                extra: messageExtra,
+                createdAt: msg.createdAt as string,
+              },
+            ];
+      const activeSwipe = copiedSwipes.find((swipe) => swipe.index === activeSwipeIndex) ?? copiedSwipes[0];
+      const copiedActiveSwipeIndex = activeSwipe?.index ?? 0;
 
-      const created = await storage.createMessage(
-        {
-          chatId: newChat.id,
-          role: msg.role as "user" | "assistant" | "system" | "narrator",
-          characterId: msg.characterId,
-          content,
-        },
-        { createdAt: msg.createdAt as string },
+      copiedMessageInputs.push({
+        role: msg.role as "user" | "assistant" | "system" | "narrator",
+        characterId: msg.characterId,
+        content: activeSwipe?.content ?? msg.content,
+        extra: activeSwipe?.extra ?? messageExtra,
+        activeSwipeIndex: copiedActiveSwipeIndex,
+        swipes: copiedSwipes,
+        createdAt: msg.createdAt as string,
+      });
+      copiedSourceMessages.push(msg);
+      sourceToCopiedSwipeIndexes.set(
+        msg.id,
+        copiedSwipes.map((swipe) => swipe.index),
       );
-
-      if (created) {
-        sourceToBranchedMessageId.set(msg.id, created.id);
-        copiedSourceMessages.push(msg);
-
-        // Preserve display metadata but drop bulky prompt/debug payloads.
-        try {
-          const extraObj = typeof msg.extra === "string" ? JSON.parse(msg.extra) : (msg.extra ?? {});
-          if (extraObj && typeof extraObj === "object") {
-            await storage.updateMessageExtra(
-              created.id,
-              sanitizeBranchedMessageExtra(extraObj as Record<string, unknown>),
-            );
-          }
-        } catch {
-          // Ignore malformed extra payloads rather than failing the branch.
-        }
-      }
 
       // Stop if we hit the specified message
       if (upToMessageId && msg.id === upToMessageId) break;
     }
+
+    const branchedMessageIds = await storage.createMessagesBatch(newChat.id, copiedMessageInputs);
+    copiedSourceMessages.forEach((msg, index) => {
+      const branchedId = branchedMessageIds[index];
+      if (branchedId) sourceToBranchedMessageId.set(msg.id, branchedId);
+    });
 
     // Fix updatedAt: createMessage sets the chat's updatedAt to each message's
     // (preserved) timestamp, so after the loop the branched chat's updatedAt is
@@ -3079,9 +3178,11 @@ export async function chatsRoutes(app: FastifyInstance) {
     // for that specific message, not just the latest snapshot in the source chat.
     if (sourceToBranchedMessageId.size > 0 && sourceChat.mode === "game") {
       const { createGameStateStorage } = await import("../services/storage/game-state.storage.js");
+      const { createGameEngineStateStorage } = await import("../services/storage/game-engine-state.storage.js");
       const gameStateStore = createGameStateStorage(app.db);
+      const gameEngineStore = createGameEngineStateStorage(app.db);
 
-      // Helper to create a snapshot re-keyed for the new branch.
+      // Helpers to create snapshots re-keyed for the new branch.
       const copySnapshot = async (
         snapshot: NonNullable<Awaited<ReturnType<typeof gameStateStore.getByMessage>>>,
         targetMessageId: string,
@@ -3113,13 +3214,39 @@ export async function chatsRoutes(app: FastifyInstance) {
           // Ignore individual snapshot copy failures; branching should still succeed.
         }
       };
+      const copyEngineSnapshot = async (
+        snapshot: NonNullable<Awaited<ReturnType<typeof gameEngineStore.getByChatAndMessage>>>,
+        targetMessageId: string,
+        targetSwipeIndex: number,
+      ) => {
+        try {
+          await gameEngineStore.create({
+            chatId: newChat.id,
+            messageId: targetMessageId,
+            swipeIndex: targetSwipeIndex,
+            gameType: snapshot.gameType,
+            schemaVersion: snapshot.schemaVersion,
+            state: snapshot.state,
+            committed: (snapshot.committed as any) === 1,
+          });
+        } catch (err) {
+          logger.warn(err, "Failed to copy turn-game engine snapshot while branching chat");
+        }
+      };
 
       for (const srcMsg of copiedSourceMessages) {
         const branchedMsgId = sourceToBranchedMessageId.get(srcMsg.id);
         if (!branchedMsgId) continue;
-        const snapshot = await gameStateStore.getByMessage(srcMsg.id, srcMsg.activeSwipeIndex);
-        if (snapshot) {
-          await copySnapshot(snapshot, branchedMsgId, 0);
+        const swipeIndexes = sourceToCopiedSwipeIndexes.get(srcMsg.id) ?? [srcMsg.activeSwipeIndex ?? 0];
+        for (const swipeIndex of swipeIndexes) {
+          const snapshot = await gameStateStore.getByMessage(srcMsg.id, swipeIndex);
+          if (snapshot) {
+            await copySnapshot(snapshot, branchedMsgId, swipeIndex);
+          }
+          const engineSnapshot = await gameEngineStore.getByChatAndMessage(req.params.id, srcMsg.id, swipeIndex);
+          if (engineSnapshot) {
+            await copyEngineSnapshot(engineSnapshot, branchedMsgId, swipeIndex);
+          }
         }
       }
 
@@ -3129,6 +3256,10 @@ export async function chatsRoutes(app: FastifyInstance) {
       const bootstrap = await gameStateStore.getByChatAndMessage(req.params.id, "", 0);
       if (bootstrap) {
         await copySnapshot(bootstrap, "", 0);
+      }
+      const engineBootstrap = await gameEngineStore.getByChatAndMessage(req.params.id, "", 0);
+      if (engineBootstrap) {
+        await copyEngineSnapshot(engineBootstrap, "", 0);
       }
     }
 
