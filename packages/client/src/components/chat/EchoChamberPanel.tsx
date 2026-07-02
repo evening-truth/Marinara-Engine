@@ -160,7 +160,12 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
   const echoEnabled = useMemo(() => {
     if (!chat) return false;
     const raw = (chat as unknown as { metadata?: string | Record<string, unknown> }).metadata;
-    const meta = typeof raw === "string" ? JSON.parse(raw) : ((raw ?? {}) as Record<string, unknown>);
+    let meta: Record<string, unknown>;
+    try {
+      meta = typeof raw === "string" ? JSON.parse(raw) : ((raw ?? {}) as Record<string, unknown>);
+    } catch {
+      return false;
+    }
     if (!meta.enableAgents) return false;
     const activeAgentIds: string[] = Array.isArray(meta.activeAgentIds) ? meta.activeAgentIds : [];
     return activeAgentIds.includes("echo-chamber");

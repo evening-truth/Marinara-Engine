@@ -241,6 +241,7 @@ import {
   shouldAbortOnPassiveGenerationDisconnect,
   shouldEnableAgentsForGeneration,
   shouldInjectIdentityFallback,
+  escapeXmlAttribute,
   type PromptAttachment,
   type SimpleMessage,
 } from "./generate/generate-route-utils.js";
@@ -1060,10 +1061,6 @@ const DISABLED_IMAGE_CAPTIONING: ImageCaptioningRuntime = {
 const IMAGE_CAPTION_MAX_TOKENS = 700;
 const IMAGE_CAPTION_MAX_CHARS = 4_000;
 
-function escapePromptXmlAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
 function normalizePromptAttachments(extra: unknown): PromptAttachment[] | undefined {
   const rawAttachments = parseExtra(extra).attachments;
   if (!Array.isArray(rawAttachments)) return undefined;
@@ -1100,7 +1097,7 @@ function formatImageCaptionBlock(attachment: PromptAttachment, caption: string):
   const name = getAttachmentFilename(attachment);
   const type = typeof attachment.type === "string" && attachment.type.trim() ? attachment.type.trim() : "image";
   return [
-    `<attached_image name="${escapePromptXmlAttribute(name)}" type="${escapePromptXmlAttribute(type)}">`,
+    `<attached_image name="${escapeXmlAttribute(name)}" type="${escapeXmlAttribute(type)}">`,
     caption,
     `</attached_image>`,
   ].join("\n");
@@ -1173,30 +1170,44 @@ async function resolvePromptAttachmentInputs(args: {
   const captionBlocks: string[] = [];
   const fallbackImages: string[] = [];
   let updatedAttachments: PromptAttachment[] | null = null;
+  const sourceAttachments = attachments ?? [];
+  const captionConnection = imageCaptioning.connection;
+  const resolvedImages = await Promise.all(
+    sourceAttachments.map(async (attachment, index) => {
+      const imageDataUrl = extractImageAttachmentDataUrls([attachment])[0];
+      if (!imageDataUrl) return null;
 
-  for (let index = 0; index < (attachments?.length ?? 0); index++) {
-    const attachment = attachments![index]!;
-    const imageDataUrl = extractImageAttachmentDataUrls([attachment])[0];
-    if (!imageDataUrl) continue;
-
-    let caption = readCachedImageCaption(attachment, imageCaptioning);
-    if (!caption) {
-      caption = await generateImageCaptionForAttachment(attachment, imageDataUrl, imageCaptioning, signal);
-      if (caption) {
-        updatedAttachments ??= attachments!.map((item) => ({ ...item }));
-        updatedAttachments[index] = {
-          ...updatedAttachments[index]!,
-          imageCaption: caption,
-          imageCaptionConnectionId: imageCaptioning.connectionId,
-          imageCaptionModel: imageCaptioning.connection.model,
-          imageCaptionProvider: imageCaptioning.connection.provider,
-          imageCaptionedAt: new Date().toISOString(),
-        };
+      let caption = readCachedImageCaption(attachment, imageCaptioning);
+      let updatedAttachment: PromptAttachment | null = null;
+      if (!caption) {
+        caption = await generateImageCaptionForAttachment(attachment, imageDataUrl, imageCaptioning, signal);
+        if (caption) {
+          updatedAttachment = {
+            ...attachment,
+            imageCaption: caption,
+            imageCaptionConnectionId: imageCaptioning.connectionId,
+            imageCaptionModel: captionConnection.model,
+            imageCaptionProvider: captionConnection.provider,
+            imageCaptionedAt: new Date().toISOString(),
+          };
+        }
       }
-    }
 
+      return { index, attachment, imageDataUrl, caption, updatedAttachment };
+    }),
+  );
+
+  for (const result of resolvedImages) {
+    if (!result) continue;
+    const { index, attachment, imageDataUrl, caption, updatedAttachment } = result;
+    if (updatedAttachment) {
+      updatedAttachments ??= sourceAttachments.map((item) => ({ ...item }));
+      updatedAttachments[index] = updatedAttachment;
+    }
     if (caption) {
-      captionBlocks.push(formatImageCaptionBlock(updatedAttachments?.[index] ?? attachment, caption));
+      captionBlocks.push(
+        formatImageCaptionBlock(updatedAttachment ?? updatedAttachments?.[index] ?? attachment, caption),
+      );
     } else {
       fallbackImages.push(imageDataUrl);
     }
@@ -1839,6 +1850,10 @@ export async function generateRoutes(app: FastifyInstance) {
           if (typeof regenMsg.id === "string" && attachmentInputs.updatedAttachments) {
             try {
               await chats.updateMessageExtra(regenMsg.id, { attachments: attachmentInputs.updatedAttachments });
+              regenMsg.extra = {
+                ...parseExtra(regenMsg.extra),
+                attachments: attachmentInputs.updatedAttachments,
+              };
             } catch (error) {
               logger.warn(error, "[image-captioning] Failed to cache image captions for message %s", regenMsg.id);
             }

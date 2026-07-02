@@ -425,20 +425,18 @@ function getLatestActiveCustomRuns(
       .filter((config) => !builtInTypes.has(config.type) && enabledAgentTypes.has(config.type))
       .map((config) => config.type),
   );
-  const seen = new Set<string>();
-  const latest: AgentRunRow[] = [];
-  for (const run of runs) {
-    if (!activeCustomTypes.has(run.agentType) || seen.has(run.agentType)) continue;
-    seen.add(run.agentType);
-    latest.push(run);
-  }
-  return latest;
+  return getLatestRunsByType(runs, activeCustomTypes);
 }
 
 function getLatestCustomRuns(runs: AgentRunRow[]): AgentRunRow[] {
+  return getLatestRunsByType(runs);
+}
+
+function getLatestRunsByType(runs: AgentRunRow[], allowedTypes?: Set<string>): AgentRunRow[] {
   const seen = new Set<string>();
   const latest: AgentRunRow[] = [];
   for (const run of runs) {
+    if (allowedTypes && !allowedTypes.has(run.agentType)) continue;
     if (seen.has(run.agentType)) continue;
     seen.add(run.agentType);
     latest.push(run);
@@ -463,14 +461,7 @@ function getLatestInjectableCustomRuns(
       })
       .map((config) => config.type),
   );
-  const seen = new Set<string>();
-  const latest: AgentRunRow[] = [];
-  for (const run of runs) {
-    if (!injectableTypes.has(run.agentType) || seen.has(run.agentType)) continue;
-    seen.add(run.agentType);
-    latest.push(run);
-  }
-  return latest;
+  return getLatestRunsByType(runs, injectableTypes);
 }
 
 function parseAgentSettings(value: string): Record<string, unknown> {

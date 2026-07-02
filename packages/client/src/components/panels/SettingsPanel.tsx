@@ -4024,7 +4024,7 @@ function normalizeExtensionImportEntry(entry: FolderPackageImportEntry, fallback
       serverJs:
         serverJsFromFiles ??
         (typeof record.serverJs === "string" ? record.serverJs : typeof record.js === "string" ? record.js : null),
-      enabled: typeof record.enabled === "boolean" ? record.enabled : false,
+      enabled: false,
     };
   }
 
@@ -4289,7 +4289,9 @@ function ExtensionsSettings() {
         }
         toast.success(`Extension "${name}" imported and left disabled for review`);
       } else {
-        toast.error("Only .zip, .json, .css, .js, and .server.js extension files are supported.");
+        toast.error(
+          "Only .zip, .json, .css, .js, .mjs, .cjs, .server.js, .server.mjs, and .server.cjs files are supported.",
+        );
       }
     } catch (err) {
       toast.error(getPrivilegedActionErrorMessage(err, "Failed to import extension."));
@@ -4382,7 +4384,7 @@ function ExtensionsSettings() {
             }}
             className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
           >
-            <Download size="0.875rem" /> Import Extension File (.zip, .json, .css, .js, or .server.js)
+            <Download size="0.875rem" /> Import Extension File (.zip, .json, .css, .js, .mjs, .cjs, or .server.js)
           </button>
           <button
             onClick={() => {

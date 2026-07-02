@@ -238,7 +238,7 @@ If there is no root package file, folder import scans for every `manifest.json` 
 | `config.name` | Yes | Display name, 1-200 characters. |
 | `config.description` | No | Description, up to 2000 characters. |
 | `config.runtime` | No | Use `client` for browser extensions or `server` for server extensions. Defaults to `client`. |
-| `config.enabled` | No | Whether the extension is enabled after import. Missing values are imported as disabled for review. |
+| `config.enabled` | No | Whether a browser extension is enabled after import. Missing values are imported as disabled for review. Server extensions are always imported disabled and must be enabled manually. |
 | `config.cssPath` | No | Path or array of paths to CSS files, relative to the manifest folder. |
 | `config.jsPath` | No | Path or array of paths to JS files, relative to the manifest folder. |
 | `config.serverJsPath` | No | Path or array of paths to server JS files, relative to the manifest folder. |

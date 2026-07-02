@@ -8,7 +8,7 @@
 // script-serving endpoint.
 // ──────────────────────────────────────────────
 import type { FastifyInstance } from "fastify";
-import { createExtensionSchema, updateExtensionSchema } from "@marinara-engine/shared";
+import { createExtensionSchema, updateExtensionSchema, type InstalledExtension } from "@marinara-engine/shared";
 import { createExtensionsStorage } from "../services/storage/extensions.storage.js";
 import { requirePrivilegedAccess } from "../middleware/privileged-gate.js";
 import { serverExtensionRuntime } from "../services/extensions/server-extension-runtime.js";
@@ -19,20 +19,21 @@ export async function extensionsRoutes(app: FastifyInstance) {
   const storage = createExtensionsStorage(app.db);
   const withStatus = <T extends Awaited<ReturnType<typeof storage.getById>>>(extension: T): T =>
     (extension ? serverExtensionRuntime.withRuntimeStatus(extension) : extension) as T;
-  const reloadServerExtensions = async (runtime?: string | null) => {
-    if (runtime === "server") await serverExtensionRuntime.reload();
+  const toPublicExtension = (extension: InstalledExtension): InstalledExtension => {
+    const withRuntimeStatus = serverExtensionRuntime.withRuntimeStatus(extension);
+    return withRuntimeStatus.runtime === "server" ? { ...withRuntimeStatus, serverJs: null } : withRuntimeStatus;
   };
 
   app.get("/", async () => {
     const extensions = await storage.list();
-    return extensions.map((extension) => serverExtensionRuntime.withRuntimeStatus(extension));
+    return extensions.map(toPublicExtension);
   });
 
   app.post("/", async (req, reply) => {
     if (!requirePrivilegedAccess(req, reply, { feature: "Extension install/update/delete" })) return;
     const input = createExtensionSchema.parse(req.body);
     const created = await storage.create(input);
-    await reloadServerExtensions(created?.runtime);
+    if (created?.runtime === "server") await serverExtensionRuntime.reloadExtension(created.id);
     return withStatus(created);
   });
 
@@ -45,7 +46,9 @@ export async function extensionsRoutes(app: FastifyInstance) {
     const existing = await storage.getById(req.params.id);
     if (!existing) return reply.status(404).send({ error: "Extension not found" });
     const updated = await storage.update(req.params.id, data);
-    if (existing.runtime === "server" || updated?.runtime === "server") await serverExtensionRuntime.reload();
+    if (existing.runtime === "server" || updated?.runtime === "server") {
+      await serverExtensionRuntime.reloadExtension(req.params.id);
+    }
     return withStatus(updated);
   });
 
@@ -57,7 +60,7 @@ export async function extensionsRoutes(app: FastifyInstance) {
     const existing = await storage.getById(req.params.id);
     if (!existing) return reply.status(404).send({ error: "Extension not found" });
     await storage.remove(req.params.id);
-    await reloadServerExtensions(existing.runtime);
+    if (existing.runtime === "server") await serverExtensionRuntime.unloadExtension(existing.id);
     return reply.status(204).send();
   });
 }

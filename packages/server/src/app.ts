@@ -77,10 +77,12 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
   app.decorate("db", db);
   app.addHook("onClose", async () => {
     try {
-      await serverExtensionRuntime.stop();
-      await sidecarProcessService.stop();
-    } catch (err) {
-      app.log.error(err, "Failed to stop server runtime services during shutdown");
+      const stopResults = await Promise.allSettled([serverExtensionRuntime.stop(), sidecarProcessService.stop()]);
+      for (const result of stopResults) {
+        if (result.status === "rejected") {
+          app.log.error(result.reason, "Failed to stop a server runtime service during shutdown");
+        }
+      }
     } finally {
       await closeDB();
     }

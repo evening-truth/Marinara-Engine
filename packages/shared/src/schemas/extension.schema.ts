@@ -66,6 +66,15 @@ export const updateExtensionSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "Must update at least one field",
+  })
+  .superRefine((value, ctx) => {
+    if (value.runtime === "server" && !value.serverJs?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["serverJs"],
+        message: "Server extensions require serverJs",
+      });
+    }
   });
 
 export type CreateExtensionInput = z.input<typeof createExtensionSchema>;

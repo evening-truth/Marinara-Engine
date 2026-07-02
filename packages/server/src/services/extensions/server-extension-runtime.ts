@@ -20,6 +20,7 @@ type ServerExtensionStatus = {
 const SERVER_EXTENSION_INIT_TIMEOUT_MS = 5_000;
 const SERVER_EXTENSION_VM_TIMEOUT_MS = 1_000;
 const SERVER_EXTENSION_FETCH_MAX_BYTES = 25 * 1024 * 1024;
+const SERVER_EXTENSION_CLEANUP_TIMEOUT_MS = 5_000;
 
 function normalizeTimerMs(ms: unknown): number {
   const parsed = typeof ms === "number" && Number.isFinite(ms) ? ms : 0;
@@ -87,9 +88,28 @@ class ServerExtensionRuntime {
     return this.reloadQueue;
   }
 
+  async reloadExtension(id: string): Promise<void> {
+    this.reloadQueue = this.reloadQueue
+      .then(() => this.reloadExtensionNow(id))
+      .catch((error) => {
+        logger.error(error, "[server-extensions] Reload failed for %s", id);
+      });
+    return this.reloadQueue;
+  }
+
+  async unloadExtension(id: string): Promise<void> {
+    this.reloadQueue = this.reloadQueue
+      .then(() => this.unloadExtensionNow(id))
+      .catch((error) => {
+        logger.error(error, "[server-extensions] Unload failed for %s", id);
+      });
+    return this.reloadQueue;
+  }
+
   private async reloadNow(): Promise<void> {
     if (!this.db) return;
     await this.stopAll();
+    this.statuses.clear();
 
     const extensions = await createExtensionsStorage(this.db).list();
     const serverExtensions = extensions.filter((extension) => extension.runtime === "server");
@@ -113,6 +133,42 @@ class ServerExtensionRuntime {
     }
   }
 
+  private async reloadExtensionNow(id: string): Promise<void> {
+    if (!this.db) return;
+    await this.unloadExtensionNow(id);
+
+    const extension = await createExtensionsStorage(this.db).getById(id);
+    if (!extension || extension.runtime !== "server") {
+      this.statuses.delete(id);
+      return;
+    }
+    if (!extension.enabled) {
+      this.statuses.set(extension.id, { status: "stopped", error: null });
+      return;
+    }
+    if (!extension.serverJs?.trim()) {
+      this.statuses.set(extension.id, { status: "error", error: "No server JavaScript payload" });
+      return;
+    }
+    try {
+      await this.load(extension);
+      this.statuses.set(extension.id, { status: "running", error: null });
+    } catch (error) {
+      const message = describeError(error);
+      this.statuses.set(extension.id, { status: "error", error: message });
+      logger.error(error, "[server-extensions] Failed to load %s (%s)", extension.name, extension.id);
+    }
+  }
+
+  private async unloadExtensionNow(id: string): Promise<void> {
+    const active = this.active.get(id);
+    this.active.delete(id);
+    this.statuses.delete(id);
+    if (active) {
+      await this.stopExtension(active);
+    }
+  }
+
   private async stopAll(): Promise<void> {
     const active = Array.from(this.active.values());
     this.active.clear();
@@ -124,7 +180,16 @@ class ServerExtensionRuntime {
   private async stopExtension(extension: ActiveServerExtension): Promise<void> {
     for (const cleanup of [...extension.cleanupFns].reverse()) {
       try {
-        await cleanup();
+        await Promise.race([
+          Promise.resolve(cleanup()),
+          new Promise((_, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error("Server extension cleanup timed out")),
+              SERVER_EXTENSION_CLEANUP_TIMEOUT_MS,
+            );
+            timer.unref?.();
+          }),
+        ]);
       } catch (error) {
         logger.warn(error, "[server-extensions] Cleanup failed for %s (%s)", extension.name, extension.id);
       }
