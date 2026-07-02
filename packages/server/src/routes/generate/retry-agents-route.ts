@@ -116,6 +116,7 @@ import {
 } from "./illustrator-references.js";
 import {
   applyTextRewriteAgentChatSettings,
+  isBuiltInTextRewriteAgentType,
   mergePairedBuiltInRewriteAgents,
   normalizeProseGuardianPromptTemplate,
 } from "../../services/generation/prose-guardian-settings.js";
@@ -396,6 +397,7 @@ function resolveRetryAgentRuntimePhase(agentType: string, configuredPhase: strin
   if (
     agentType === "prose-guardian" ||
     agentType === "continuity" ||
+    agentType === "html" ||
     agentType === "expression" ||
     agentType === "spotify"
   ) {
@@ -1254,7 +1256,8 @@ async function resolveRetryAgents(args: {
       );
       continue;
     }
-    if (defaultAgentConn && builtInConnectionId === defaultAgentConn.id) defaultAgentConnectionAgents.push(builtIn.name);
+    if (defaultAgentConn && builtInConnectionId === defaultAgentConn.id)
+      defaultAgentConnectionAgents.push(builtIn.name);
 
     let settings = applyDefaultBuiltInAgentTools(builtIn.id, getDefaultBuiltInAgentSettings(builtIn.id));
     if (builtIn.id === "spotify") {
@@ -2200,15 +2203,14 @@ async function executeRetryBatches(
 }
 
 function mergeRetryPairedBuiltInRewriteAgents(entries: ResolvedRetryAgent[]): ResolvedRetryAgent[] {
-  const proseGuardian = entries.find((entry) => entry.resolved.type === "prose-guardian");
-  const continuity = entries.find((entry) => entry.resolved.type === "continuity");
-  if (!proseGuardian || !continuity) return entries;
+  const builtInRewriteEntries = entries.filter((entry) => isBuiltInTextRewriteAgentType(entry.resolved.type));
+  if (builtInRewriteEntries.length <= 1) return entries;
 
-  const firstMergeIndex = Math.min(entries.indexOf(proseGuardian), entries.indexOf(continuity));
-  const mergedResolved = mergePairedBuiltInRewriteAgents([proseGuardian.resolved, continuity.resolved])[0];
+  const firstMergeIndex = Math.min(...builtInRewriteEntries.map((entry) => entries.indexOf(entry)));
+  const mergedResolved = mergePairedBuiltInRewriteAgents(builtInRewriteEntries.map((entry) => entry.resolved))[0];
   if (!mergedResolved) return entries;
   const mergedEntry: ResolvedRetryAgent = {
-    ...proseGuardian,
+    ...builtInRewriteEntries[0]!,
     resolved: mergedResolved,
   };
 
@@ -2216,7 +2218,7 @@ function mergeRetryPairedBuiltInRewriteAgents(entries: ResolvedRetryAgent[]): Re
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index]!;
     if (index === firstMergeIndex) merged.push(mergedEntry);
-    if (entry.resolved.type === "prose-guardian" || entry.resolved.type === "continuity") continue;
+    if (isBuiltInTextRewriteAgentType(entry.resolved.type)) continue;
     merged.push(entry);
   }
   return merged;
@@ -2426,7 +2428,7 @@ async function applyRetryResultEffects(args: {
           ? (rewriteData.changes as Array<{ description: string }>)
           : [{ description: "Rewrote the assistant response." }];
         const editNeededValue = rewriteData.editNeeded;
-        const strictEditNeeded = result.agentType === "prose-guardian" || result.agentType === "continuity";
+        const strictEditNeeded = isBuiltInTextRewriteAgentType(result.agentType);
         const rewriteAllowed = editNeededValue === false ? false : strictEditNeeded ? editNeededValue === true : true;
         const droppedProtectedMarkup =
           strictEditNeeded && textRewriteDropsProtectedMarkup(currentResponseForRewrite, editedText);
@@ -3064,7 +3066,13 @@ async function applyRetryResultEffects(args: {
 
     // ── EXPRESSION ENGINE: persist validated sprite expressions ──
     // Validation already happened before SSE send; here we just persist to DB.
-    if (retryMessageId && result.success && result.type === "sprite_change" && result.data && typeof result.data === "object") {
+    if (
+      retryMessageId &&
+      result.success &&
+      result.type === "sprite_change" &&
+      result.data &&
+      typeof result.data === "object"
+    ) {
       const spriteData = result.data as { expressions?: Array<{ characterId: string; expression: string }> };
       const exprMap: Record<string, string> = {};
       const personaExprMap: Record<string, string> = {};
@@ -3143,8 +3151,10 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
     const abortController = new AbortController();
     let clientDisconnected = false;
     const originalSseWrite = reply.raw.write.bind(reply.raw);
+    const canWriteSse = () =>
+      !clientDisconnected && !reply.raw.destroyed && !reply.raw.writableEnded && !reply.raw.writableFinished;
     reply.raw.write = ((chunk: any, encodingOrCallback?: any, callback?: any) => {
-      if (clientDisconnected || reply.raw.destroyed) return false;
+      if (!canWriteSse()) return false;
       try {
         return originalSseWrite(chunk, encodingOrCallback, callback);
       } catch {
@@ -3533,7 +3543,9 @@ export async function registerRetryAgentsRoute(app: FastifyInstance) {
     } finally {
       stopSseKeepalive();
       reply.raw.off("close", onClientClose);
-      reply.raw.end();
+      if (canWriteSse()) {
+        reply.raw.end();
+      }
     }
   });
 }

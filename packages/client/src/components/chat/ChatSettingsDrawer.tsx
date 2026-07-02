@@ -38,6 +38,7 @@ import {
   Activity,
   Puzzle,
   Save,
+  FileText,
   FilePlus2,
   Upload,
   Download,
@@ -305,6 +306,8 @@ function renderRoleplayAgentMenuIcon(agentId: string, variant: "card" | "chip" =
       return <Sparkles size={size} className={className} />;
     case "continuity":
       return <ShieldCheck size={size} className={className} />;
+    case "html":
+      return <FileText size={size} className={className} />;
     case "knowledge-retrieval":
       return <Brain size={size} className={className} />;
     case "knowledge-router":
@@ -390,6 +393,11 @@ const CONVERSATION_COMMAND_TOGGLE_OPTIONS: Array<{
     id: "uno",
     label: "UNO",
     description: "Let characters start a game of UNO at the table when you agree to play.",
+  },
+  {
+    id: "chess",
+    label: "Chess",
+    description: "Let characters accept a one-on-one chess challenge at the table.",
   },
 ];
 
@@ -633,7 +641,7 @@ export function ChatSettingsDrawer({
   const connectChat = useConnectChat();
   const disconnectChat = useDisconnectChat();
   const { retryAgents } = useGenerate();
-  const agentProcessing = useAgentStore((s) => s.isProcessing);
+  const agentProcessing = useAgentStore((s) => s.processingChatIds.includes(chat.id));
   const scheduleGenerationPreferences = useUIStore((s) => s.scheduleGenerationPreferences);
   const setScheduleGenerationPreferences = useUIStore((s) => s.setScheduleGenerationPreferences);
   const roleplaySpriteScale = useUIStore((s) => s.roleplaySpriteScale);
@@ -1183,6 +1191,10 @@ export function ChatSettingsDrawer({
     name: "Continuity Checker",
     description: "Post-processes the latest assistant message to fix concrete spatial and timeline errors.",
   });
+  const htmlAgentMeta = getAgentDisplayMeta("html", {
+    name: "Immersive HTML",
+    description: "Post-processes the latest assistant message with diegetic HTML/CSS/JS visuals.",
+  });
   const directorAgentMeta = getAgentDisplayMeta("director", {
     name: "Narrative Director",
     description: "Creates one-shot story directions when you choose to push the next response forward.",
@@ -1255,6 +1267,7 @@ export function ChatSettingsDrawer({
   const echoChamberActive = activeAgentIds.includes("echo-chamber");
   const proseGuardianActive = activeAgentIds.includes("prose-guardian");
   const continuityActive = activeAgentIds.includes("continuity");
+  const htmlActive = activeAgentIds.includes("html");
   const directorActive = activeAgentIds.includes("director");
   const hapticActive = activeAgentIds.includes("haptic");
   const hapticSensitivity: HapticFeedbackSensitivity =
@@ -1267,6 +1280,7 @@ export function ChatSettingsDrawer({
   const illustratorConfig = agentConfigsByType.get("illustrator");
   const proseGuardianConfig = agentConfigsByType.get("prose-guardian");
   const continuityConfig = agentConfigsByType.get("continuity");
+  const htmlConfig = agentConfigsByType.get("html");
   const directorConfig = agentConfigsByType.get("director");
   const illustratorDefaults = useMemo(
     () => mergeBuiltInAgentSettings("illustrator", illustratorConfig?.settings),
@@ -1279,6 +1293,10 @@ export function ChatSettingsDrawer({
   const continuityDefaults = useMemo(
     () => mergeBuiltInAgentSettings("continuity", continuityConfig?.settings),
     [continuityConfig?.settings],
+  );
+  const htmlDefaults = useMemo(
+    () => mergeBuiltInAgentSettings("html", htmlConfig?.settings),
+    [htmlConfig?.settings],
   );
   const directorDefaults = useMemo(
     () => mergeBuiltInAgentSettings("director", directorConfig?.settings),
@@ -1390,7 +1408,8 @@ export function ChatSettingsDrawer({
     typeof metadata.proseGuardianHoldForRewrite === "boolean"
       ? metadata.proseGuardianHoldForRewrite
       : (proseGuardianActive && proseGuardianDefaults.holdForRewrite !== false) ||
-        (continuityActive && continuityDefaults.holdForRewrite !== false);
+        (continuityActive && continuityDefaults.holdForRewrite !== false) ||
+        (htmlActive && htmlDefaults.holdForRewrite !== false);
   const [proseGuardianBannedDraft, setProseGuardianBannedDraft] = useState(proseGuardianBannedWords);
   const [proseGuardianAvoidDraft, setProseGuardianAvoidDraft] = useState(proseGuardianAvoidInstructions);
   const [proseGuardianStyleDraft, setProseGuardianStyleDraft] = useState(proseGuardianStyleInstructions);
@@ -1473,6 +1492,7 @@ export function ChatSettingsDrawer({
     addLink("prose-guardian", proseGuardianActive, proseGuardianAgentMeta.name);
     addLink("director", directorActive, directorAgentMeta.name);
     addLink("continuity", continuityActive, continuityAgentMeta.name);
+    addLink("html", htmlActive, htmlAgentMeta.name);
     addLink("knowledge-retrieval", knowledgeRetrievalActive, knowledgeRetrievalAgentMeta.name);
     addLink("knowledge-router", knowledgeRouterActive, knowledgeRouterAgentMeta.name);
     addLink("expression", expressionActive, expressionAgentMeta.name);
@@ -1505,6 +1525,8 @@ export function ChatSettingsDrawer({
     expressionAgentMeta.name,
     hapticActive,
     hapticAgentMeta.name,
+    htmlActive,
+    htmlAgentMeta.name,
     illustratorActive,
     illustratorAgentMeta.name,
     isGame,
@@ -5084,6 +5106,7 @@ export function ChatSettingsDrawer({
                   </div>
                 </button>
                 <DiscordMirrorControls
+                  className="space-y-2"
                   webhookUrl={(metadata.discordWebhookUrl as string) ?? ""}
                   onWebhookUrlChange={(discordWebhookUrl) => updateMeta.mutate({ id: chat.id, discordWebhookUrl })}
                 />
@@ -5280,6 +5303,7 @@ export function ChatSettingsDrawer({
                       : "Lorebook and summary updates can be committed automatically. Character card edits still ask first."
                   }
                   enabled={agentWriteApprovalRequired}
+                  surface="secondary"
                   onToggle={() =>
                     updateMeta.mutate({
                       id: chat.id,
@@ -5837,6 +5861,30 @@ export function ChatSettingsDrawer({
                         description={continuityAgentMeta.description}
                         order={getRoleplayAgentSettingsOrder("continuity")}
                         onRemove={getRoleplayAgentMenuRemoveHandler("continuity", continuityAgentMeta.name)}
+                      >
+                        <AgentSettingsToggle
+                          label="Hold Message Until Rewrite"
+                          description={
+                            proseGuardianHoldForRewrite
+                              ? "Show the rewrite working indicator, then reveal the edited message."
+                              : "Stream the original message normally, then replace it when the edit is ready."
+                          }
+                          enabled={proseGuardianHoldForRewrite}
+                          onToggle={() =>
+                            commitProseGuardianSettings({ proseGuardianHoldForRewrite: !proseGuardianHoldForRewrite })
+                          }
+                        />
+                      </AgentSettingsCard>
+                    )}
+
+                    {metadata.enableAgents && !isGame && htmlActive && (
+                      <AgentSettingsCard
+                        id={getAgentSettingsMenuId(chat.id, "html")}
+                        icon={renderRoleplayAgentMenuIcon("html")}
+                        title={htmlAgentMeta.name}
+                        description={htmlAgentMeta.description}
+                        order={getRoleplayAgentSettingsOrder("html")}
+                        onRemove={getRoleplayAgentMenuRemoveHandler("html", htmlAgentMeta.name)}
                       >
                         <AgentSettingsToggle
                           label="Hold Message Until Rewrite"
@@ -7089,6 +7137,12 @@ export function ChatSettingsDrawer({
               connections={chatGenerationConnectionsList as Record<string, unknown>[]}
               contextMessageLimit={metadata.contextMessageLimit as number | null | undefined}
               excludePastReasoning={metadata.excludePastReasoning as boolean | undefined}
+              imageCaptioningEnabled={metadata.imageCaptioningEnabled as boolean | undefined}
+              imageCaptioningConnectionId={
+                typeof metadata.imageCaptioningConnectionId === "string"
+                  ? metadata.imageCaptioningConnectionId
+                  : null
+              }
               onChatParametersChange={(chatParameters) => updateMeta.mutate({ id: chat.id, chatParameters })}
               onContextMessageLimitChange={(contextMessageLimit) =>
                 updateMeta.mutate({ id: chat.id, contextMessageLimit })
@@ -7096,6 +7150,7 @@ export function ChatSettingsDrawer({
               onExcludePastReasoningChange={(excludePastReasoning) =>
                 updateMeta.mutate({ id: chat.id, excludePastReasoning })
               }
+              onImageCaptioningChange={(patch) => updateMeta.mutate({ id: chat.id, ...patch })}
             />
           </div>
 
@@ -7829,11 +7884,13 @@ function AgentSettingsToggle({
   description,
   enabled,
   onToggle,
+  surface = "card",
 }: {
   label: string;
   description: string;
   enabled: boolean;
   onToggle: () => void;
+  surface?: "card" | "secondary";
 }) {
   return (
     <button
@@ -7844,7 +7901,9 @@ function AgentSettingsToggle({
         "flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition-all",
         enabled
           ? "bg-[var(--primary)]/10 ring-1 ring-[var(--primary)]/30"
-          : "bg-[var(--background)]/75 ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
+          : surface === "secondary"
+            ? "bg-[var(--secondary)] hover:bg-[var(--accent)]"
+            : "bg-[var(--background)]/75 ring-1 ring-[var(--border)] hover:bg-[var(--accent)]",
       )}
     >
       <span className="min-w-0 flex-1">
