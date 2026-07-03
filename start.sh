@@ -102,6 +102,12 @@ if [ -d ".git" ]; then
     echo "  [..] Checking for updates..."
     OLD_HEAD=$(git rev-parse HEAD 2>/dev/null)
     CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
+    if [ -n "$CURRENT_BRANCH" ] \
+        && [ "$CURRENT_BRANCH" != "main" ] \
+        && [ "$CURRENT_BRANCH" != "master" ] \
+        && [ "$CURRENT_BRANCH" != "staging" ]; then
+        echo "  [OK] On branch ${CURRENT_BRANCH}; skipping auto-update to keep this checkout selected."
+    else
     TARGET_BRANCH="main"
     if [ "$CURRENT_BRANCH" = "staging" ]; then
         TARGET_BRANCH="staging"
@@ -179,6 +185,7 @@ if [ -d ".git" ]; then
             fi
         fi
         rm -f "$UPDATE_LOG"
+    fi
     fi
 fi
 

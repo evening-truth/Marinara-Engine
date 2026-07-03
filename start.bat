@@ -103,6 +103,10 @@ echo  [..] Checking for updates...
 for /f "tokens=*" %%i in ('git rev-parse HEAD 2^>nul') do set "OLD_HEAD=%%i"
 set "CURRENT_BRANCH="
 for /f "tokens=*" %%i in ('git branch --show-current 2^>nul') do set "CURRENT_BRANCH=%%i"
+if not "!CURRENT_BRANCH!"=="" if /I not "!CURRENT_BRANCH!"=="main" if /I not "!CURRENT_BRANCH!"=="master" if /I not "!CURRENT_BRANCH!"=="staging" (
+    echo  [OK] On branch !CURRENT_BRANCH!; skipping auto-update to keep this checkout selected.
+    goto :skip_update
+)
 set "TARGET_BRANCH=main"
 if /I "!CURRENT_BRANCH!"=="staging" set "TARGET_BRANCH=staging"
 if "!CURRENT_BRANCH!"=="" (
