@@ -1135,6 +1135,10 @@ export function useGenerate() {
         const normalized = Math.max(0, Math.min(1, (speed - 1) / 98));
         return 12 + Math.pow(normalized, 1.65) * 248;
       };
+      const getMaxCharsPerTypewriterFrame = (charsPerSecond: number) => {
+        if (charsPerSecond === Infinity) return Infinity;
+        return Math.max(1, Math.ceil(charsPerSecond / 60));
+      };
 
       const TYPEWRITER_MAX_FRAME_MS = 120;
       let lastTypewriterPaintAt = 0;
@@ -1148,6 +1152,7 @@ export function useGenerate() {
         pendingText = "";
         typingActive = false;
         typewriterRemainder = 0;
+        lastTypewriterPaintAt = 0;
         if (streamingEnabled && shouldDisplayRawStream && fullBuffer) setStreamBuffer(fullBuffer, params.chatId);
         if (typewriterDone) {
           const done = typewriterDone;
@@ -1161,6 +1166,7 @@ export function useGenerate() {
         cancelAnimationFrame(rafId);
         typingActive = false;
         typewriterRemainder = 0;
+        lastTypewriterPaintAt = 0;
 
         if (!streamingEnabled || !shouldDisplayRawStream) {
           fullBuffer = nextContent;
@@ -1207,6 +1213,7 @@ export function useGenerate() {
           }
           if (pendingText.length === 0) {
             typingActive = false;
+            lastTypewriterPaintAt = 0;
             if (typewriterDone) {
               typewriterDone();
               typewriterDone = null;
@@ -1227,7 +1234,8 @@ export function useGenerate() {
           }
 
           typewriterRemainder += (charsPerSecond * elapsedMs) / 1000;
-          const n = Math.min(Math.floor(typewriterRemainder), pendingText.length);
+          const maxCharsThisFrame = getMaxCharsPerTypewriterFrame(charsPerSecond);
+          const n = Math.min(Math.floor(typewriterRemainder), maxCharsThisFrame, pendingText.length);
           if (n < 1) {
             rafId = requestAnimationFrame(tick);
             return;
