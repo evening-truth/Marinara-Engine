@@ -229,6 +229,69 @@ function splitPromptListItems(value: string): string[] {
   return parts;
 }
 
+function splitNaturalPromptClauses(value: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: '"' | null = null;
+  let escaped = false;
+
+  const pushCurrent = () => {
+    const clean = current.trim();
+    if (clean) parts.push(clean);
+    current = "";
+  };
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index]!;
+
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      current += char;
+      escaped = true;
+      continue;
+    }
+
+    if (quote) {
+      current += char;
+      if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === '"') {
+      current += char;
+      quote = char;
+      continue;
+    }
+
+    if (char === "(") parenDepth += 1;
+    else if (char === ")" && parenDepth > 0) parenDepth -= 1;
+    else if (char === "[") bracketDepth += 1;
+    else if (char === "]" && bracketDepth > 0) bracketDepth -= 1;
+    else if (char === "{") braceDepth += 1;
+    else if (char === "}" && braceDepth > 0) braceDepth -= 1;
+
+    const insideGroup = parenDepth > 0 || bracketDepth > 0 || braceDepth > 0;
+    const startsNegativeClause = /^\s*(?:avoid|no|without)\b/i.test(value.slice(index + 1));
+    if (!insideGroup && (char === "\n" || (char === "," && startsNegativeClause))) {
+      pushCurrent();
+      continue;
+    }
+
+    current += char;
+  }
+
+  pushCurrent();
+  return parts;
+}
+
 export function mergeCompiledPromptMeta(
   meta: Record<string, unknown> | undefined,
   compiled: Pick<CompiledImagePrompt, "profile" | "diagnostics">,
@@ -269,7 +332,7 @@ function splitPromptFragments(
 
   if (promptMode === "natural") {
     const fragments: string[] = [];
-    for (const part of normalized.split(/\n+|,(?=\s*(?:avoid|no|without)\b)/i)) {
+    for (const part of splitNaturalPromptClauses(normalized)) {
       const clean = part.trim();
       if (!clean) continue;
       if (hasAvoidInstructionPrefix(clean)) {
@@ -453,9 +516,7 @@ function distillLabeledPromptValue(label: string, value: string): string[] {
   }
 
   if (/^(?:appearance|canonical appearance|species|equipment|composition)$/i.test(normalizedLabel)) {
-    return cleanValue
-      .split(/\s+\band\b\s+/gi)
-      .flatMap(splitPromptListItems)
+    return splitPromptListItems(cleanValue)
       .map((part) => part.trim())
       .filter((part) => shouldKeepTaggedSourceFragment(part));
   }

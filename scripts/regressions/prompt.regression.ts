@@ -593,6 +593,16 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       assert.match(compiled.prompt, /\bstanding\b/);
       assert.match(compiled.negativePrompt, /\(bad hands, extra fingers:1\.2\)/);
       assert.doesNotMatch(compiled.prompt, /\(bad hands, extra fingers:1\.2\)/);
+
+      const taggedAppearance = compileImagePrompt({
+        kind: "portrait",
+        prompt: "Equipment: (sword and shield), cloak",
+        styleProfiles,
+        styleProfileId: "danbooru",
+      });
+
+      assert.match(taggedAppearance.prompt, /\(sword and shield\)/);
+      assert.match(taggedAppearance.prompt, /\bcloak\b/);
     },
   },
   {
@@ -610,6 +620,18 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       assert.doesNotMatch(natural.negativePrompt, /holding flowers|smiling/);
       assert.match(natural.prompt, /holding flowers/);
       assert.match(natural.prompt, /smiling/);
+
+      const groupedNatural = compileImagePrompt({
+        kind: "selfie",
+        prompt: 'A cafe sign says "no shoes, no service", no (bad hands, extra fingers:1.2), holding flowers',
+        styleProfiles,
+        styleProfileId: "realistic",
+      });
+
+      assert.match(groupedNatural.prompt, /no shoes, no service/);
+      assert.match(groupedNatural.prompt, /holding flowers/);
+      assert.match(groupedNatural.negativePrompt, /\(bad hands, extra fingers:1\.2\)/);
+      assert.doesNotMatch(groupedNatural.negativePrompt, /no shoes|no service|holding flowers/);
 
       const tagged = compileImagePrompt({
         kind: "portrait",
