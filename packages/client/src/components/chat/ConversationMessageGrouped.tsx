@@ -15,6 +15,8 @@ import {
   type MessageRenderContext,
 } from "./ConversationMessageShared";
 import { ConversationMessageActions } from "./ConversationMessageActions";
+import { MessageReactions } from "./MessageReactions";
+import { ReactionAddButton } from "./ReactionAddButton";
 
 export function ConversationMessageGrouped({
   ctx,
@@ -75,9 +77,24 @@ export function ConversationMessageGrouped({
     onShowGenerationReplay,
     onShowThinking,
     onPickReaction,
+    segmentReactions,
+    resolveReactorName,
+    onPickSegmentReaction,
+    onToggleReactionEntry,
     onToggleSelect,
     isBubbleStyle,
   } = ctx;
+
+  // Per-segment add-reaction affordance: follows the hover-toolbar visibility
+  // discipline (hidden until the block is hovered / tapped on mobile).
+  const segActionsVisible = showActions || forceShowActions;
+  const segAddTabIdx = segActionsVisible ? undefined : -1;
+  const segAddButtonClass = cn(
+    "shrink-0 self-center -my-0.5 transition-opacity",
+    segActionsVisible
+      ? "opacity-100"
+      : "pointer-events-none opacity-0 focus:pointer-events-auto focus:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100",
+  );
 
   return (
     <div
@@ -138,6 +155,27 @@ export function ConversationMessageGrouped({
           const segColor = segChar?.nameColor;
           const isFirst = i === 0;
           const combinedText = grp.lines.join("\n");
+          // Reactions aimed at this segment (issue #3210). The add affordance sits
+          // in the speaker's name row; the chip row renders under the segment text.
+          // The target key is the parsed speaker (not the resolved character name)
+          // so it stays derivable from content alone.
+          const segReactions = segmentReactions?.[i] ?? [];
+          const segAddButton =
+            !hideActions && onPickSegmentReaction && grp.speaker ? (
+              <ReactionAddButton
+                onPick={(emoji, imageUrl) => onPickSegmentReaction({ segment: i, speaker: grp.speaker }, emoji, imageUrl)}
+                tabIndex={segAddTabIdx}
+                className={segAddButtonClass}
+              />
+            ) : null;
+          const segReactionRow =
+            segReactions.length > 0 ? (
+              <MessageReactions
+                reactions={segReactions}
+                resolveReactorName={resolveReactorName}
+                onToggle={onToggleReactionEntry}
+              />
+            ) : null;
 
           if (!grp.speaker) {
             return (
@@ -189,6 +227,7 @@ export function ConversationMessageGrouped({
                           {formatTimestamp(message.createdAt)}
                         </span>
                       )}
+                      {segAddButton}
                     </div>
                     <div
                       className="mari-message-bubble texting-bubble texting-bubble-other rounded-2xl px-3.5 py-2 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap shadow-sm"
@@ -202,6 +241,7 @@ export function ConversationMessageGrouped({
                         onImageOpen={(url) => onImageOpen(url)}
                       />
                     </div>
+                    {segReactionRow && <div className="mari-message-reactions-row mt-1">{segReactionRow}</div>}
                   </div>
                 </div>
               </div>
@@ -254,6 +294,7 @@ export function ConversationMessageGrouped({
                               {formatTimestamp(message.createdAt)}
                             </span>
                           )}
+                          {segAddButton}
                         </div>
                         <div
                           className="text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap"
@@ -284,6 +325,7 @@ export function ConversationMessageGrouped({
                         />
                       </div>
                     ))}
+                    {segReactionRow && <div className="mari-message-reactions-row pl-14 mt-1">{segReactionRow}</div>}
                   </>
                 );
               })()}

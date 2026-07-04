@@ -572,6 +572,19 @@ export interface MessageReaction {
   imageUrl?: string | null;
   /** Who reacted: the "user" sentinel for the human, or character ids for bots. */
   by: string[];
+  /**
+   * For grouped multi-speaker messages: index of the speaker segment this reaction
+   * targets (the client's grouped-segment order). Absent/null targets the whole
+   * message — 1:1 chats, legacy data, and block-level reactions all stay that way.
+   */
+  segment?: number | null;
+  /**
+   * Speaker name of the targeted segment, captured at react time. Lets the client
+   * detect a stale `segment` index after an edit/regeneration re-segments the
+   * content (mismatches fall back to whole-message display), and lets the server
+   * tell characters whose line was reacted to. Null for a narration segment.
+   */
+  segmentSpeaker?: string | null;
 }
 
 /** Additional data attached to a message. */

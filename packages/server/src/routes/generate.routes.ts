@@ -1322,7 +1322,7 @@ function buildCustomStickerAdvertisement(
 function buildReactionAnnotation(reactions: unknown, resolveReactorName: (reactorId: string) => string): string {
   if (!Array.isArray(reactions) || reactions.length === 0) return "";
   const parts: string[] = [];
-  for (const entry of reactions as Array<{ emoji?: unknown; by?: unknown }>) {
+  for (const entry of reactions as Array<{ emoji?: unknown; by?: unknown; segmentSpeaker?: unknown }>) {
     const emoji = typeof entry.emoji === "string" ? entry.emoji : null;
     const reactors = Array.isArray(entry.by) ? entry.by.filter((id): id is string => typeof id === "string") : [];
     if (!emoji || reactors.length === 0) continue;
@@ -1333,7 +1333,11 @@ function buildReactionAnnotation(reactions: unknown, resolveReactorName: (reacto
         : names.length === 2
           ? `${names[0]} and ${names[1]}`
           : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-    parts.push(`${who} reacted with ${emoji}`);
+    // A segment-targeted reaction (grouped multi-speaker message) names whose
+    // line it was aimed at, so that character can respond to it specifically.
+    const targetSpeaker =
+      typeof entry.segmentSpeaker === "string" && entry.segmentSpeaker.trim() ? entry.segmentSpeaker.trim() : null;
+    parts.push(`${who} reacted with ${emoji}${targetSpeaker ? ` to ${targetSpeaker}'s part` : ""}`);
   }
   return parts.length === 0 ? "" : `\n[${parts.join("; ")}]`;
 }
@@ -1351,7 +1355,9 @@ function addMessageReactor(
   imageUrl: string | null,
 ): MessageReaction[] {
   const current = Array.isArray(reactions) ? (reactions as MessageReaction[]) : [];
-  const index = current.findIndex((r) => r.emoji === emoji);
+  // Character reactions target the whole message — only merge into a
+  // whole-message entry, never a segment-targeted one (issue #3210).
+  const index = current.findIndex((r) => r.emoji === emoji && r.segment == null);
   if (index === -1) {
     const entry: MessageReaction = { emoji, by: [reactor] };
     if (imageUrl) entry.imageUrl = imageUrl;

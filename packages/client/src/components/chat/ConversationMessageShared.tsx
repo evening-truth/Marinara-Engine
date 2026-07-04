@@ -4,8 +4,14 @@
 // ──────────────────────────────────────────────
 import { Fragment, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ChevronRight, EyeOff, FileText, X } from "lucide-react";
-import { normalizeTextForMatch, type MessageExtra, type QuoteFormat } from "@marinara-engine/shared";
+import {
+  normalizeTextForMatch,
+  type MessageExtra,
+  type MessageReaction,
+  type QuoteFormat,
+} from "@marinara-engine/shared";
 import { cn } from "../../lib/utils";
+import type { ReactionSegmentTarget } from "../../lib/reactions";
 import { applyInlineMarkdown, renderMarkdownBlocks } from "../../lib/markdown";
 import { renderInlineWithCustomEmojis } from "../../lib/custom-emoji-render";
 import { renderWithStickerBlocks } from "../../lib/sticker-render";
@@ -138,6 +144,15 @@ export interface MessageRenderContext {
   onShowThinking: () => void;
   // reactions — toggle the user's reaction on this message (chip row rendered by the shell)
   onPickReaction?: (emoji: string, imageUrl: string | null) => void;
+  // reactions — segment-targeted (grouped multi-speaker messages, issue #3210)
+  /** Per-segment reaction lists, index-aligned with groupedSegments; null when not grouped. */
+  segmentReactions: MessageReaction[][] | null;
+  /** Resolve a reactor id ("user" or a character id) to a display name for chip tooltips. */
+  resolveReactorName: (reactorId: string) => string;
+  /** Toggle the user's reaction aimed at one grouped speaker segment. */
+  onPickSegmentReaction?: (target: ReactionSegmentTarget, emoji: string, imageUrl: string | null) => void;
+  /** Toggle the user's membership in an existing reaction entry (segment-aware chip click). */
+  onToggleReactionEntry: (reaction: MessageReaction) => void;
   // style
   messageTextStyle: CSSProperties;
   // bubble-specific (ignored by Line/Grouped)
