@@ -188,6 +188,7 @@ type JournalReadable = ReadableTag & {
 
 type GameStoryboardSourceSection = NonNullable<GenerateGameTurnStoryboardInput["sections"]>[number];
 type StoryboardViewerSize = "small" | "medium" | "large";
+type StoryboardViewerPosition = { x: number; y: number };
 
 type GameAssetGenerationPayload = {
   chatId: string;
@@ -237,6 +238,7 @@ const STORYBOARD_VIEWER_PRESET_WIDTH: Record<StoryboardViewerSize, number> = {
   medium: 368,
   large: 544,
 };
+const STORYBOARD_VIEWER_VERTICAL_CHROME = 116;
 const STORYBOARD_VIEWER_CONTROL_BUTTON =
   "flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/10 text-white/70 transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-white/10";
 
@@ -255,6 +257,42 @@ function clampStoryboardViewerWidth(width: number): number {
 
 function getStoryboardViewerPresetWidth(size: StoryboardViewerSize): number {
   return clampStoryboardViewerWidth(STORYBOARD_VIEWER_PRESET_WIDTH[size]);
+}
+
+function getStoryboardViewerViewport(): { width: number; height: number } {
+  return {
+    width: typeof window === "undefined" ? 1024 : window.innerWidth,
+    height: typeof window === "undefined" ? 768 : window.innerHeight,
+  };
+}
+
+function estimateStoryboardViewerHeight(width: number): number {
+  return Math.min(getStoryboardViewerViewport().height - 16, width * (9 / 16) + STORYBOARD_VIEWER_VERTICAL_CHROME);
+}
+
+function clampStoryboardViewerPosition(pos: StoryboardViewerPosition, width: number): StoryboardViewerPosition {
+  const viewport = getStoryboardViewerViewport();
+  const height = estimateStoryboardViewerHeight(width);
+  return {
+    x: Math.max(8, Math.min(pos.x, Math.max(8, viewport.width - width - 8))),
+    y: Math.max(8, Math.min(pos.y, Math.max(8, viewport.height - height - 8))),
+  };
+}
+
+function getInitialStoryboardViewerPosition(width: number): StoryboardViewerPosition {
+  const viewport = getStoryboardViewerViewport();
+  const mobile = viewport.width < 640;
+  return clampStoryboardViewerPosition(
+    {
+      x: mobile ? (viewport.width - width) / 2 : viewport.width - width - 16,
+      y: mobile ? 76 : 72,
+    },
+    width,
+  );
+}
+
+function shouldIgnoreStoryboardViewerDragTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest("button,a,video,input,textarea,select,[data-storyboard-viewer-no-drag]");
 }
 
 function getGameMobileFloatingPanelStyle(anchor: ChatToolbarFloatingPanelAnchor): CSSProperties {
@@ -1747,6 +1785,7 @@ import {
   Feather,
   Folder,
   Film,
+  GripHorizontal,
   Image,
   ImagePlus,
   Loader2,
@@ -2639,6 +2678,9 @@ function GameSurfaceComponent({
   const [activeStoryboardSegmentIndex, setActiveStoryboardSegmentIndex] = useState<number | null>(null);
   const [storyboardViewerSize, setStoryboardViewerSize] = useState<StoryboardViewerSize>("medium");
   const [storyboardViewerWidth, setStoryboardViewerWidth] = useState(() => getStoryboardViewerPresetWidth("medium"));
+  const [storyboardViewerPosition, setStoryboardViewerPosition] = useState(() =>
+    getInitialStoryboardViewerPosition(getStoryboardViewerPresetWidth("medium")),
+  );
   const [storyboardViewerMuted, setStoryboardViewerMuted] = useState(true);
   const [storyboardViewerPlaying, setStoryboardViewerPlaying] = useState(true);
   const [storyboardViewerDismissedKey, setStoryboardViewerDismissedKey] = useState<string | null>(null);
@@ -2677,6 +2719,9 @@ function GameSurfaceComponent({
   const autoAssetGenerationKeyRef = useRef<string | null>(null);
   const autoStoryboardGenerationKeyRef = useRef<string | null>(null);
   const storyboardViewerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const storyboardViewerDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(
+    null,
+  );
   const storyboardViewerResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const closeGameFloatingPanels = useCallback(() => {
@@ -3388,9 +3433,53 @@ function GameSurfaceComponent({
     }
   }, [activeStoryboardKeyframe?.video?.id, storyboardViewerMuted, storyboardViewerPlaying]);
   useEffect(() => {
-    const handleResize = () => setStoryboardViewerWidth((width) => clampStoryboardViewerWidth(width));
+    const handleResize = () => {
+      setStoryboardViewerWidth((width) => clampStoryboardViewerWidth(width));
+      setStoryboardViewerPosition((pos) => clampStoryboardViewerPosition(pos, storyboardViewerWidth));
+    };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  }, [storyboardViewerWidth]);
+  useEffect(() => {
+    setStoryboardViewerPosition((pos) => clampStoryboardViewerPosition(pos, storyboardViewerWidth));
+  }, [storyboardViewerWidth]);
+  const handleStoryboardViewerDragStart = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (shouldIgnoreStoryboardViewerDragTarget(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      storyboardViewerDragRef.current = {
+        startX: event.clientX,
+        startY: event.clientY,
+        origX: storyboardViewerPosition.x,
+        origY: storyboardViewerPosition.y,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [storyboardViewerPosition],
+  );
+  const handleStoryboardViewerDragMove = useCallback(
+    (event: ReactPointerEvent<HTMLElement>) => {
+      if (!storyboardViewerDragRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const dx = event.clientX - storyboardViewerDragRef.current.startX;
+      const dy = event.clientY - storyboardViewerDragRef.current.startY;
+      setStoryboardViewerPosition(
+        clampStoryboardViewerPosition(
+          {
+            x: storyboardViewerDragRef.current.origX + dx,
+            y: storyboardViewerDragRef.current.origY + dy,
+          },
+          storyboardViewerWidth,
+        ),
+      );
+    },
+    [storyboardViewerWidth],
+  );
+  const handleStoryboardViewerDragEnd = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    storyboardViewerDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }, []);
   const handleStoryboardViewerResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
@@ -3406,7 +3495,9 @@ function GameSurfaceComponent({
     event.preventDefault();
     event.stopPropagation();
     const dx = event.clientX - storyboardViewerResizeRef.current.startX;
-    setStoryboardViewerWidth(clampStoryboardViewerWidth(storyboardViewerResizeRef.current.startWidth + dx));
+    const nextWidth = clampStoryboardViewerWidth(storyboardViewerResizeRef.current.startWidth + dx);
+    setStoryboardViewerWidth(nextWidth);
+    setStoryboardViewerPosition((pos) => clampStoryboardViewerPosition(pos, nextWidth));
   }, []);
   const handleStoryboardViewerResizeEnd = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     storyboardViewerResizeRef.current = null;
@@ -9279,10 +9370,19 @@ function GameSurfaceComponent({
 
     return (
       <div
-        className="group pointer-events-auto absolute left-1/2 top-[4.75rem] z-30 -translate-x-1/2 select-none sm:left-auto sm:right-4 sm:top-[4.5rem] sm:translate-x-0"
-        style={{ width: storyboardViewerWidth, maxWidth: "calc(100vw - 1.5rem)" }}
+        className="group pointer-events-auto fixed z-[60] cursor-grab select-none touch-none active:cursor-grabbing"
+        style={{
+          left: storyboardViewerPosition.x,
+          top: storyboardViewerPosition.y,
+          width: storyboardViewerWidth,
+          maxWidth: "calc(100vw - 1.5rem)",
+        }}
         onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
+        onPointerDown={handleStoryboardViewerDragStart}
+        onPointerMove={handleStoryboardViewerDragMove}
+        onPointerUp={handleStoryboardViewerDragEnd}
+        onPointerCancel={handleStoryboardViewerDragEnd}
+        aria-label="Storyboard viewer. Drag to move."
       >
         <div className="relative">
           <button
@@ -9304,7 +9404,11 @@ function GameSurfaceComponent({
           </button>
           <div className="overflow-hidden rounded-xl border border-white/15 bg-black/75 shadow-2xl backdrop-blur-md">
             <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
-              <div className="flex min-w-0 items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-white/75">
+              <div
+                className="flex min-w-0 cursor-grab items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-white/75 active:cursor-grabbing"
+                aria-label="Drag storyboard viewer"
+              >
+                <GripHorizontal size={13} className="shrink-0 text-white/45" />
                 <PanelsTopLeft size={13} className="shrink-0 text-[var(--primary)]" />
                 <span className="truncate">Storyboard</span>
               </div>
@@ -9325,13 +9429,15 @@ function GameSurfaceComponent({
                 playsInline
                 onPlay={() => setStoryboardViewerPlaying(true)}
                 onPause={() => setStoryboardViewerPlaying(false)}
-                className="aspect-video w-full bg-black object-cover"
+                className="aspect-video w-full touch-auto cursor-auto bg-black object-cover"
+                data-storyboard-viewer-no-drag
               />
             ) : frame?.image ? (
               <img
                 src={frame.image.url}
                 alt={frame.title || `Storyboard keyframe ${frame.index + 1}`}
                 className="aspect-video w-full bg-black object-cover"
+                draggable={false}
               />
             ) : (
               <div className="flex aspect-video w-full items-center justify-center gap-2 bg-black/45 text-xs text-white/55">
@@ -9373,7 +9479,9 @@ function GameSurfaceComponent({
                     onClick={() =>
                       setStoryboardViewerSize((size) => {
                         const nextSize = nextStoryboardViewerSize(size);
-                        setStoryboardViewerWidth(getStoryboardViewerPresetWidth(nextSize));
+                        const nextWidth = getStoryboardViewerPresetWidth(nextSize);
+                        setStoryboardViewerWidth(nextWidth);
+                        setStoryboardViewerPosition((pos) => clampStoryboardViewerPosition(pos, nextWidth));
                         return nextSize;
                       })
                     }

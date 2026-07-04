@@ -9276,12 +9276,18 @@ export async function gameRoutes(app: FastifyInstance) {
         }
       }
 
-      let imageFailures = 0;
-      let generatedImages = 0;
-      let videoFailures = 0;
-      let generatedVideos = 0;
-      for (const frame of await storyboards.listKeyframes(storyboardRow.id)) {
-        if (storyboardAbortSignal.aborted) break;
+      const frameRows = await storyboards.listKeyframes(storyboardRow.id);
+      type StoryboardFrameRenderResult = {
+        generatedImage: boolean;
+        generatedVideo: boolean;
+        imageFailure: boolean;
+        videoFailure: boolean;
+      };
+      const renderStoryboardFrame = async (frame: (typeof frameRows)[number]): Promise<StoryboardFrameRenderResult> => {
+        if (storyboardAbortSignal.aborted) {
+          await storyboards.updateKeyframe(frame.id, { status: "failed", error: "Storyboard generation was cancelled." });
+          return { generatedImage: false, generatedVideo: false, imageFailure: true, videoFailure: false };
+        }
         await storyboards.updateKeyframe(frame.id, { status: "rendering_image", error: null });
         const plannedFrame = plan.keyframes[frame.index] ?? plan.keyframes[0]!;
         const illustration: SceneIllustrationRequest = {
@@ -9348,7 +9354,6 @@ export async function gameRoutes(app: FastifyInstance) {
             prompt: sentIllustrationPrompt,
           });
           if (!galleryImage) throw new Error("Storyboard keyframe image could not be saved to gallery.");
-          generatedImages += 1;
           await storyboards.updateKeyframe(frame.id, { chatImageId: galleryImage.id, status: "image_complete" });
 
           if (videoRuntime) {
@@ -9390,22 +9395,28 @@ export async function gameRoutes(app: FastifyInstance) {
                 aspectRatio: plannedFrame.aspectRatio,
               });
               if (!videoRow) throw new Error("Storyboard video metadata could not be saved.");
-              generatedVideos += 1;
               await storyboards.updateKeyframe(frame.id, { sceneVideoId: videoRow.id, status: "complete" });
+              return { generatedImage: true, generatedVideo: true, imageFailure: false, videoFailure: false };
             } catch (err) {
-              videoFailures += 1;
               const message = err instanceof Error ? err.message : "Storyboard keyframe video generation failed";
               logger.warn(err, "[game/storyboard] video generation failed for frame %s", frame.id);
               await storyboards.updateKeyframe(frame.id, { status: "image_complete", error: message });
+              return { generatedImage: true, generatedVideo: false, imageFailure: false, videoFailure: true };
             }
           }
+          return { generatedImage: true, generatedVideo: false, imageFailure: false, videoFailure: false };
         } catch (err) {
-          imageFailures += 1;
           const message = err instanceof Error ? err.message : "Storyboard keyframe image generation failed";
           logger.warn(err, "[game/storyboard] image generation failed for frame %s", frame.id);
           await storyboards.updateKeyframe(frame.id, { status: "failed", error: message });
+          return { generatedImage: false, generatedVideo: false, imageFailure: true, videoFailure: false };
         }
-      }
+      };
+      const frameResults = await Promise.all(frameRows.map(renderStoryboardFrame));
+      const imageFailures = frameResults.filter((result) => result.imageFailure).length;
+      const generatedImages = frameResults.filter((result) => result.generatedImage).length;
+      const videoFailures = frameResults.filter((result) => result.videoFailure).length;
+      const generatedVideos = frameResults.filter((result) => result.generatedVideo).length;
 
       const finalStatus: GameStoryboardStatus =
         generatedImages === 0
