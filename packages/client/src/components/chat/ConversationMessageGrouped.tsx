@@ -10,6 +10,7 @@ import {
   ConversationMessageAttachments,
   ConversationMessageTranslation,
   ConversationMessageSwipes,
+  IMAGE_URL_RE,
   nameColorStyle,
   formatTimestamp,
   type MessageRenderContext,
@@ -105,6 +106,11 @@ export function ConversationMessageGrouped({
     "data-card-css": message.characterId ?? undefined,
     "data-grouped": isGrouped || undefined,
   };
+  const hasTranslationContent = Boolean(translatedText || isTranslating);
+  const hasAttachmentContent = (extra.attachments?.length ?? 0) > 0 && !IMAGE_URL_RE.test(renderedContent.trim());
+  const hasSwipeContent = !hideActions && (hasSwipes || Boolean(canRegenerate && onRegenerate));
+  const hasTrailingContent =
+    isStreaming || (!isHiddenCollapsed && (hasTranslationContent || hasAttachmentContent || hasSwipeContent));
 
   return (
     <div
@@ -209,6 +215,7 @@ export function ConversationMessageGrouped({
           }
 
           if (isBubbleStyle) {
+            if (!segHasText) return null;
             return (
               <Fragment key={i}>
                 <div
@@ -362,7 +369,7 @@ export function ConversationMessageGrouped({
           hover action bar stays OUTSIDE the wrapper: it's chrome (like the chip
           rows), and its absolute positioning must keep resolving against the
           relative block root even if a theme makes the wrapper positioned. */}
-      {(isStreaming || !isHiddenCollapsed) && (
+      {hasTrailingContent && (
         <div {...cardCssProps}>
           {/* Streaming cursor */}
           {isStreaming && (
