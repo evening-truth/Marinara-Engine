@@ -54,6 +54,8 @@ interface ChatGalleryProps {
   onGenerateBackground?: () => void | Promise<void>;
   /** Generate a storyboard for the latest completed Game Mode GM turn. */
   onGenerateStoryboard?: () => void | Promise<void>;
+  /** Show the latest Game Mode storyboard viewer. */
+  onViewStoryboard?: () => void;
   /** Generate a scene video from the latest illustration. */
   onGenerateVideo?: () => void | Promise<void>;
   /** Generate a scene video from a specific gallery illustration. */
@@ -82,6 +84,7 @@ export function ChatGallery({
   onIllustrate,
   onGenerateBackground,
   onGenerateStoryboard,
+  onViewStoryboard,
   onGenerateVideo,
   onAnimateImage,
 }: ChatGalleryProps) {
@@ -348,7 +351,9 @@ export function ChatGallery({
                 ) : (
                   <PanelsTopLeft size="1rem" className="shrink-0" />
                 )}
-                <span className="min-w-0 truncate">{isGeneratingStoryboard ? "Generating..." : "Storyboard"}</span>
+                <span className="min-w-0 truncate">
+                  {isGeneratingStoryboard ? "Creating..." : "Create storyboard"}
+                </span>
               </button>
             )}
             {onGenerateVideo && (
@@ -410,6 +415,17 @@ export function ChatGallery({
           >
             {isFollowingLatest ? <EyeOff size="1rem" /> : <Eye size="1rem" />}
             {isFollowingLatest ? "Following latest" : "View latest"}
+          </button>
+        )}
+
+        {onViewStoryboard && (
+          <button
+            type="button"
+            onClick={onViewStoryboard}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[var(--secondary)] px-4 py-3 text-xs font-medium text-[var(--foreground)] transition-all hover:bg-[var(--accent)]"
+          >
+            <PanelsTopLeft size="1rem" />
+            View storyboard
           </button>
         )}
 

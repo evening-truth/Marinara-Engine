@@ -27,6 +27,8 @@ interface ChatGalleryDrawerProps {
   onGenerateBackground?: () => void | Promise<void>;
   /** Generate a storyboard for the latest completed Game Mode GM turn. */
   onGenerateStoryboard?: () => void | Promise<void>;
+  /** Show the latest Game Mode storyboard viewer. */
+  onViewStoryboard?: () => void;
   /** Generate a scene video from the latest illustration. */
   onGenerateVideo?: () => void | Promise<void>;
   /** Generate a scene video from a specific gallery illustration. */
@@ -41,6 +43,7 @@ export function ChatGalleryDrawer({
   onIllustrate,
   onGenerateBackground,
   onGenerateStoryboard,
+  onViewStoryboard,
   onGenerateVideo,
   onAnimateImage,
 }: ChatGalleryDrawerProps) {
@@ -101,6 +104,7 @@ export function ChatGalleryDrawer({
             mode={chat.mode}
             onIllustrate={onIllustrate}
             onGenerateStoryboard={onGenerateStoryboard}
+            onViewStoryboard={onViewStoryboard}
             onGenerateVideo={onGenerateVideo}
             onAnimateImage={onAnimateImage}
             onGenerateBackground={onGenerateBackground}

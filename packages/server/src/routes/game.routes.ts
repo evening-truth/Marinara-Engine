@@ -2322,7 +2322,8 @@ const GAME_SCENE_VIDEO_GENERATION_TIMEOUT_MS = 31 * 60 * 1000;
 const GAME_ILLUSTRATION_SUMMARY_TIMEOUT_MS = 60 * 1000;
 const GAME_STORYBOARD_DIRECTOR_TIMEOUT_MS = 3 * 60 * 1000;
 const GAME_ASSET_PORTRAIT_CONCURRENCY = 2;
-const GAME_STORYBOARD_FRAME_CONCURRENCY = 2;
+const GAME_STORYBOARD_IMAGE_FRAME_CONCURRENCY = 4;
+const GAME_STORYBOARD_VIDEO_FRAME_CONCURRENCY = 2;
 const gameAssetGenerationLocks = new Map<string, Promise<void>>();
 
 class GameGenerationTimeoutError extends Error {
@@ -4329,6 +4330,10 @@ async function buildStoryboardDirectorMessages(args: {
     latestState: args.latestState,
   });
   const sourceSectionsBlock = buildStoryboardSectionsBlock(args.sections);
+  const sourceNarrationBlock =
+    args.sections.length > 0
+      ? "<gm_turn_narration>\nUse the ordered <turn_sections> block above as the full GM turn narration source.\n</gm_turn_narration>"
+      : `<gm_turn_narration>\n${args.sourceNarration}\n</gm_turn_narration>`;
   const systemPrompt = await loadPrompt(args.promptOverridesStorage, GAME_STORYBOARD_DIRECTOR, {
     gameContextBlock,
     sourceSectionsBlock,
@@ -4346,7 +4351,7 @@ async function buildStoryboardDirectorMessages(args: {
         content: [
           gameContextBlock,
           sourceSectionsBlock,
-          `<gm_turn_narration>\n${args.sourceNarration}\n</gm_turn_narration>`,
+          sourceNarrationBlock,
           [
             "Create the storyboard JSON now.",
             `Target keyframes: ${args.keyframeCount}.`,
@@ -9460,7 +9465,10 @@ export async function gameRoutes(app: FastifyInstance) {
           frameResults[index] = await renderStoryboardFrame(frame);
         }
       };
-      const frameWorkerCount = Math.min(GAME_STORYBOARD_FRAME_CONCURRENCY, frameRows.length);
+      const frameWorkerLimit = videoRuntime
+        ? GAME_STORYBOARD_VIDEO_FRAME_CONCURRENCY
+        : GAME_STORYBOARD_IMAGE_FRAME_CONCURRENCY;
+      const frameWorkerCount = Math.min(frameWorkerLimit, frameRows.length);
       await Promise.all(Array.from({ length: frameWorkerCount }, () => runFrameWorker()));
       const imageFailures = frameResults.filter((result) => result.imageFailure).length;
       const generatedImages = frameResults.filter((result) => result.generatedImage).length;

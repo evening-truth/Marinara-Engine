@@ -3433,6 +3433,10 @@ function GameSurfaceComponent({
     setStoryboardViewerDismissedKey(null);
     setStoryboardViewerPosition((pos) => clampStoryboardViewerPosition(pos, storyboardViewerWidth));
   }, [storyboardViewerWidth]);
+  const handleViewStoryboardFromGallery = useCallback(() => {
+    handleReopenStoryboardViewer();
+    handleCloseGalleryPanel();
+  }, [handleCloseGalleryPanel, handleReopenStoryboardViewer]);
   useEffect(() => {
     const video = storyboardViewerVideoRef.current;
     if (!video) return;
@@ -10772,6 +10776,9 @@ function GameSurfaceComponent({
                   anchor={galleryAnchor}
                   onIllustrate={handleManualSceneIllustration}
                   onGenerateStoryboard={handleGenerateTurnStoryboard}
+                  onViewStoryboard={
+                    latestTurnStoryboard || storyboardGenerating ? handleViewStoryboardFromGallery : undefined
+                  }
                   onGenerateVideo={handleGenerateSceneVideo}
                   onAnimateImage={(image) => handleGenerateSceneVideo({ galleryImageId: image.id })}
                   onGenerateBackground={handleManualSceneBackground}
