@@ -251,7 +251,7 @@ function nextStoryboardViewerSize(size: StoryboardViewerSize): StoryboardViewerS
 function clampStoryboardViewerWidth(width: number): number {
   const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
   const minWidth = viewportWidth < 640 ? 180 : 240;
-  const maxWidth = viewportWidth < 640 ? viewportWidth - 24 : Math.min(680, viewportWidth - 32);
+  const maxWidth = viewportWidth - 24;
   return Math.max(minWidth, Math.min(width, Math.max(minWidth, maxWidth)));
 }
 
