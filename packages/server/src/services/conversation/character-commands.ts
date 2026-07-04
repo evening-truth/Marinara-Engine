@@ -408,7 +408,11 @@ function parseReactBody(body: string): { emoji: string; targetCharacter?: string
     const toMatch = suffix.match(/^to\s+(.+)$/i);
     if (toMatch) {
       let target = toMatch[1]!.trim();
-      if (target.startsWith('"') && target.endsWith('"') && target.length >= 2) target = target.slice(1, -1).trim();
+      if (target.startsWith('"')) {
+        // Take the quoted name, tolerating junk after (or a missing) closing quote.
+        const close = target.indexOf('"', 1);
+        target = (close > 0 ? target.slice(1, close) : target.slice(1)).trim();
+      }
       return target ? { emoji, targetCharacter: target } : { emoji };
     }
     // No recognizable target marker after a bare token — keep the old grammar's

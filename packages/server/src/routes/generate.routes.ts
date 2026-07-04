@@ -1408,15 +1408,43 @@ function annotateContentWithReactions(
       const g = clientGroups[i]!;
       if (isAttributableGroup(g) && normalizeTextForMatch(g.speaker!) === norm) ordinal++;
     }
-    const containsMarker = (g: GroupedSegment) => g.lines.some((chunk) => chunk.includes(marker));
+    // Whole-line equality, not substring: the marker line quoted inside another
+    // part (command args, a longer sentence) must not count as that part.
+    const hasMarkerLine = (g: GroupedSegment) =>
+      g.lines.some((chunk) => chunk.split("\n").some((line) => line.trim() === marker));
     const ordinalPick = sameSpeaker[ordinal];
-    if (ordinalPick && containsMarker(ordinalPick)) return ordinalPick;
-    return sameSpeaker.find(containsMarker) ?? null;
+    if (ordinalPick && hasMarkerLine(ordinalPick)) return ordinalPick;
+    // Several parts can repeat the marker line — prefer the one nearest the
+    // expected ordinal instead of the first hit.
+    let best: GroupedSegment | null = null;
+    let bestDistance = Infinity;
+    for (let ci = 0; ci < sameSpeaker.length; ci++) {
+      const candidate = sameSpeaker[ci]!;
+      if (!hasMarkerLine(candidate)) continue;
+      const distance = Math.abs(ci - ordinal);
+      if (distance < bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+    return best;
   };
 
   type ResolvedNote =
     | { kind: "inline"; phrase: string; speakerNorm: string; group: GroupedSegment }
-    | { kind: "end"; phrase: string; speakerNorm: string | null; text: string };
+    | {
+        kind: "end";
+        phrase: string;
+        speakerNorm: string | null;
+        text: string;
+        /**
+         * True for the speaker-only stale-index tier — the shape a cross-swipe
+         * twin of an inlined reaction takes, safe to collapse into the inline
+         * note. Quoted-tier notes are client-resolved distinct reactions (the
+         * excerpt disambiguates) and must never be suppressed.
+         */
+        staleTwinShape: boolean;
+      };
   const notes: ResolvedNote[] = [];
   for (const entry of reactions as Array<{
     emoji?: unknown;
@@ -1466,6 +1494,7 @@ function annotateContentWithReactions(
           phrase,
           speakerNorm: segSpeakerNorm!,
           text: `${phrase} to ${canonical}'s part ("${excerptSegmentText(seg!.lines)}")`,
+          staleTwinShape: false,
         });
         continue;
       }
@@ -1475,11 +1504,17 @@ function annotateContentWithReactions(
       );
       const canonical = speakerGroup ? knownSpeakersByNorm.get(wanted) : undefined;
       if (canonical) {
-        notes.push({ kind: "end", phrase, speakerNorm: wanted, text: `${phrase} to ${canonical}'s part` });
+        notes.push({
+          kind: "end",
+          phrase,
+          speakerNorm: wanted,
+          text: `${phrase} to ${canonical}'s part`,
+          staleTwinShape: true,
+        });
         continue;
       }
     }
-    notes.push({ kind: "end", phrase, speakerNorm: null, text: phrase });
+    notes.push({ kind: "end", phrase, speakerNorm: null, text: phrase, staleTwinShape: false });
   }
 
   const inlineByGroup = new Map<GroupedSegment, string[]>();
@@ -1496,7 +1531,14 @@ function annotateContentWithReactions(
     if (note.kind !== "end") continue;
     // A stale cross-swipe twin of an inlined reaction (same wording, same target
     // speaker) would double-report it — the inline note already covers it.
-    if (note.speakerNorm !== null && inlineKeys.has(`${note.phrase}\u0000${note.speakerNorm}`)) continue;
+    // Quoted-tier notes are distinct client-resolved reactions and always stay.
+    if (
+      note.staleTwinShape &&
+      note.speakerNorm !== null &&
+      inlineKeys.has(`${note.phrase}\u0000${note.speakerNorm}`)
+    ) {
+      continue;
+    }
     endParts.push(note.text);
   }
 
@@ -3066,8 +3108,15 @@ export async function generateRoutes(app: FastifyInstance) {
                 // Malformed character data — skip; that speaker just won't be attributable.
               }
             }
+            // Pair prompt messages with their stored rows by id (index pairing
+            // can misalign on a follow-up pass after a mid-delay history refresh).
+            const rawMessagesById = new Map<string, any>();
+            for (const m of chatMessages as Array<{ id?: unknown }>) {
+              if (typeof m.id === "string") rawMessagesById.set(m.id, m);
+            }
             for (let i = 0; i < finalMessages.length; i++) {
-              const raw = chatMessages[i];
+              const promptMsgId = (finalMessages[i] as { id?: unknown }).id;
+              const raw = typeof promptMsgId === "string" ? rawMessagesById.get(promptMsgId) : undefined;
               if (!raw) continue;
               // Segment indexes resolve against the DISPLAY shape of the stored
               // content (shared stripLeadingMessageTimestamps — exactly what the
@@ -10479,11 +10528,14 @@ export async function generateRoutes(app: FastifyInstance) {
                           for (const m of recent) {
                             if (typeof m.id !== "string" || m.role === "user") continue;
                             // Hidden command-anchor rows never render — a reaction
-                            // written there would be invisible. Keep walking.
+                            // written there would be invisible. Keep walking. An
+                            // empty-text message WITH attachments (image-only reply)
+                            // does render, so it stays a valid whole-message target.
                             const mExtra = parseExtra(m.extra) as Record<string, unknown>;
                             if (mExtra.hiddenFromUser === true || mExtra.commandOnly === true) continue;
                             const contentStr = typeof m.content === "string" ? m.content : String(m.content ?? "");
-                            if (!contentStr.trim()) continue;
+                            const hasAttachments = Array.isArray(mExtra.attachments) && mExtra.attachments.length > 0;
+                            if (!contentStr.trim() && !hasAttachments) continue;
                             if (m.characterId === targetChar.id) {
                               resolved = { id: m.id, target: await lastPartBy(m.content, m.characterId) };
                               break;
