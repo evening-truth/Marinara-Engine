@@ -105,6 +105,7 @@ import { HomeProfessorMariChat } from "./HomeProfessorMariChat";
 import { HomeAchievements } from "./HomeAchievements";
 import { NewChatConnectionGate } from "./NewChatConnectionGate";
 import { ChatCommonOverlays, preloadChatSettingsDrawer, type ChatSettingsInitialSection } from "./ChatCommonOverlays";
+import { PendingTypingDots } from "./PendingTypingDots";
 import { CreatorNotesCssInjector, type CardCssMode } from "./CreatorNotesCssInjector";
 import type { ChatModeFilter } from "../../lib/card-css";
 import { ImagePromptReviewModal, type ImagePromptOverride, type ImagePromptReviewItem } from "../ui/ImagePromptReviewModal";
@@ -2877,9 +2878,7 @@ function TypingIndicator() {
   return (
     <div className="flex items-center gap-1 px-4 py-3">
       <div className="flex items-center gap-1 rounded-xl bg-[var(--secondary)] px-4 py-2.5">
-        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:0ms]" />
-        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:150ms]" />
-        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--muted-foreground)]/60 [animation-delay:300ms]" />
+        <PendingTypingDots dotClassName="bg-[var(--muted-foreground)]/60" />
       </div>
     </div>
   );
