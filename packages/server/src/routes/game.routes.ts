@@ -1057,6 +1057,8 @@ const gameSetupConfigSchema = z.object({
   enableSpriteGeneration: z.boolean().optional(),
   imageConnectionId: z.string().optional(),
   videoConnectionId: z.string().optional(),
+  gameStoryboardAutoIllustrationsEnabled: z.boolean().optional(),
+  gameStoryboardAutoGenerationEnabled: z.boolean().optional(),
   artStylePrompt: z.string().max(500).optional(),
   imageStyleProfileId: z.string().nullable().optional(),
   activeLorebookIds: z.array(z.string()).optional(),
@@ -4849,8 +4851,23 @@ export async function gameRoutes(app: FastifyInstance) {
     const customHudWidgets = sanitizeGameHudWidgets(parsedCreateGameInput.setupConfig.customHudWidgets);
     const gameSystemPrompt = parsedCreateGameInput.setupConfig.gameSystemPrompt?.trim() || null;
     const gameSpecialInstructions = parsedCreateGameInput.setupConfig.gameSpecialInstructions?.trim() || null;
+    const visualGenerationEnabled =
+      parsedCreateGameInput.setupConfig.enableSpriteGeneration === true ||
+      parsedCreateGameInput.setupConfig.gameStoryboardAutoIllustrationsEnabled === true ||
+      parsedCreateGameInput.setupConfig.gameStoryboardAutoGenerationEnabled === true;
+    const storyboardIllustrationsEnabled =
+      visualGenerationEnabled &&
+      (parsedCreateGameInput.setupConfig.gameStoryboardAutoIllustrationsEnabled === true ||
+        parsedCreateGameInput.setupConfig.gameStoryboardAutoGenerationEnabled === true);
+    const storyboardAnimationsEnabled =
+      storyboardIllustrationsEnabled &&
+      parsedCreateGameInput.setupConfig.gameStoryboardAutoGenerationEnabled === true &&
+      !!parsedCreateGameInput.setupConfig.videoConnectionId;
     const setupConfig: GameSetupConfig = {
       ...parsedCreateGameInput.setupConfig,
+      enableSpriteGeneration: visualGenerationEnabled || undefined,
+      gameStoryboardAutoIllustrationsEnabled: storyboardIllustrationsEnabled || undefined,
+      gameStoryboardAutoGenerationEnabled: storyboardAnimationsEnabled || undefined,
       enableCustomWidgets:
         parsedCreateGameInput.setupConfig.enableCustomWidgets !== false || customHudWidgets.length > 0,
       customHudWidgets: customHudWidgets.length > 0 ? customHudWidgets : undefined,
@@ -4939,6 +4956,8 @@ export async function gameRoutes(app: FastifyInstance) {
       enableSpriteGeneration: setupConfig.enableSpriteGeneration || false,
       gameImageConnectionId: setupConfig.imageConnectionId || null,
       gameVideoConnectionId: setupConfig.videoConnectionId || null,
+      gameStoryboardAutoIllustrationsEnabled: setupConfig.gameStoryboardAutoIllustrationsEnabled === true,
+      gameStoryboardAutoGenerationEnabled: setupConfig.gameStoryboardAutoGenerationEnabled === true,
       gameLastSceneVideoId: null,
       activeLorebookIds: setupConfig.activeLorebookIds || [],
       enableCustomWidgets: setupConfig.enableCustomWidgets !== false,

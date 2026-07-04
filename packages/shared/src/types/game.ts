@@ -181,6 +181,10 @@ export interface GameSetupConfig {
   imageConnectionId?: string;
   /** Connection ID for video generation (animated scene clips from generated illustrations). */
   videoConnectionId?: string;
+  /** Automatically create storyboard keyframe illustrations after completed GM turns. */
+  gameStoryboardAutoIllustrationsEnabled?: boolean;
+  /** Automatically create storyboard keyframe videos after completed GM turns. */
+  gameStoryboardAutoGenerationEnabled?: boolean;
   /** Unified art style prompt applied to all generated images (auto-generated at setup) */
   artStylePrompt?: string;
   /** Optional image style profile applied to generated images in this game. */
