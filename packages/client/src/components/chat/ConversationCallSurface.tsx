@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type ChangeEvent,
   type KeyboardEvent,
+  type SyntheticEvent,
 } from "react";
 import {
   Mic,
@@ -414,6 +415,17 @@ function readCallCustomClipExtra(message: ConversationCallMessage): Conversation
   return { characterId, clipId, label, prompt };
 }
 
+function forceSilentCallVideo(video: HTMLVideoElement | null) {
+  if (!video) return;
+  if (!video.defaultMuted) video.defaultMuted = true;
+  if (!video.muted) video.muted = true;
+  if (video.volume !== 0) video.volume = 0;
+}
+
+function keepCallVideoSilent(event: SyntheticEvent<HTMLVideoElement>) {
+  forceSilentCallVideo(event.currentTarget);
+}
+
 function messageLabel(message: ConversationCallMessage, participants: Participant[]) {
   if (message.participantKind === "user") return participants.find((p) => p.kind === "user")?.name ?? "You";
   return participants.find((p) => p.characterId === message.characterId)?.name ?? "Character";
@@ -586,7 +598,16 @@ function CallCustomClipPreview({ clip }: { clip: ConversationCallCustomClipExtra
   if (customClip?.status === "ready" && customClip.url) {
     return (
       <div className="mt-2 max-w-xl overflow-hidden rounded-lg border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--marinara-chat-chrome-panel-bg)]">
-        <video src={customClip.url} controls playsInline className="max-h-80 w-full bg-black object-contain" />
+        <video
+          src={customClip.url}
+          controls
+          muted
+          playsInline
+          className="max-h-80 w-full bg-black object-contain"
+          onLoadedMetadata={keepCallVideoSilent}
+          onPlay={keepCallVideoSilent}
+          onVolumeChange={keepCallVideoSilent}
+        />
         <div className="border-t border-[var(--marinara-chat-chrome-panel-border)] px-2.5 py-2">
           <div className="text-xs font-semibold text-[var(--marinara-chat-chrome-panel-title)]">{title}</div>
           {description ? (
@@ -743,6 +764,9 @@ function ParticipantTile({
           playsInline
           loop={videoLoops}
           className="absolute inset-0 h-full w-full object-cover"
+          onLoadedMetadata={keepCallVideoSilent}
+          onPlay={keepCallVideoSilent}
+          onVolumeChange={keepCallVideoSilent}
           onEnded={() => {
             if (videoPlayback?.followKind && videoPlayback.voiceKey) {
               onVideoEmotionEnded(participant.id, videoPlayback.voiceKey);

@@ -46,6 +46,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 ### Fixed
 
 - Added delete controls to Character and Persona Gallery Clips, including call-video resets plus custom call clip and scene/game clip cleanup from the originating stored media.
+- Forced generated Conversation Call character video clips to play silently in calls and Character Gallery previews so provider-generated audio tracks cannot overlap Marinara's TTS playback.
 - Fixed lorebook entry rows collapsing when editing the entry title by making row-header inline controls opt out of the expand/collapse click handler (#3244).
 - Capped NanoGPT image-generation reference payloads at three images so Qwen Image/edit-capable NanoGPT models only receive the number of references those services accept.
 - Fixed Windows dark-mode contrast for prompt/chat preset dropdown option menus so preset choices no longer render as pale text on a white native popup (#3237).

@@ -3,7 +3,7 @@
 // Replaces the chat area when editing a character.
 // Sections: Metadata, Card, Lorebook, Advanced
 // ──────────────────────────────────────────────
-import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useRef, useCallback, type ReactNode, type SyntheticEvent } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -1907,6 +1907,21 @@ function characterGalleryClipDeleteMessage(clip: CharacterGalleryClip) {
   return "Delete this clip everywhere it appears in Marinara? This cannot be undone.";
 }
 
+function isCharacterCallVideoClip(clip: CharacterGalleryClip) {
+  return clip.source === "conversation-call" || clip.source === "conversation-call-custom";
+}
+
+function forceSilentCharacterCallClipVideo(video: HTMLVideoElement | null) {
+  if (!video) return;
+  if (!video.defaultMuted) video.defaultMuted = true;
+  if (!video.muted) video.muted = true;
+  if (video.volume !== 0) video.volume = 0;
+}
+
+function keepCharacterCallClipVideoSilent(event: SyntheticEvent<HTMLVideoElement>) {
+  forceSilentCharacterCallClipVideo(event.currentTarget);
+}
+
 function CharacterGalleryTab({ characterId, characterName }: { characterId: string; characterName?: string }) {
   const [mediaTab, setMediaTab] = useState<CharacterGalleryMediaTab>("images");
   const { data: images, isLoading } = useCharacterGalleryImages(characterId);
@@ -2212,6 +2227,7 @@ function CharacterClipCard({
   const dateLabel = formatClipDate(clip.updatedAt ?? clip.createdAt);
   const isReady = clip.status === "ready" && Boolean(clip.url);
   const canDelete = canDeleteCharacterGalleryClip(clip);
+  const isCallVideoClip = isCharacterCallVideoClip(clip);
   const clipDetails = [clip.durationSeconds ? `${clip.durationSeconds}s` : null, clip.aspectRatio]
     .filter(Boolean)
     .join(" · ");
@@ -2220,7 +2236,16 @@ function CharacterClipCard({
     <div className="group overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] transition-all hover:border-[var(--primary)]/30 hover:shadow-md">
       <div className="relative aspect-video bg-[var(--secondary)]">
         {isReady && clip.url ? (
-          <video src={clip.url} controls preload="metadata" className="h-full w-full bg-black object-contain" />
+          <video
+            src={clip.url}
+            controls
+            muted={isCallVideoClip}
+            preload="metadata"
+            className="h-full w-full bg-black object-contain"
+            onLoadedMetadata={isCallVideoClip ? keepCharacterCallClipVideoSilent : undefined}
+            onPlay={isCallVideoClip ? keepCharacterCallClipVideoSilent : undefined}
+            onVolumeChange={isCallVideoClip ? keepCharacterCallClipVideoSilent : undefined}
+          />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-[var(--muted-foreground)]">
             {clip.status === "generating" ? (
