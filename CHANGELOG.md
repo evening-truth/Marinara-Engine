@@ -13,6 +13,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Fixed group-chat character reactions always being credited to the first character in the chat: commands placed above the first `Name:` line of a merged reply now attribute to the speaker whose section they open (leaked `[HH:MM]` timestamps no longer skew this), merged group chats now instruct models to write the `[react:]` tag inside the reacting character's own section — and that several characters may react in the same reply — and a react aimed at the user's persona name (or "User") explicitly targets the user's latest message (#3220).
 - Hardened Conversation reaction processing against stalls and junk: the shared timestamp strip is no longer quadratic on pathological whitespace runs (~7s → <1ms at 100KB), each `[react:]` command persists with far fewer storage scans so multi-react group replies no longer block generations for seconds on large installs, malformed quote-bearing react tags stay visible instead of becoming junk text chips, and per-segment add-reaction buttons mount their emoji picker only while open.
 - Prevented Echo Chamber from triggering on `/continue` generations; it now stays limited to fresh user messages rather than assistant continuation rewrites.
+- Fixed Echo Chamber phase overrides so changing it to Post-Processing in the agent editor is respected at runtime and no longer reset back to its built-in Parallel default by migrations.
 
 ## [2.1.0]
 
