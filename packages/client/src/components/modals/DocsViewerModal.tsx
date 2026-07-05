@@ -125,7 +125,10 @@ export function DocsViewerModal({
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [pendingScrollTerm, setPendingScrollTerm] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // State (not a plain ref) so effects re-run when the reader actually mounts:
+  // the Modal shell renders null on its first frame while its enter animation
+  // arms, and a cached doc means no later dep change would re-fire them.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const restoreScrollRef = useRef(initialDoc === null && savedPlaceRef.current.doc !== null);
 
   useEffect(() => {
@@ -165,25 +168,67 @@ export function DocsViewerModal({
   // Restore the saved reading position on reopen, or jump to the first
   // occurrence of the search term after opening a doc from search results.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !rendered) return;
+    if (!scrollEl || !rendered) return;
     if (restoreScrollRef.current && selected === savedPlaceRef.current.doc) {
-      el.scrollTop = savedPlaceRef.current.scrollTop;
+      scrollEl.scrollTop = savedPlaceRef.current.scrollTop;
       restoreScrollRef.current = false;
       return;
     }
     if (!pendingScrollTerm) return;
     const term = pendingScrollTerm.toLowerCase();
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(scrollEl, NodeFilter.SHOW_TEXT);
     let node: Node | null;
     while ((node = walker.nextNode())) {
       if (node.textContent?.toLowerCase().includes(term)) {
-        (node.parentElement ?? el).scrollIntoView({ block: "center" });
+        (node.parentElement ?? scrollEl).scrollIntoView({ block: "center" });
         break;
       }
     }
     setPendingScrollTerm(null);
-  }, [rendered, selected, pendingScrollTerm]);
+  }, [scrollEl, rendered, selected, pendingScrollTerm]);
+
+  // Give every rendered code block a Copy button (docs-viewer only — the
+  // markdown renderer is shared with chat, so we augment the committed DOM
+  // here instead of changing it globally). The rendered tree is memoized and
+  // the container remounts per doc, so these nodes are stable until cleanup.
+  useEffect(() => {
+    if (!scrollEl || !rendered) return;
+    const cleanups: (() => void)[] = [];
+    scrollEl.querySelectorAll<HTMLPreElement>("pre.mari-md-codeblock").forEach((block) => {
+      if (block.querySelector(".docs-copy-button")) return;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Copy";
+      button.className =
+        "docs-copy-button absolute right-1.5 top-1.5 rounded-md border border-[var(--border)] bg-[var(--card)]/90 px-1.5 py-0.5 font-sans text-[0.625rem] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]";
+      let resetTimer: ReturnType<typeof setTimeout> | undefined;
+      const onClick = () => {
+        const code = block.querySelector("code")?.textContent ?? "";
+        navigator.clipboard
+          .writeText(code)
+          .then(() => {
+            button.textContent = "Copied!";
+          })
+          .catch(() => {
+            button.textContent = "Copy failed";
+          })
+          .finally(() => {
+            clearTimeout(resetTimer);
+            resetTimer = setTimeout(() => {
+              button.textContent = "Copy";
+            }, 1500);
+          });
+      };
+      button.addEventListener("click", onClick);
+      block.appendChild(button);
+      cleanups.push(() => {
+        clearTimeout(resetTimer);
+        button.removeEventListener("click", onClick);
+        button.remove();
+      });
+    });
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [scrollEl, rendered]);
 
   /** Follow rewritten cross-doc links inside the modal instead of opening a new tab. */
   const handleContentClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -205,7 +250,7 @@ export function DocsViewerModal({
   const searchResults = search?.results ?? [];
 
   return (
-    <Modal open={open} onClose={onClose} title="Documentation" width="max-w-4xl">
+    <Modal open={open} onClose={onClose} title="Documentation" width="max-w-6xl">
       <div className="flex h-[calc(100dvh-5.5rem-max(0.75rem,env(safe-area-inset-top))-max(0.75rem,env(safe-area-inset-bottom)))] min-h-0 gap-3 sm:h-[min(46rem,calc(90dvh-6.5rem))]">
         {/* Guide list / search */}
         <aside
@@ -359,7 +404,7 @@ export function DocsViewerModal({
               </div>
               <div
                 key={selected}
-                ref={scrollRef}
+                ref={setScrollEl}
                 onScroll={(event) => {
                   if (selected) writeSavedPlace({ doc: selected, scrollTop: event.currentTarget.scrollTop });
                 }}
@@ -371,7 +416,7 @@ export function DocsViewerModal({
                   <p className="py-2 text-xs text-[var(--muted-foreground)]">Could not load this guide.</p>
                 ) : (
                   <div
-                    className="mari-message-content whitespace-pre-wrap break-words text-sm text-[var(--foreground)]"
+                    className="mari-message-content whitespace-pre-wrap break-words text-sm text-[var(--foreground)] [&_.mari-md-codeblock-lang]:right-14"
                     onClick={handleContentClick}
                   >
                     {rendered}
