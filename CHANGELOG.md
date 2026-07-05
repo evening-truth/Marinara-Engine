@@ -30,6 +30,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 ### Changed
 
 - Bumped release metadata to v2.1.0 across packages, the PWA manifest, README release pointer, Windows installer sources, Android APK metadata, and the home-page-visible app version.
+- Documented Conversation audio-call setup, Local Whisper download, audio input modes, character-initiated call behavior, and Professor Mari's built-in guidance for the feature.
 - Made Android/Termux update builds use low-memory build wrappers: server builds transpile runtime JS with esbuild, client builds skip memory-heavy typechecking/PWA generation on Android, and the updater builds shared, server, and client sequentially on Android devices (#3156).
 
 ### Fixed
