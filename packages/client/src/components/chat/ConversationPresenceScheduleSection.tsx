@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { CalendarClock, Pencil } from "lucide-react";
 import {
   CONVERSATION_SCHEDULE_DAYS,
@@ -121,8 +121,11 @@ export function ConversationPresenceScheduleSection({
   hasGeneratedSchedules,
   onOpenScheduleEditor,
 }: ConversationPresenceScheduleSectionProps) {
+  const [expanded, setExpanded] = useState(false);
   const dayCount = getScheduledDayCount(schedule);
-  const upcomingBlocks = useMemo(() => getUpcomingScheduleBlocks(schedule, 1), [schedule]);
+  const upcomingBlocks = useMemo(() => getUpcomingScheduleBlocks(schedule, 3), [schedule]);
+  const nextBlock = upcomingBlocks[0];
+  const extraBlocks = upcomingBlocks.slice(1);
   const badge = schedulesEnabled ? (schedule ? "Active" : "Ready") : "Off";
   const summary = getSummaryText(schedulesEnabled, hasGeneratedSchedules, schedule);
 
@@ -149,11 +152,8 @@ export function ConversationPresenceScheduleSection({
               {badge}
             </span>
           </div>
-          <div className="mt-1 text-[0.625rem] text-[var(--muted-foreground)]">
-            {dayCount > 0 ? `${dayCount} day${dayCount === 1 ? "" : "s"} scheduled` : "No schedule"}
-          </div>
           {summary !== (dayCount > 0 ? `${dayCount} day${dayCount === 1 ? "" : "s"} scheduled` : "No schedule") && (
-            <p className="mt-0.5 text-[0.625rem] leading-4 text-[var(--muted-foreground)]/82">{summary}</p>
+            <p className="mt-1 text-[0.625rem] leading-4 text-[var(--muted-foreground)]/82">{summary}</p>
           )}
         </div>
 
@@ -168,26 +168,60 @@ export function ConversationPresenceScheduleSection({
         )}
       </div>
 
-      {upcomingBlocks.length > 0 && (
-        <div className="mt-2">
-          {upcomingBlocks.map((block) => (
-            <button
-              key={`${block.day}-${block.blockIndex}-${block.time}`}
-              type="button"
-              onClick={() => openEditor(block.day)}
-              className="grid w-full min-w-0 grid-cols-[auto_4.75rem_minmax(0,1fr)] items-center gap-2 rounded-md bg-[var(--foreground)]/[0.035] px-2 py-1.5 text-left transition-colors hover:bg-[var(--accent)]/20"
-            >
-              <span className={cn("h-2 w-2 rounded-full", STATUS_COLORS[block.status])} />
-              <span className="text-[0.5625rem] font-medium text-[var(--muted-foreground)]">{dayLabel(block)}</span>
-              <span className="min-w-0 truncate text-[0.625rem] text-[var(--muted-foreground)]/86">
-                <span className="tabular-nums">{formatScheduleTimeRange(block.time)}</span>
-                {" · "}
-                <span>{block.activity}</span>
-              </span>
-            </button>
-          ))}
+      {nextBlock ? (
+        <div className="mt-1.5 space-y-1">
+          <div className="rounded-md bg-[var(--foreground)]/[0.025] px-1.5 py-1">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[0.625rem] text-[var(--muted-foreground)]/86">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_COLORS[nextBlock.status])} />
+                <span className="shrink-0 font-medium text-[var(--muted-foreground)]">Next</span>
+                <span className="shrink-0 text-[var(--muted-foreground)]/55">·</span>
+                <span className="shrink-0 font-medium text-[var(--muted-foreground)]">{dayLabel(nextBlock)}</span>
+                <span className="shrink-0 text-[var(--muted-foreground)]/55">·</span>
+                <span className="min-w-0 truncate tabular-nums">{formatScheduleTimeRange(nextBlock.time)}</span>
+              </div>
+              {extraBlocks.length > 0 && (
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  onClick={() => setExpanded((value) => !value)}
+                  className="rounded px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--foreground)]/70 transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
+                >
+                  {expanded ? "Hide" : `+${extraBlocks.length} more`}
+                </button>
+              )}
+            </div>
+            <div className="mt-0.5 break-words pl-3 text-[0.625rem] leading-4 text-[var(--muted-foreground)]/86">
+              {nextBlock.activity}
+            </div>
+          </div>
+
+          {expanded && extraBlocks.length > 0 && (
+            <div className="space-y-1">
+              {extraBlocks.map((block) => (
+                <button
+                  key={`${block.day}-${block.blockIndex}-${block.time}`}
+                  type="button"
+                  onClick={() => openEditor(block.day)}
+                  className="w-full min-w-0 rounded-md bg-[var(--foreground)]/[0.025] px-1.5 py-1 text-left transition-colors hover:bg-[var(--accent)]/20"
+                >
+                  <div className="flex min-w-0 items-center gap-1.5 text-[0.625rem] text-[var(--muted-foreground)]/82">
+                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_COLORS[block.status])} />
+                    <span className="shrink-0 font-medium">{dayLabel(block)}</span>
+                    <span className="shrink-0 text-[var(--muted-foreground)]/55">·</span>
+                    <span className="min-w-0 truncate tabular-nums">{formatScheduleTimeRange(block.time)}</span>
+                  </div>
+                  <div className="mt-0.5 break-words pl-3 text-[0.625rem] leading-4 text-[var(--muted-foreground)]/82">
+                    {block.activity}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      ) : schedule && schedulesEnabled ? (
+        <div className="mt-1.5 text-[0.625rem] text-[var(--muted-foreground)]/82">No upcoming blocks</div>
+      ) : null}
     </div>
   );
 }
