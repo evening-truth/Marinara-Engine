@@ -274,6 +274,21 @@ function SidecarCard() {
     : speechAvailable
       ? "Not downloaded"
       : "Unavailable on this install";
+  const localModelStatusLabel = isDownloaded
+    ? `${activeModelName ?? "Model"} • ${backendLabel}${nativeToolLabel}${modelSize ? ` • ${formatBytes(modelSize)}` : ""}${
+        status === "starting_server"
+          ? " • Starting"
+          : status === "server_error"
+            ? " • Error"
+            : status === "ready"
+              ? " • Ready"
+              : ""
+      }`
+    : speechModelDownloaded
+      ? speechStatusLabel
+      : speechDownloading
+        ? "Downloading Whisper..."
+        : "Not downloaded";
   const speechUnavailableMessage = describeSpeechRuntimeUnavailable(speechRuntime);
 
   const handleDownloadWhisper = () => {
@@ -299,19 +314,7 @@ function SidecarCard() {
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium">Local Model</div>
-          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">
-            {isDownloaded
-              ? `${activeModelName ?? "Model"} • ${backendLabel}${nativeToolLabel}${modelSize ? ` • ${formatBytes(modelSize)}` : ""}${
-                  status === "starting_server"
-                    ? " • Starting"
-                    : status === "server_error"
-                      ? " • Error"
-                      : status === "ready"
-                        ? " • Ready"
-                        : ""
-                }`
-              : "Not downloaded"}
-          </div>
+          <div className="text-[0.6875rem] text-[var(--muted-foreground)]">{localModelStatusLabel}</div>
         </div>
         <div className="flex items-center gap-1.5">
           <button
