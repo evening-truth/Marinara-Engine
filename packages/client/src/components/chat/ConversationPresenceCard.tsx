@@ -196,7 +196,6 @@ export function ConversationPresenceCard({
   const schedulesEnabled =
     chatMeta.conversationSchedulesEnabled === true ||
     (chatMeta.conversationSchedulesEnabled == null && Object.keys(schedules).length > 0);
-  const hasGeneratedSchedules = Object.keys(schedules).length > 0;
   const statusesQuery = useQuery({
     queryKey: ["conversation-status", chatId],
     queryFn: async ({ signal }) => api.get<StatusResponse>(`/conversation/status/${chatId}`, { signal }),
@@ -350,6 +349,7 @@ export function ConversationPresenceCard({
         .filter((value): value is NonNullable<typeof value> => value !== null),
     [characterMap, chatCharIds, overrides, pendingStatuses, schedules, statusesQuery.data?.statuses],
   );
+  const hasGeneratedSchedules = characters.some((character) => !!character.schedule);
   const lastContactByCharacterId = useMemo(() => {
     const latestByCharacterId: Record<string, string> = {};
 
