@@ -433,7 +433,11 @@ export function CharacterScheduleEditorModal({
         schedule: currentSchedule,
         guidance: generationGuidance,
       });
-      setDraft((current) => ({ ...current, routineSummary: result.summary, routineSummaryGeneratedAt: result.generatedAt }));
+      setDraft((current) => {
+        const nextDraft = { ...current, routineSummary: result.summary, routineSummaryGeneratedAt: result.generatedAt };
+        onSave(characterId, draftToSchedule(nextDraft, schedule));
+        return nextDraft;
+      });
       setSummaryStale(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to generate routine summary");
@@ -529,7 +533,7 @@ export function CharacterScheduleEditorModal({
                 <div className="text-[0.625rem] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">Routine profile</div>
                 <h2 className="mt-1 truncate text-xl font-semibold">{characterName}</h2>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-h-20 flex-col gap-3">
                 <div className="max-w-3xl text-sm leading-6 text-[var(--foreground)]">
                   {draft.routineSummary.trim() ? (
                     <div className="space-y-1.5">
@@ -544,7 +548,7 @@ export function CharacterScheduleEditorModal({
                   type="button"
                   onClick={generateSummary}
                   disabled={isGeneratingSummary || isGeneratingWeek || !!generatingDay}
-                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md bg-[var(--background)] px-3 py-2 text-xs font-semibold ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex shrink-0 items-center justify-center gap-1.5 self-end rounded-md bg-[var(--background)] px-3 py-2 text-xs font-semibold ring-1 ring-[var(--border)] transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isGeneratingSummary ? <Loader2 size="0.75rem" className="animate-spin" /> : <Sparkles size="0.75rem" />}
                   {draft.routineSummary.trim() ? "Refresh summary" : "Generate summary"}
