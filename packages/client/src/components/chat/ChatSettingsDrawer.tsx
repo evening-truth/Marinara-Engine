@@ -3162,7 +3162,7 @@ export function ChatSettingsDrawer({
                     value={chatPresetSelectValue}
                     onChange={(e) => handleSelectPreset(e.target.value)}
                     title="Apply a chat-settings preset to this chat"
-                    className="flex-1 min-w-0 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
+                    className="mari-preset-native-select flex-1 min-w-0 rounded-lg bg-[var(--secondary)] px-3 py-2 text-xs outline-none ring-1 ring-transparent transition-shadow focus:ring-[var(--primary)]/40"
                   >
                     {presetList.length === 0 && <option value="">Loading…</option>}
                     {!appliedChatPreset && presetList.length > 0 && (

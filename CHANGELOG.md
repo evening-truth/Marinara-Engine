@@ -43,6 +43,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Fixed Windows dark-mode contrast for prompt/chat preset dropdown option menus so preset choices no longer render as pale text on a white native popup (#3237).
 - Fixed Conversation call prompt assembly so call output JSON format and command instructions stay attached to the latest call input, adjacent same-role call history messages are merged, older TTS cue tags are stripped from call history, command turns use the same descriptive command guidance as normal Conversation mode, and `[end_call]` waits until prior voice lines finish before ending the call.
 - Fixed Conversation call command execution so hidden commands such as selfies, memories, music, haptics, influences, notes, soundboard actions, character leave, and call end are executed as call actions instead of leaking into the visible call chat.
 - Fixed Conversation call media and UI reliability by keeping speech-only transcripts out of the visible call chat, returning server-resolved character IDs for playback, preserving active calls while navigating elsewhere in Marinara, stacking the call popout with Professor Mari, improving mobile control scaling/participant tiling, and keeping offline characters out of calls.

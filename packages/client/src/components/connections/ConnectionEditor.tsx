@@ -1988,7 +1988,7 @@ export function ConnectionEditor() {
                   setLocalPromptPresetId(e.target.value);
                   markDirty();
                 }}
-                className="w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                className="mari-preset-native-select w-full rounded-xl bg-[var(--secondary)] px-3 py-2.5 text-sm ring-1 ring-[var(--border)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               >
                 <option value="">Use chat&apos;s prompt preset</option>
                 {(allPresets ?? []).map((preset) => (

@@ -1063,6 +1063,36 @@
   color: var(--marinara-chat-chrome-panel-text);
 }
 
+.mari-preset-native-select {
+  color-scheme: dark;
+  background-color: var(--marinara-preset-select-bg, var(--marinara-chat-chrome-panel-bg));
+  color: var(--marinara-preset-select-text, var(--marinara-chat-chrome-panel-text));
+}
+
+[data-theme="light"] .mari-preset-native-select {
+  color-scheme: light;
+}
+
+.mari-preset-native-select option,
+.mari-preset-native-select optgroup {
+  background-color: var(--marinara-preset-select-option-bg, var(--marinara-chat-chrome-panel-bg)) !important;
+  color: var(--marinara-preset-select-option-text, var(--marinara-chat-chrome-panel-text)) !important;
+}
+
+.mari-preset-native-select option:checked {
+  background-color: var(--marinara-preset-select-option-selected-bg, var(--marinara-chat-chrome-accent)) !important;
+  color: var(--marinara-preset-select-option-selected-text, var(--marinara-chat-chrome-button-text-active)) !important;
+}
+
+.mari-editor-legacy-bridge .mari-preset-native-select {
+  --marinara-preset-select-bg: var(--marinara-editor-control-bg);
+  --marinara-preset-select-text: var(--marinara-editor-text);
+  --marinara-preset-select-option-bg: var(--marinara-editor-control-bg);
+  --marinara-preset-select-option-text: var(--marinara-editor-text);
+  --marinara-preset-select-option-selected-bg: var(--marinara-editor-accent);
+  --marinara-preset-select-option-selected-text: var(--marinara-editor-text);
+}
+
 .mari-chat-settings-popover select:disabled,
 .mari-chat-settings-drawer select:disabled {
   color: var(--marinara-chat-chrome-panel-muted);
