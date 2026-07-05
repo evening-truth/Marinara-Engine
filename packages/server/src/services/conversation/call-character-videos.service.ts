@@ -33,6 +33,7 @@ type DiskClip = {
   status?: ConversationCallCharacterVideoClip["status"];
   error?: string | null;
   updatedAt?: string | null;
+  sourceAvatarPath?: string | null;
 };
 
 type DiskCustomClip = {
@@ -206,27 +207,54 @@ async function updateDiskManifest(input: {
   update: (manifest: DiskManifest) => DiskManifest | Promise<DiskManifest>;
 }) {
   return withManifestLock(input.characterId, async () => {
-    const current = await readDiskManifest(input.characterId, input.characterName, input.avatarPath);
+    const current = stampClipSourceAvatarPaths(
+      await readDiskManifest(input.characterId, input.characterName, input.avatarPath),
+    );
     const next = await input.update(current);
     await writeDiskManifest(next);
     return next;
   });
 }
 
+function stampClipSourceAvatarPaths(manifest: DiskManifest): DiskManifest {
+  const clips = { ...manifest.clips };
+  for (const kind of CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS) {
+    const clip = clips[kind];
+    if (clip && !Object.prototype.hasOwnProperty.call(clip, "sourceAvatarPath")) {
+      clips[kind] = { ...clip, sourceAvatarPath: manifest.sourceAvatarPath };
+    }
+  }
+  return { ...manifest, clips };
+}
+
+function isClipReadyForAvatar(manifest: DiskManifest, kind: ConversationCallCharacterVideoClipKind, avatarPath: string | null) {
+  const disk = manifest.clips[kind] ?? {};
+  const clipAvatarPath = Object.prototype.hasOwnProperty.call(disk, "sourceAvatarPath")
+    ? (disk.sourceAvatarPath ?? null)
+    : manifest.sourceAvatarPath;
+  const diskReady = disk.status === "ready" || !disk.status;
+  return diskReady && clipAvatarPath === avatarPath && existsSync(clipPath(manifest.characterId, kind));
+}
+
 function toPublicManifest(
   manifest: DiskManifest,
   activeAvatarPath: string | null,
 ): ConversationCallCharacterVideoManifest {
+  manifest = stampClipSourceAvatarPaths(manifest);
   const customLockPrefix = `${manifest.characterId}:`;
   const customGenerating = [...CUSTOM_GENERATION_LOCKS.keys()].some((key) => key.startsWith(customLockPrefix));
   const generating = GENERATION_LOCKS.has(manifest.characterId) || customGenerating;
-  const avatarMatches = manifest.sourceAvatarPath === activeAvatarPath;
   const clips = CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS.map((kind): ConversationCallCharacterVideoClip => {
     const disk = manifest.clips[kind] ?? {};
+    const clipAvatarPath = Object.prototype.hasOwnProperty.call(disk, "sourceAvatarPath")
+      ? (disk.sourceAvatarPath ?? null)
+      : manifest.sourceAvatarPath;
+    const avatarMatches = clipAvatarPath === activeAvatarPath;
     const fileExists = existsSync(clipPath(manifest.characterId, kind));
-    const status = fileExists && avatarMatches
+    const diskReady = disk.status === "ready" || !disk.status;
+    const status = fileExists && avatarMatches && diskReady
       ? "ready"
-      : disk.status === "generating" && generating
+      : avatarMatches && disk.status === "generating" && generating
         ? "generating"
         : avatarMatches && disk.status === "error"
           ? "error"
@@ -338,7 +366,9 @@ async function buildClipPrompt(input: {
       "The first frame must match the supplied reference image as closely as the provider allows.",
       "The final frame must return to that same reference-matching pose, expression, framing, lighting, outfit, and background so the clip loops seamlessly.",
       "This must be a clean loop with no jump cut, sudden pose reset, snap in expression, or identity drift at the loop point.",
-      "Keep camera framing locked and stable like a video-call participant tile. No cuts, zooms, pans, scene changes, or background swaps.",
+      "Use a still camera: the camera must be completely locked off for the entire clip. Do not animate the camera.",
+      "No zoom in, zoom out, push-in, pull-out, dolly, pan, tilt, roll, crop change, reframing, phone movement, handheld drift, or perspective change.",
+      "Keep the character's face at the same screen position and the same apparent size from first frame to final frame. Only the character may move.",
       "Preserve the reference image's face, hair, outfit, mask/accessories, colors, proportions, and art style for the entire clip.",
       "No sudden outfit changes, hairstyle changes, identity drift, lighting shifts, new accessories, or altered facial features.",
       "Single character only. No extra people. No UI, captions, subtitles, speech bubbles, text, logos, or watermarks.",
@@ -436,11 +466,28 @@ async function runGenerationJob(input: {
   );
 
   for (const kind of CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS) {
-    const manifest = await readDiskManifest(input.characterId, input.characterName, input.avatarPath);
-    const diskClip = manifest.clips[kind] ?? {};
-    if (diskClip.status === "ready" && manifest.sourceAvatarPath === input.avatarPath && existsSync(clipPath(input.characterId, kind))) {
+    const manifest = stampClipSourceAvatarPaths(
+      await readDiskManifest(input.characterId, input.characterName, input.avatarPath),
+    );
+    if (isClipReadyForAvatar(manifest, kind, input.avatarPath)) {
       continue;
     }
+    const queuedAt = nowIso();
+    await updateDiskManifest({
+      characterId: input.characterId,
+      characterName: input.characterName,
+      avatarPath: input.avatarPath,
+      update: (latest) => ({
+        ...latest,
+        characterName: input.characterName,
+        sourceAvatarPath: input.avatarPath,
+        updatedAt: queuedAt,
+        clips: {
+          ...latest.clips,
+          [kind]: { status: "generating", error: null, updatedAt: queuedAt, sourceAvatarPath: input.avatarPath },
+        },
+      }),
+    });
     const durationSeconds = getConversationCallVideoClipDuration(input.videoSettings, kind);
     const prompt = await buildClipPrompt({
       promptOverridesStorage: input.promptOverridesStorage,
@@ -482,7 +529,7 @@ async function runGenerationJob(input: {
           updatedAt,
           clips: {
             ...latest.clips,
-            [kind]: { status: "ready", error: null, updatedAt },
+            [kind]: { status: "ready", error: null, updatedAt, sourceAvatarPath: input.avatarPath },
           },
         }),
       });
@@ -501,7 +548,7 @@ async function runGenerationJob(input: {
           updatedAt,
           clips: {
             ...latest.clips,
-            [kind]: { status: "error", error: message, updatedAt },
+            [kind]: { status: "error", error: message, updatedAt, sourceAvatarPath: input.avatarPath },
           },
         }),
       });
@@ -657,11 +704,17 @@ export async function startConversationCallCharacterVideoGeneration(input: {
       characterName: input.characterName,
       avatarPath: input.avatarPath,
       update: (current) => {
-        const avatarChanged = current.sourceAvatarPath !== input.avatarPath;
         const clips = { ...current.clips };
-        for (const kind of CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS) {
-          const ready = !avatarChanged && existsSync(clipPath(input.characterId, kind)) && clips[kind]?.status === "ready";
-          if (!ready) clips[kind] = { status: "generating", error: null, updatedAt: timestamp };
+        const firstPendingKind = CONVERSATION_CALL_CHARACTER_VIDEO_CLIP_KINDS.find(
+          (kind) => !isClipReadyForAvatar(current, kind, input.avatarPath),
+        );
+        if (firstPendingKind) {
+          clips[firstPendingKind] = {
+            status: "generating",
+            error: null,
+            updatedAt: timestamp,
+            sourceAvatarPath: input.avatarPath,
+          };
         }
         return {
           ...current,
