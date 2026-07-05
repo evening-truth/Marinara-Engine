@@ -39,6 +39,7 @@ import type {
   ConversationCallSound,
   ConversationCallTurn,
   MessageAttachment,
+  MessageReaction,
 } from "@marinara-engine/shared";
 import { cn, generateClientId, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import type { CharacterMap, PersonaInfo } from "./chat-area.types";
@@ -54,6 +55,7 @@ import {
   useSendConversationCallIdle,
   useSendConversationCallMessage,
   useRecordConversationCallInterruption,
+  useUpdateConversationCallMessageExtra,
   useUploadConversationCallSound,
 } from "../../hooks/use-conversation-calls";
 import { useUIStore } from "../../stores/ui.store";
@@ -80,6 +82,9 @@ import {
   playConversationCallStartSound,
 } from "../../lib/conversation-call-sounds";
 import { useAgentStore } from "../../stores/agent.store";
+import { ReactionAddButton } from "./ReactionAddButton";
+import { MessageReactions } from "./MessageReactions";
+import { toggleReaction, USER_REACTOR } from "../../lib/reactions";
 
 interface ConversationCallSurfaceProps {
   chatId: string;
@@ -377,6 +382,16 @@ function readCallMessageAttachments(message: ConversationCallMessage): MessageAt
   if (!Array.isArray(raw)) return [];
   return raw.filter((attachment): attachment is MessageAttachment => {
     return !!attachment && typeof attachment === "object" && typeof (attachment as MessageAttachment).type === "string";
+  });
+}
+
+function readCallMessageReactions(message: ConversationCallMessage): MessageReaction[] {
+  const raw = message.extra?.reactions;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((reaction): reaction is MessageReaction => {
+    if (!reaction || typeof reaction !== "object") return false;
+    const candidate = reaction as MessageReaction;
+    return typeof candidate.emoji === "string" && Array.isArray(candidate.by);
   });
 }
 
@@ -776,6 +791,7 @@ export function ConversationCallSurface({
   const endCall = useEndConversationCall(chatId);
   const sendMedia = useSendConversationCallMedia(session.id);
   const recordInterruption = useRecordConversationCallInterruption(session.id);
+  const updateMessageExtra = useUpdateConversationCallMessageExtra(session.id);
   const { data: sounds = [] } = useConversationCallSoundboard();
   const uploadSound = useUploadConversationCallSound();
   const deleteSound = useDeleteConversationCallSound();
@@ -829,6 +845,7 @@ export function ConversationCallSurface({
   const participantIdsRef = useRef<Set<string>>(new Set());
   const playedStartSoundForRef = useRef<string | null>(null);
   const playedEndSoundForRef = useRef<string | null>(null);
+  const playedInitialGreetingIdsRef = useRef<Set<string>>(new Set());
   const previousSessionStatusRef = useRef(session.status);
   const [queuedCallInteractions, setQueuedCallInteractions] = useState(0);
   const messages = useMemo(() => {
@@ -1466,6 +1483,55 @@ export function ConversationCallSurface({
     ],
   );
 
+  useEffect(() => {
+    if (session.status !== "active") return;
+    const greeting = messages.find(
+      (message) =>
+        message.extra?.conversationCallInitialGreeting === true &&
+        message.extra?.conversationCallInitialGreetingPlayed !== true &&
+        !playedInitialGreetingIdsRef.current.has(message.id),
+    );
+    if (!greeting) return;
+    if (greeting.kind === "speech" && !ttsConfig) return;
+
+    const rawTurn = greeting.extra?.turn;
+    const turnRecord = rawTurn && typeof rawTurn === "object" ? (rawTurn as Partial<ConversationCallTurn>) : {};
+    const mode =
+      turnRecord.mode === "voice" || turnRecord.mode === "text" || turnRecord.mode === "command"
+        ? turnRecord.mode
+        : greeting.kind === "speech"
+          ? "voice"
+          : "text";
+    const turn: ConversationCallTurn = {
+      id: greeting.id,
+      speakerName:
+        typeof turnRecord.speakerName === "string" && turnRecord.speakerName.trim()
+          ? turnRecord.speakerName
+          : messageLabel(greeting, participants),
+      characterId: greeting.characterId,
+      mode,
+      content:
+        typeof turnRecord.content === "string" && turnRecord.content.trim() ? turnRecord.content : greeting.content,
+      tone: typeof turnRecord.tone === "string" ? turnRecord.tone : null,
+    };
+
+    playedInitialGreetingIdsRef.current.add(greeting.id);
+    void enqueueCallInteraction(
+      async () => {
+        await playTurns([turn]);
+        await updateMessageExtra.mutateAsync({
+          messageId: greeting.id,
+          extra: {
+            conversationCallInitialGreetingPlayed: true,
+            conversationCallAutoplay: false,
+          },
+        });
+      },
+      "Could not play the call greeting.",
+      { quiet: true },
+    );
+  }, [enqueueCallInteraction, messages, participants, playTurns, session.status, ttsConfig, updateMessageExtra]);
+
   const resizeDraftTextarea = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -1991,6 +2057,60 @@ export function ConversationCallSurface({
     }
   }, [cleanupLiveCallMedia, endCall, onEnded, playEndSoundOnce, session.id]);
 
+  const resolveCallReactorName = useCallback(
+    (reactorId: string) => {
+      if (reactorId === USER_REACTOR) return personaInfo?.name || "You";
+      return (
+        characterMap.get(reactorId)?.name ??
+        participants.find((participant) => participant.characterId === reactorId)?.name ??
+        "Someone"
+      );
+    },
+    [characterMap, participants, personaInfo?.name],
+  );
+
+  const applyCallMessageReactions = useCallback(
+    async (message: ConversationCallMessage, next: MessageReaction[]) => {
+      const key = conversationCallKeys.messages(session.id);
+      const previous = queryClient.getQueryData<ConversationCallMessage[]>(key);
+      queryClient.setQueryData<ConversationCallMessage[]>(key, (existing = []) =>
+        existing.map((item) =>
+          item.id === message.id ? { ...item, extra: { ...item.extra, reactions: next } } : item,
+        ),
+      );
+      try {
+        await updateMessageExtra.mutateAsync({ messageId: message.id, extra: { reactions: next } });
+      } catch (error) {
+        queryClient.setQueryData(key, previous);
+        toast.error(error instanceof Error ? error.message : "Failed to update reaction.");
+      } finally {
+        await queryClient.invalidateQueries({ queryKey: key });
+      }
+    },
+    [queryClient, session.id, updateMessageExtra],
+  );
+
+  const handlePickCallReaction = useCallback(
+    (message: ConversationCallMessage, emoji: string, imageUrl: string | null) => {
+      const next = toggleReaction(readCallMessageReactions(message), emoji, USER_REACTOR, imageUrl);
+      void applyCallMessageReactions(message, next);
+    },
+    [applyCallMessageReactions],
+  );
+
+  const handleToggleCallReactionEntry = useCallback(
+    (message: ConversationCallMessage, reaction: MessageReaction) => {
+      const next = toggleReaction(
+        readCallMessageReactions(message),
+        reaction.emoji,
+        USER_REACTOR,
+        reaction.imageUrl ?? null,
+      );
+      void applyCallMessageReactions(message, next);
+    },
+    [applyCallMessageReactions],
+  );
+
   const renderCallMessages = () =>
     visibleCallMessages.length === 0 ? (
       <div className="py-8 text-center text-xs text-[var(--marinara-chat-chrome-panel-muted)]">
@@ -2005,21 +2125,31 @@ export function ConversationCallSurface({
               : participants.find((p) => p.characterId === message.characterId);
           const attachments = readCallMessageAttachments(message);
           const customClip = readCallCustomClipExtra(message);
+          const reactions = readCallMessageReactions(message);
+          const canReact = message.extra?.optimistic !== true && (message.kind === "text" || message.kind === "system");
           return (
-            <div key={message.id} className="flex gap-2">
+            <div key={message.id} className="group/call-message flex gap-2">
               {participant ? (
                 <CallAvatar participant={participant} className="mt-0.5 h-7 w-7 shrink-0" />
               ) : (
                 <div className="mt-0.5 h-7 w-7 shrink-0 rounded-full bg-[var(--secondary)]" />
               )}
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-[var(--marinara-chat-chrome-panel-title)]">
-                    {messageLabel(message, participants)}
-                  </span>
-                  <span className="text-[0.6875rem] text-[var(--marinara-chat-chrome-panel-muted)]">
-                    {formatTime(message.createdAt)}
-                  </span>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="truncate text-sm font-semibold text-[var(--marinara-chat-chrome-panel-title)]">
+                      {messageLabel(message, participants)}
+                    </span>
+                    <span className="shrink-0 text-[0.6875rem] text-[var(--marinara-chat-chrome-panel-muted)]">
+                      {formatTime(message.createdAt)}
+                    </span>
+                  </div>
+                  {canReact ? (
+                    <ReactionAddButton
+                      onPick={(emoji, imageUrl) => handlePickCallReaction(message, emoji, imageUrl)}
+                      className="shrink-0 text-[var(--marinara-chat-chrome-panel-muted)] opacity-100 hover:bg-[var(--marinara-chat-chrome-highlight-bg-hover)] hover:text-[var(--marinara-chat-chrome-button-text-hover)] sm:opacity-0 sm:group-hover/call-message:opacity-100"
+                    />
+                  ) : null}
                 </div>
                 <p
                   className={cn(
@@ -2060,6 +2190,15 @@ export function ConversationCallSurface({
                         </div>
                       ),
                     )}
+                  </div>
+                ) : null}
+                {reactions.length > 0 ? (
+                  <div className="mt-2">
+                    <MessageReactions
+                      reactions={reactions}
+                      resolveReactorName={resolveCallReactorName}
+                      onToggle={(reaction) => handleToggleCallReactionEntry(message, reaction)}
+                    />
                   </div>
                 ) : null}
               </div>

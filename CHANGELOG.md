@@ -18,6 +18,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 ### Added
 
 - Added Conversation-mode audio/video calls with per-chat call toggles, character-initiated incoming calls, a Discord-style desktop/mobile call surface, call-only chat, speaking highlights, mute/camera/screen-share controls, soundboard support, minimized active-call popouts, call history cards, and post-call summary injection.
+- Added Conversation Call message reactions, including user reactions in the call-only chat and hidden character `[react]` call commands that react to the user's latest written call message; character-initiated calls can now include a greeting that plays after the user answers.
 - Added Conversation Call character video presence: when enabled, Marinara uses the Default for Videos connection to generate cached avatar-based idle, talking, laughing, angry, crying, and sighing clips, then plays them in-call from TTS cues while returning characters to idle after speech.
 - Added Advanced > Video Generation settings for editing Game/Gallery scene-video defaults, Conversation Call clip lengths, and the reusable video prompt templates for Game scene videos and call presence clips.
 - Added opt-in custom Conversation Call video clips: when Character Video Presence and Custom Clips are enabled, characters can sparsely use `[custom_clip]` for explicit user-requested visual clips that are saved into that character's call-video gallery.
@@ -44,6 +45,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 ### Fixed
 
 - Fixed Windows dark-mode contrast for prompt/chat preset dropdown option menus so preset choices no longer render as pale text on a white native popup (#3237).
+- Fixed Roleplay empty-input generation so pressing Generate after an assistant reply renders the new assistant output as its own bubble, while explicit `/continue` still appends to the previous assistant message.
 - Fixed Conversation call prompt assembly so call output JSON format and command instructions stay attached to the latest call input, adjacent same-role call history messages are merged, older TTS cue tags are stripped from call history, command turns use the same descriptive command guidance as normal Conversation mode, and `[end_call]` waits until prior voice lines finish before ending the call.
 - Fixed Conversation call command execution so hidden commands such as selfies, memories, music, haptics, influences, notes, soundboard actions, character leave, and call end are executed as call actions instead of leaking into the visible call chat.
 - Fixed Conversation call media and UI reliability by keeping speech-only transcripts out of the visible call chat, returning server-resolved character IDs for playback, preserving active calls while navigating elsewhere in Marinara, stacking the call popout with Professor Mari, improving mobile control scaling/participant tiling, and keeping offline characters out of calls.

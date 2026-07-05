@@ -22,6 +22,7 @@ import {
   type ConversationCallSession,
   type ConversationCallTurn,
   type MessageAttachment,
+  type MessageReaction,
 } from "@marinara-engine/shared";
 import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
@@ -30,6 +31,7 @@ import { createConversationCallsStorage } from "../services/storage/conversation
 import { createAppSettingsStorage } from "../services/storage/app-settings.storage.js";
 import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { createAgentsStorage } from "../services/storage/agents.storage.js";
+import { createCustomEmojisStorage } from "../services/storage/custom-emojis.storage.js";
 import { createGalleryStorage } from "../services/storage/gallery.storage.js";
 import { createPromptOverridesStorage } from "../services/storage/prompt-overrides.storage.js";
 import { createLLMProvider } from "../services/llm/provider-registry.js";
@@ -52,6 +54,7 @@ import {
   type InfluenceCommand,
   type MemoryCommand,
   type NoteCommand,
+  type ReactCommand,
   type ScheduleUpdateCommand,
   type SelfieCommand,
   type SpotifyCommand,
@@ -370,6 +373,8 @@ const CALL_COMMAND_ALIASES = new Map<string, string>([
   ["custom_clip", "custom_clip"],
   ["custom_video", "custom_clip"],
   ["video_clip", "custom_clip"],
+  ["react", "react"],
+  ["reaction", "react"],
 ]);
 
 function normalizeCommandName(value: string) {
@@ -433,6 +438,8 @@ function getCallConversationCommandKey(command: CharacterCommand): ConversationC
       return "influence";
     case "note":
       return "note";
+    case "react":
+      return "react";
     default:
       return null;
   }
@@ -441,6 +448,37 @@ function getCallConversationCommandKey(command: CharacterCommand): ConversationC
 function isCallConversationCommandEnabled(metadata: Record<string, unknown>, key: ConversationCommandKey) {
   const toggles = parseJsonRecord(metadata.conversationCommandToggles);
   return toggles[key] !== false;
+}
+
+function addCallMessageReactor(
+  reactions: unknown,
+  emoji: string,
+  reactor: string,
+  imageUrl: string | null,
+): MessageReaction[] {
+  const current = Array.isArray(reactions) ? (reactions as MessageReaction[]) : [];
+  const index = current.findIndex((reaction) => reaction.emoji === emoji && (reaction.segment ?? null) === null);
+  if (index === -1) {
+    const entry: MessageReaction = { emoji, by: [reactor] };
+    if (imageUrl) entry.imageUrl = imageUrl;
+    return [...current, entry];
+  }
+  const entry = current[index]!;
+  if (entry.by.includes(reactor)) return current;
+  const next = [...current];
+  next[index] = { ...entry, by: [...entry.by, reactor], ...(imageUrl && !entry.imageUrl ? { imageUrl } : {}) };
+  return next;
+}
+
+function buildGlobalCustomEmojiUrl(filePath: string): string {
+  return `/api/custom-emojis/file/${encodeURIComponent(filePath)}`;
+}
+
+async function resolveCallReactionImageUrl(app: FastifyInstance, emoji: string): Promise<string | null> {
+  const customName = emoji.match(/^:([a-zA-Z0-9_]+):$/)?.[1];
+  if (!customName) return null;
+  const row = await createCustomEmojisStorage(app.db).getByName(customName);
+  return row?.filePath ? buildGlobalCustomEmojiUrl(String(row.filePath)) : null;
 }
 
 function normalizeSpeakerName(value: string) {
@@ -598,6 +636,10 @@ function formatCallCommandPromptLines(
     case "soundboard":
       return [
         `- [soundboard: sound=${soundTargets}] - play a soundboard sound in the call. Use it for small live-call reactions or atmosphere, not as dialogue.`,
+      ];
+    case "react":
+      return [
+        '- [react: emoji="😂"] or [react: emoji=":custom_name:"] - react to the user\'s latest written call-chat message with one emoji badge. Use this for quick emotional acknowledgment instead of speaking when a small reaction is enough.',
       ];
     case "custom_clip":
       return [
@@ -878,6 +920,7 @@ async function buildCallPrompt(input: {
       allowedCommands.push("selfie");
     }
     if (commandToggles.memory !== false) allowedCommands.push("memory");
+    if (commandToggles.react !== false) allowedCommands.push("react");
     if (commandToggles.music !== false) {
       const activeMusicSource =
         input.musicPlayerEnabled === false
@@ -1259,6 +1302,30 @@ async function applyCallMemoryCommand(input: {
   extensions.characterMemories = memories;
   await input.chars.update(target.id, { extensions } as any);
   logger.info("[conversation-call] Memory saved from %s to %s", sourceName, String(targetData.name ?? target.id));
+}
+
+async function applyCallReactCommand(input: {
+  app: FastifyInstance;
+  calls: CallsStorage;
+  session: ConversationCallSession;
+  characterId: string | null;
+  command: ReactCommand;
+}) {
+  const emoji = input.command.emoji.trim();
+  if (!input.characterId || !emoji) return;
+  const messages = await input.calls.listMessages(input.session.id);
+  const target = [...messages].reverse().find((message) => {
+    if (message.participantKind !== "user" || message.kind !== "text") return false;
+    return message.extra?.hiddenFromUser !== true;
+  });
+  if (!target) {
+    logger.debug("[conversation-call] React command skipped because no typed user call message was found");
+    return;
+  }
+  const imageUrl = await resolveCallReactionImageUrl(input.app, emoji);
+  const reactions = addCallMessageReactor(target.extra?.reactions, emoji, input.characterId, imageUrl);
+  await input.calls.updateMessageExtra(target.id, { reactions });
+  logger.info("[conversation-call] Character %s reacted to call message %s", input.characterId, target.id);
 }
 
 async function applyCallCrossPostCommand(input: {
@@ -1735,6 +1802,14 @@ async function executeCallConversationCommand(input: {
       );
     } else if (command.type === "memory") {
       await applyCallMemoryCommand({ chars, characterId: input.characterId, command: command as MemoryCommand });
+    } else if (command.type === "react") {
+      await applyCallReactCommand({
+        app: input.app,
+        calls: input.calls,
+        session: input.session,
+        characterId: input.characterId,
+        command: command as ReactCommand,
+      });
     } else if (command.type === "spotify" || command.type === "youtube") {
       await applyCallMusicCommand({ app: input.app, chat: freshChat, command: command as SpotifyCommand | YouTubeCommand });
     } else if (command.type === "haptic") {
@@ -1954,6 +2029,54 @@ async function readTTSSettings(app: FastifyInstance): Promise<Record<string, unk
   }
 }
 
+function readCallGreeting(session: ConversationCallSession) {
+  const greeting = session.metadata?.greeting;
+  return typeof greeting === "string" ? greeting.trim() : "";
+}
+
+async function createInitialCallGreeting(input: {
+  calls: CallsStorage;
+  characters: ReturnType<typeof createCharactersStorage>;
+  session: ConversationCallSession;
+  ttsSettings: Record<string, unknown>;
+}) {
+  const greeting = readCallGreeting(input.session);
+  if (!greeting || input.session.initiator !== "character" || !input.session.initiatorCharacterId) return null;
+  const existingGreeting = (await input.calls.listMessages(input.session.id)).find(
+    (message) => message.extra?.conversationCallInitialGreeting === true,
+  );
+  if (existingGreeting) return existingGreeting;
+
+  const character = await input.characters.getById(input.session.initiatorCharacterId);
+  if (!character) return null;
+  const characterData = parseCharacterData(character);
+  const speakerName = readName(characterData, "Character");
+  const mode = characterCanSpeak(input.ttsSettings, { id: character.id, name: speakerName }) ? "voice" : "text";
+  const turn: ConversationCallTurn = {
+    speakerName,
+    characterId: character.id,
+    mode,
+    content: greeting,
+    tone: mode === "voice" ? "opening call greeting" : null,
+  };
+
+  return input.calls.createMessage({
+    callId: input.session.id,
+    chatId: input.session.chatId,
+    role: "assistant",
+    characterId: character.id,
+    participantKind: "character",
+    kind: mode === "voice" ? "speech" : "text",
+    content: greeting,
+    extra: {
+      turn,
+      conversationCallInitialGreeting: true,
+      conversationCallInitialGreetingPlayed: false,
+      conversationCallAutoplay: true,
+    },
+  });
+}
+
 function ensureSoundboardDir() {
   mkdirSync(SOUNDBOARD_ROOT, { recursive: true });
   return SOUNDBOARD_ROOT;
@@ -2088,6 +2211,14 @@ export async function conversationCallsRoutes(app: FastifyInstance) {
     if (!session) return reply.status(404).send({ error: "Call not found" });
     if (session.status !== "ringing") return session;
     const activeSession = await calls.updateStatus(session.id, "active");
+    if (activeSession) {
+      await createInitialCallGreeting({
+        calls,
+        characters,
+        session: activeSession,
+        ttsSettings: await readTTSSettings(app),
+      });
+    }
     await chats.createMessagesBatch(session.chatId, [
       {
         role: "system",
@@ -2149,6 +2280,18 @@ export async function conversationCallsRoutes(app: FastifyInstance) {
     const session = await calls.getSession(req.params.id);
     if (!session) return reply.status(404).send({ error: "Call not found" });
     return calls.listMessages(session.id);
+  });
+
+  app.patch<{ Params: { id: string; messageId: string } }>("/:id/messages/:messageId/extra", async (req, reply) => {
+    const session = await calls.getSession(req.params.id);
+    if (!session) return reply.status(404).send({ error: "Call not found" });
+    const message = await calls.getMessage(req.params.messageId);
+    if (!message || message.callId !== session.id) {
+      return reply.status(404).send({ error: "Call message not found" });
+    }
+    const updated = await calls.updateMessageExtra(message.id, parseJsonRecord(req.body));
+    if (!updated) return reply.status(404).send({ error: "Call message not found" });
+    return updated;
   });
 
   app.post<{ Params: { id: string } }>("/:id/interruption", async (req, reply) => {
