@@ -385,8 +385,10 @@ export async function getTurnGameContextBuilder(
               `about your hand is up to your personality — a sharp player gives nothing away. Never recite these stats ` +
               `verbatim, and never reveal other players' hidden information.`
             : `You are seated in this game — it is YOUR game, and the board is open for everyone to see, so you may ` +
-              `discuss the position, your own moves, and your plans as freely as suits your character. ` +
-              `Never recite these stats verbatim.`
+              `discuss the position and your own moves as freely as suits your character. Your PLANS, though, are ` +
+              `the one thing your opponent cannot see — whether you share them honestly, deflect, or bluff and ` +
+              `misdirect about your intentions when asked is up to your personality; a sharp player keeps them ` +
+              `close. Never recite these stats verbatim.`
           : `You are at this table. Stay fully in character; you may reference the game naturally when it's relevant, ` +
             `but never restate these stats verbatim and never reveal anyone's specific cards.`;
       return `${summary}\n${guidance}`;
