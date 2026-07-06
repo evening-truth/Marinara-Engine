@@ -97,6 +97,7 @@ import {
   type ImageStyleProfileSettings,
   type VideoDefaultsService,
   type VideoGenerationDefaultsProfile,
+  type VideoReferenceUploadExpiry,
   type VideoResolution,
 } from "@marinara-engine/shared";
 
@@ -132,6 +133,12 @@ const VIDEO_RESOLUTION_OPTIONS: Array<{ value: VideoResolution; label: string }>
   { value: "480p", label: "480p" },
   { value: "720p", label: "720p" },
   { value: "1080p", label: "1080p" },
+];
+const VIDEO_REFERENCE_UPLOAD_EXPIRY_OPTIONS: Array<{ value: VideoReferenceUploadExpiry; label: string }> = [
+  { value: "1h", label: "1 hour" },
+  { value: "12h", label: "12 hours" },
+  { value: "24h", label: "24 hours" },
+  { value: "72h", label: "72 hours" },
 ];
 
 function videoSourceToDefaultsService(value: string | null | undefined): VideoDefaultsService {
@@ -2204,6 +2211,66 @@ export function ConnectionEditor() {
                 Only one video generation connection should be marked as the default video connection.
               </p>
             )}
+            {isVideoGenerationProvider &&
+              selectedVideoDefaultsService === "seedance" &&
+              localVideoDefaults && (
+                <div className="mx-2 mt-2 space-y-2 rounded-lg bg-[var(--secondary)]/35 p-2 ring-1 ring-[var(--border)]">
+                  <SettingsSwitch
+                    label="Upload Seedance reference frames temporarily"
+                    checked={localVideoDefaults.seedance.temporaryPublicReferenceUploadEnabled}
+                    onChange={(checked) => {
+                      setLocalVideoDefaults(
+                        sanitizeVideoGenerationProfile({
+                          ...localVideoDefaults,
+                          service: "seedance",
+                          seedance: {
+                            ...localVideoDefaults.seedance,
+                            temporaryPublicReferenceUploadEnabled: checked,
+                          },
+                        }),
+                      );
+                      markDirty();
+                    }}
+                    description="Uses temporary public links when Seedance needs first/last-frame references and cannot fetch local Marinara URLs."
+                    className="p-1"
+                  />
+                  {localVideoDefaults.seedance.temporaryPublicReferenceUploadEnabled && (
+                    <label className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-[var(--card)]/70 px-2 py-1.5 ring-1 ring-[var(--border)]">
+                      <span className="text-[0.625rem] font-medium text-[var(--muted-foreground)]">
+                        Temporary link lifetime
+                      </span>
+                      <select
+                        value={localVideoDefaults.seedance.temporaryPublicReferenceUploadExpiry}
+                        onChange={(event) => {
+                          const expiry = event.target.value as VideoReferenceUploadExpiry;
+                          setLocalVideoDefaults(
+                            sanitizeVideoGenerationProfile({
+                              ...localVideoDefaults,
+                              service: "seedance",
+                              seedance: {
+                                ...localVideoDefaults.seedance,
+                                temporaryPublicReferenceUploadExpiry: expiry,
+                              },
+                            }),
+                          );
+                          markDirty();
+                        }}
+                        className="h-8 rounded-md bg-[var(--background)] px-2 text-xs ring-1 ring-[var(--border)] focus:outline-none focus:ring-sky-400/50"
+                      >
+                        {VIDEO_REFERENCE_UPLOAD_EXPIRY_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <p className="px-1 text-[0.55rem] leading-relaxed text-[var(--muted-foreground)]">
+                    Keep this off if you do not want local avatar or gallery reference frames uploaded outside this
+                    Marinara install.
+                  </p>
+                </div>
+              )}
           </FieldGroup>
 
           {/* ── Claude (Subscription) — Fast Mode toggle ── */}

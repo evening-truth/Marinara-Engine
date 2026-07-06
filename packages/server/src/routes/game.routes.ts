@@ -160,8 +160,10 @@ import { saveImageToDisk } from "../services/image/image-generation.js";
 import {
   generateVideo,
   removeSavedVideoFromDisk,
+  resolveVideoReferencePublicUploadOptions,
   saveVideoToDisk,
   type VideoReferenceImage,
+  type VideoReferencePublicUploadOptions,
 } from "../services/video/video-generation.js";
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
 import {
@@ -9713,6 +9715,7 @@ export async function gameRoutes(app: FastifyInstance) {
         resolution?: "480p" | "720p" | "1080p";
         maxDurationSeconds: number;
         promptLimits: SceneVideoPromptLimits;
+        publicReferenceUpload: VideoReferencePublicUploadOptions | null;
       } | null = null;
       if (input.generateVideos) {
         const videoConnectionId = await resolveGameVideoConnectionId(meta, connections);
@@ -9772,6 +9775,7 @@ export async function gameRoutes(app: FastifyInstance) {
                 : undefined,
             maxDurationSeconds: isXaiVideo || isSeedanceVideo ? 15 : isGoogleVeoVideo ? 8 : 60,
             promptLimits,
+            publicReferenceUpload: resolveVideoReferencePublicUploadOptions(isSeedanceVideo, videoDefaults.seedance),
           };
         }
       }
@@ -9901,6 +9905,7 @@ export async function gameRoutes(app: FastifyInstance) {
                   aspectRatio: plannedFrame.aspectRatio,
                   resolution: videoRuntime.resolution,
                   referenceImage,
+                  publicReferenceUpload: videoRuntime.publicReferenceUpload,
                   signal: backgroundSignal,
                 },
               );
@@ -10273,6 +10278,7 @@ export async function gameRoutes(app: FastifyInstance) {
         aspectRatio,
         resolution,
         referenceImage,
+        publicReferenceUpload: resolveVideoReferencePublicUploadOptions(isSeedanceVideo, videoDefaults.seedance),
         signal: sceneVideoAbortSignal,
       });
       const filePath = await saveVideoToDisk(input.chatId, generated.base64);

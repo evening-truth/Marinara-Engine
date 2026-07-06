@@ -1,5 +1,7 @@
 import { mkdir, rename, unlink, writeFile } from "fs/promises";
 import { join } from "path";
+import { File } from "node:buffer";
+import { FormData } from "undici";
 import { DATA_DIR } from "../../utils/data-dir.js";
 import { newId } from "../../utils/id-generator.js";
 import { logger } from "../../lib/logger.js";
@@ -11,6 +13,13 @@ export interface VideoReferenceImage {
   url?: string | null;
 }
 
+export type VideoReferencePublicUploadExpiry = "1h" | "12h" | "24h" | "72h";
+
+export interface VideoReferencePublicUploadOptions {
+  enabled?: boolean;
+  expiry?: VideoReferencePublicUploadExpiry | string | null;
+}
+
 export interface VideoGenerationRequest {
   prompt: string;
   model?: string;
@@ -20,6 +29,7 @@ export interface VideoGenerationRequest {
   resolution?: "480p" | "720p" | "1080p";
   referenceImage?: VideoReferenceImage | null;
   lastFrameImage?: VideoReferenceImage | null;
+  publicReferenceUpload?: VideoReferencePublicUploadOptions | null;
   signal?: AbortSignal;
 }
 
@@ -40,6 +50,8 @@ const DEFAULT_SEEDANCE_VIDEO_MODEL = "seedance-2-0";
 const DEFAULT_GOOGLE_VEO_RESOLUTION = "720p";
 const DEFAULT_XAI_VIDEO_RESOLUTION = "720p";
 const DEFAULT_SEEDANCE_VIDEO_RESOLUTION = "720p";
+const LITTERBOX_UPLOAD_URL = "https://litterbox.catbox.moe/resources/internals/api.php";
+const LITTERBOX_EXPIRY_VALUES = new Set<VideoReferencePublicUploadExpiry>(["1h", "12h", "24h", "72h"]);
 
 function readPositiveIntervalEnv(name: string, fallbackMs: number) {
   const raw = process.env[name]?.trim();
@@ -98,6 +110,23 @@ export async function generateVideo(
     );
   }
   throw new Error(`Unsupported video generation service: ${resolvedService || serviceHint || source}`);
+}
+
+export function resolveVideoReferencePublicUploadOptions(
+  enabled: boolean,
+  seedanceDefaults:
+    | {
+        temporaryPublicReferenceUploadEnabled?: boolean | null;
+        temporaryPublicReferenceUploadExpiry?: string | null;
+      }
+    | null
+    | undefined,
+): VideoReferencePublicUploadOptions | null {
+  if (!enabled || !seedanceDefaults?.temporaryPublicReferenceUploadEnabled) return null;
+  return {
+    enabled: true,
+    expiry: normalizeReferenceUploadExpiry(seedanceDefaults.temporaryPublicReferenceUploadExpiry),
+  };
 }
 
 export function resolveVideoRequestDuration(
@@ -565,7 +594,7 @@ async function generateSeedanceVideo(
   if (!apiKey.trim()) throw new Error("Seedance video generation requires a Seedance API key");
   const model = request.model?.trim() || DEFAULT_SEEDANCE_VIDEO_MODEL;
   const startUrl = buildSeedanceUrl(baseUrl, "v1/videos/generations");
-  const imageUrls = seedanceReferenceImageUrls(request);
+  const imageUrls = await seedanceReferenceImageUrls(request);
   const duration = Math.min(15, Math.max(4, Math.trunc(request.durationSeconds)));
   const body: Record<string, unknown> = {
     model,
@@ -912,14 +941,32 @@ function referenceImageToDataUri(image: VideoReferenceImage): string {
   return `data:${image.mimeType};base64,${stripDataUrl(image.base64)}`;
 }
 
-function seedanceReferenceImageUrls(request: VideoGenerationRequest): string[] {
+async function seedanceReferenceImageUrls(request: VideoGenerationRequest): Promise<string[]> {
   if (!request.referenceImage) return [];
-  const firstFrame = seedanceReferenceImageUrl(request.referenceImage, "first frame");
-  const lastFrame = seedanceReferenceImageUrl(request.lastFrameImage ?? request.referenceImage, "last frame");
+  const firstFrame = await seedanceReferenceImageUrl(
+    request.referenceImage,
+    "first frame",
+    request.publicReferenceUpload,
+    request.signal,
+  );
+  if (!request.lastFrameImage || videoReferenceImagesMatch(request.referenceImage, request.lastFrameImage)) {
+    return [firstFrame];
+  }
+  const lastFrame = await seedanceReferenceImageUrl(
+    request.lastFrameImage,
+    "last frame",
+    request.publicReferenceUpload,
+    request.signal,
+  );
   return firstFrame === lastFrame ? [firstFrame] : [firstFrame, lastFrame];
 }
 
-function seedanceReferenceImageUrl(image: VideoReferenceImage, label: string): string {
+async function seedanceReferenceImageUrl(
+  image: VideoReferenceImage,
+  label: string,
+  publicUpload: VideoGenerationRequest["publicReferenceUpload"],
+  signal: AbortSignal | undefined,
+): Promise<string> {
   const raw = image.url?.trim();
   if (raw) {
     if (/^https:\/\//i.test(raw)) return raw;
@@ -944,11 +991,78 @@ function seedanceReferenceImageUrl(image: VideoReferenceImage, label: string): s
     }
   }
 
+  const uploaded = await maybeUploadSeedanceReferenceImage(image, label, publicUpload, signal);
+  if (uploaded) return uploaded;
+
   throw new Error(
     `Seedance image-to-video references require a publicly reachable HTTPS image URL for the ${label}. ` +
       "Expose Marinara through a public HTTPS tunnel such as Cloudflare Tunnel or ngrok, then set " +
-      "VIDEO_REFERENCE_PUBLIC_BASE_URL to that origin before generating first/last-frame Seedance clips.",
+      "VIDEO_REFERENCE_PUBLIC_BASE_URL to that origin, or turn on Upload Seedance reference frames temporarily " +
+      "in this Video Generation connection before generating first/last-frame Seedance clips.",
   );
+}
+
+async function maybeUploadSeedanceReferenceImage(
+  image: VideoReferenceImage,
+  label: string,
+  publicUpload: VideoGenerationRequest["publicReferenceUpload"],
+  signal: AbortSignal | undefined,
+): Promise<string | null> {
+  if (!publicUpload?.enabled) return null;
+  const expiry = normalizeReferenceUploadExpiry(publicUpload.expiry);
+  const base64 = stripDataUrl(image.base64);
+  const buffer = Buffer.from(base64, "base64");
+  if (buffer.length === 0) {
+    throw new Error(`Seedance ${label} reference image could not be uploaded because it is empty.`);
+  }
+
+  const filename = `marinara-seedance-${label.replace(/\s+/g, "-")}-${Date.now()}${imageExtension(image.mimeType)}`;
+  const form = new FormData();
+  form.set("reqtype", "fileupload");
+  form.set("time", expiry);
+  form.set("fileToUpload", new File([new Uint8Array(buffer)], filename, { type: image.mimeType }));
+
+  logger.warn(
+    "[video-gen/seedance] Uploading %s reference image to a temporary public URL for %s",
+    label,
+    expiry,
+  );
+  const res = await safeFetch(LITTERBOX_UPLOAD_URL, {
+    method: "POST",
+    body: form,
+    signal,
+    policy: {
+      allowLocal: false,
+      allowLoopback: false,
+      allowMdns: false,
+      allowedProtocols: ["https:"],
+    },
+    maxResponseBytes: 4096,
+    decodeCompressedResponse: true,
+  });
+  const text = (await res.text()).trim();
+  if (!res.ok) {
+    throw new Error(`Temporary Seedance reference upload returned ${res.status}: ${formatProviderError(text)}`);
+  }
+  if (!/^https:\/\//i.test(text)) {
+    throw new Error(`Temporary Seedance reference upload did not return an HTTPS URL: ${formatProviderError(text)}`);
+  }
+  return text;
+}
+
+function normalizeReferenceUploadExpiry(value: VideoReferencePublicUploadOptions["expiry"]): VideoReferencePublicUploadExpiry {
+  return LITTERBOX_EXPIRY_VALUES.has(value as VideoReferencePublicUploadExpiry)
+    ? (value as VideoReferencePublicUploadExpiry)
+    : "12h";
+}
+
+function imageExtension(mimeType: VideoReferenceImage["mimeType"]): ".jpg" | ".png" {
+  return mimeType === "image/jpeg" ? ".jpg" : ".png";
+}
+
+function videoReferenceImagesMatch(first: VideoReferenceImage, second: VideoReferenceImage): boolean {
+  if (first.url && second.url && first.url === second.url) return true;
+  return first.mimeType === second.mimeType && stripDataUrl(first.base64) === stripDataUrl(second.base64);
 }
 
 function buildGoogleVeoStartBody(

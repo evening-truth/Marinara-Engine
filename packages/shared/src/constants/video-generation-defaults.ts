@@ -6,6 +6,7 @@ import type {
   VideoAspectRatio,
   VideoDefaultsService,
   VideoGenerationDefaultsProfile,
+  VideoReferenceUploadExpiry,
   VideoResolution,
   XaiVideoDefaults,
 } from "../types/video-generation-defaults.js";
@@ -48,6 +49,8 @@ export const DEFAULT_SEEDANCE_VIDEO_DEFAULTS: SeedanceVideoDefaults = {
   durationSeconds: 5,
   aspectRatio: "16:9",
   resolution: "720p",
+  temporaryPublicReferenceUploadEnabled: false,
+  temporaryPublicReferenceUploadExpiry: "12h",
 };
 
 export function createDefaultVideoGenerationProfile(
@@ -113,6 +116,14 @@ export function normalizeVideoGenerationProfile(rawProfile: unknown): {
     durationSeconds: readInteger(rawSeedance.durationSeconds, DEFAULT_SEEDANCE_VIDEO_DEFAULTS.durationSeconds, 4, 15),
     aspectRatio: readAspectRatio(rawSeedance.aspectRatio, DEFAULT_SEEDANCE_VIDEO_DEFAULTS.aspectRatio),
     resolution: readResolution(rawSeedance.resolution, DEFAULT_SEEDANCE_VIDEO_DEFAULTS.resolution),
+    temporaryPublicReferenceUploadEnabled: readBoolean(
+      rawSeedance.temporaryPublicReferenceUploadEnabled,
+      DEFAULT_SEEDANCE_VIDEO_DEFAULTS.temporaryPublicReferenceUploadEnabled,
+    ),
+    temporaryPublicReferenceUploadExpiry: readReferenceUploadExpiry(
+      rawSeedance.temporaryPublicReferenceUploadExpiry,
+      DEFAULT_SEEDANCE_VIDEO_DEFAULTS.temporaryPublicReferenceUploadExpiry,
+    ),
   };
   const changed = JSON.stringify(profile) !== JSON.stringify(rawProfile);
   return { profile, changed };
@@ -130,6 +141,16 @@ function readInteger(value: unknown, fallback: number, min: number, max: number)
   const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   if (!Number.isFinite(numeric)) return fallback;
   return Math.trunc(Math.min(max, Math.max(min, numeric)));
+}
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+    if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+  }
+  return fallback;
 }
 
 function readVeoDuration(value: unknown, fallback: number): 4 | 6 | 8 {
@@ -156,4 +177,8 @@ function readAspectRatio(value: unknown, fallback: VideoAspectRatio): VideoAspec
 
 function readResolution(value: unknown, fallback: VideoResolution): VideoResolution {
   return value === "480p" || value === "720p" || value === "1080p" ? value : fallback;
+}
+
+function readReferenceUploadExpiry(value: unknown, fallback: VideoReferenceUploadExpiry): VideoReferenceUploadExpiry {
+  return value === "1h" || value === "12h" || value === "24h" || value === "72h" ? value : fallback;
 }

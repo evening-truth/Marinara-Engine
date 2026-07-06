@@ -71,7 +71,11 @@ import { generateImage } from "../services/image/image-generation.js";
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
 import { loadImageGenerationUserSettings } from "../services/image/image-generation-settings.js";
 import { compileImagePrompt } from "../services/image/image-prompt-compiler.js";
-import { generateVideo, type VideoReferenceImage } from "../services/video/video-generation.js";
+import {
+  generateVideo,
+  resolveVideoReferencePublicUploadOptions,
+  type VideoReferenceImage,
+} from "../services/video/video-generation.js";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
 import { createAppSettingsStorage } from "../services/storage/app-settings.storage.js";
 import { createPromptOverridesStorage } from "../services/storage/prompt-overrides.storage.js";
@@ -419,6 +423,7 @@ function resolveVideoConnection(connection: VideoGenerationConnection) {
       : isSeedanceVideo
         ? videoDefaults.seedance.resolution
         : undefined,
+    publicReferenceUpload: resolveVideoReferencePublicUploadOptions(isSeedanceVideo, videoDefaults.seedance),
   };
 }
 
@@ -2110,6 +2115,7 @@ export async function spritesRoutes(app: FastifyInstance) {
                   aspectRatio: ANIMATED_EXPRESSION_ASPECT_RATIO,
                   resolution: resolved.resolution,
                   referenceImage,
+                  publicReferenceUpload: resolved.publicReferenceUpload,
                 },
               );
               const gif = await convertMp4ToGif(Buffer.from(video.base64, "base64"));

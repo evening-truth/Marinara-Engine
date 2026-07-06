@@ -28,7 +28,12 @@ import {
   loadPrompt,
 } from "../prompt-overrides/index.js";
 import type { PromptOverridesStorage } from "../storage/prompt-overrides.storage.js";
-import { generateVideo, resolveVideoRequestDuration, type VideoReferenceImage } from "../video/video-generation.js";
+import {
+  generateVideo,
+  resolveVideoReferencePublicUploadOptions,
+  resolveVideoRequestDuration,
+  type VideoReferenceImage,
+} from "../video/video-generation.js";
 
 type DiskClip = {
   status?: ConversationCallCharacterVideoClip["status"];
@@ -617,6 +622,7 @@ function resolveVideoConnection(connection: VideoGenerationConnection) {
       : isSeedanceVideo
         ? videoDefaults.seedance.resolution
         : undefined,
+    publicReferenceUpload: resolveVideoReferencePublicUploadOptions(isSeedanceVideo, videoDefaults.seedance),
   };
 }
 
@@ -722,6 +728,7 @@ async function runGenerationJob(input: {
           resolution: resolved.resolution,
           referenceImage: reference.image,
           lastFrameImage: reference.image,
+          publicReferenceUpload: resolved.publicReferenceUpload,
         },
       );
       const file = clipPath(input.characterId, kind);
@@ -845,6 +852,7 @@ async function runCustomClipGenerationJob(input: {
         resolution: resolved.resolution,
         referenceImage: reference.image,
         lastFrameImage: reference.image,
+        publicReferenceUpload: resolved.publicReferenceUpload,
       },
     );
     const file = customClipPath(input.characterId, input.clipId);

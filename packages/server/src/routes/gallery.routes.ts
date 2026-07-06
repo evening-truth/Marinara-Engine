@@ -31,6 +31,7 @@ import {
   generateVideo,
   removeSavedVideoFromDisk,
   saveVideoToDisk,
+  resolveVideoReferencePublicUploadOptions,
   type VideoReferenceImage,
 } from "../services/video/video-generation.js";
 import { generateImage, saveImageToDisk } from "../services/image/image-generation.js";
@@ -852,6 +853,7 @@ export async function galleryRoutes(app: FastifyInstance) {
         aspectRatio,
         resolution,
         referenceImage,
+        publicReferenceUpload: resolveVideoReferencePublicUploadOptions(isSeedanceVideo, videoDefaults.seedance),
         signal: sceneVideoAbortSignal,
       });
       const filePath = await saveVideoToDisk(input.chatId, generated.base64);

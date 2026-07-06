@@ -2,6 +2,7 @@ export type VideoDefaultsService = "gemini_omni" | "google_veo" | "xai" | "openr
 
 export type VideoAspectRatio = "16:9" | "9:16";
 export type VideoResolution = "480p" | "720p" | "1080p";
+export type VideoReferenceUploadExpiry = "1h" | "12h" | "24h" | "72h";
 
 export interface GeminiOmniVideoDefaults {
   /** Prompt-level duration guidance. Gemini Omni REST video_config does not currently expose duration_seconds. */
@@ -35,6 +36,9 @@ export interface SeedanceVideoDefaults {
   durationSeconds: number;
   aspectRatio: VideoAspectRatio;
   resolution: VideoResolution;
+  /** Upload local first/last-frame references to temporary public URLs when Seedance cannot fetch them directly. */
+  temporaryPublicReferenceUploadEnabled: boolean;
+  temporaryPublicReferenceUploadExpiry: VideoReferenceUploadExpiry;
 }
 
 export interface VideoGenerationDefaultsProfile {
