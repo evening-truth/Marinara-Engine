@@ -566,6 +566,11 @@ async function generateSeedanceVideo(
   const model = request.model?.trim() || DEFAULT_SEEDANCE_VIDEO_MODEL;
   const startUrl = buildSeedanceUrl(baseUrl, "v1/videos/generations");
   const imageUrls = seedanceReferenceImageUrls(request);
+  if (imageUrls.some((url) => url.startsWith("data:"))) {
+    logger.warn(
+      "[video-gen/seedance] Using data URI image references because no public HTTPS reference URL was available; some Seedance-compatible providers may require public image URLs.",
+    );
+  }
   const duration = Math.min(15, Math.max(4, Math.trunc(request.durationSeconds)));
   const body: Record<string, unknown> = {
     model,
@@ -923,24 +928,30 @@ function seedanceReferenceImageUrl(image: VideoReferenceImage, label: string): s
   const raw = image.url?.trim();
   if (raw) {
     if (/^https:\/\//i.test(raw)) return raw;
-    if (/^http:\/\//i.test(raw)) {
-      throw new Error(`Seedance ${label} reference URL must be HTTPS so the provider can fetch it safely.`);
-    }
-    const publicBaseUrl = process.env.VIDEO_REFERENCE_PUBLIC_BASE_URL?.trim();
-    if (publicBaseUrl) {
+    if (!/^http:\/\//i.test(raw)) {
+      const publicBaseUrl = process.env.VIDEO_REFERENCE_PUBLIC_BASE_URL?.trim();
+      if (publicBaseUrl) {
+        try {
+          const resolved = new URL(raw, publicBaseUrl);
+          if (resolved.protocol === "https:") return resolved.toString();
+        } catch {
+          // Fall through to the data URI fallback below.
+        }
+      }
+    } else {
       try {
-        const resolved = new URL(raw, publicBaseUrl);
-        if (resolved.protocol === "https:") return resolved.toString();
+        const parsed = new URL(raw);
+        logger.warn(
+          "[video-gen/seedance] Ignoring non-HTTPS %s reference URL host=%s and using data URI fallback",
+          label,
+          parsed.host,
+        );
       } catch {
-        // Fall through to the explicit setup error below.
+        // Fall through to the data URI fallback below.
       }
     }
   }
-
-  throw new Error(
-    `Seedance image-to-video references require a publicly reachable HTTPS image URL for the ${label}. ` +
-      "Set VIDEO_REFERENCE_PUBLIC_BASE_URL to the public URL of this Marinara server, or use Seedance text-to-video without references.",
-  );
+  return referenceImageToDataUri(image);
 }
 
 function buildGoogleVeoStartBody(
