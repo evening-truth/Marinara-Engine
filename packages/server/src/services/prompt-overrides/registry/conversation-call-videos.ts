@@ -34,7 +34,7 @@ const CLIP_PROMPT_SEEDS: ClipPromptSeed[] = [
     kind: "talking",
     label: "talking loop",
     instruction:
-      "The character makes subtle mouth and face movements as if speaking, then returns to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
+      "The character speaks naturally with visible mouth or mask-area motion as appropriate, subtle breathing, small head and shoulder movement, gentle expression changes, and slight hair or clothing motion if present. Keep the movement restrained and video-call-like, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
   },
   {
     kind: "laughing",
