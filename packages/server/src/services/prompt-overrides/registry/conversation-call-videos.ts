@@ -40,25 +40,25 @@ const CLIP_PROMPT_SEEDS: ClipPromptSeed[] = [
     kind: "laughing",
     label: "laughing reaction",
     instruction:
-      "The character laughs naturally with smooth facial movement, subtle breathing, small head and shoulder movement, and slight hair or clothing motion if present, then returns to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
+      "The character laughs naturally with visible mouth or mask-area motion as appropriate, subtle breathing, small head and shoulder movement, gentle expression changes, and slight hair or clothing motion if present. Keep the movement restrained and video-call-like, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
   },
   {
     kind: "angry",
     label: "angry reaction",
     instruction:
-      "The character shows anger or irritation briefly with smooth restrained motion: a tense posture shift, small head or shoulder movement, sharper breathing, expression changes, and slight hair or clothing motion if present. Keep the motion video-call-like and fluid, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
+      "The character reacts with restrained anger or irritation through subtle breathing, small head and shoulder movement, gentle expression changes, and slight hair or clothing motion if present. Keep the movement restrained and video-call-like, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
   },
   {
     kind: "crying",
     label: "crying reaction",
     instruction:
-      "The character shows a restrained tearful reaction briefly with smooth natural motion: softened posture, subtle breathing, small head or shoulder movement, expression changes, and slight hair or clothing motion if present. Keep the motion video-call-like and fluid, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
+      "The character reacts with restrained sadness or tears through subtle breathing, small head and shoulder movement, gentle expression changes, and slight hair or clothing motion if present. Keep the movement restrained and video-call-like, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
   },
   {
     kind: "sighing",
     label: "sighing reaction",
     instruction:
-      "The character sighs naturally with smooth restrained motion: a small exhale, gentle breathing, slight head or shoulder movement, a brief expression shift, and subtle hair or clothing motion if present. Keep the motion video-call-like and fluid, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
+      "The character sighs naturally with visible mouth or mask-area motion as appropriate, subtle breathing, small head and shoulder movement, gentle expression changes, and slight hair or clothing motion if present. Keep the movement restrained and video-call-like, then return to the original pose. Preserve masks, visors, eye coverings, and accessories exactly as shown.",
   },
 ];
 
@@ -69,10 +69,10 @@ function buildDefaultPrompt(ctx: ConversationCallVideoClipCtx) {
     "Preserve the reference image's crop, especially the top/head framing. If any framing must be lost, crop lower body or lower clothing instead of hair, head, mask, or face.",
     "Preserve the reference image's background, lighting, colors, face shape, hair, clothing, mask or eyewear, accessories, and art style.",
     `Action: ${ctx.clipInstruction}`,
-    "Motion quality: smooth continuous natural movement throughout; no choppy jumps, jitter, flicker, stuttering, or frozen holds.",
+    "Motion quality: one smooth, restrained, video-call-like motion throughout the clip.",
     "Lighting and background: keep them from the reference image; do not invent a new ambience or setting.",
     "Camera: locked-off still camera, no zoom, pan, tilt, dolly, crop change, reframing, handheld shake, or scene cut.",
-    "Looping: the first and final frame should match for a seamless loop.",
+    "Looping: return to the first-frame pose by the final frame for a seamless loop.",
     "Focus: single character only, no captions, subtitles, UI, logos, extra people, new clothing, or new facial features.",
   ]
     .filter(Boolean)
@@ -86,10 +86,10 @@ function buildDefaultCustomClipPrompt(ctx: ConversationCallCustomVideoClipCtx) {
     "Preserve the reference image's crop, especially the top/head framing. If any framing must be lost, crop lower body or lower clothing instead of hair, head, mask, or face.",
     "Preserve the reference image's base background, lighting, colors, face shape, hair, clothing, mask or eyewear, accessories, and art style unless the custom request explicitly changes one visual detail.",
     `Action: ${ctx.customPrompt}.`,
-    "Motion quality: smooth continuous natural movement throughout; no choppy jumps, jitter, flicker, stuttering, or frozen holds.",
+    "Motion quality: one smooth, restrained, video-call-like motion throughout the clip.",
     "Lighting and background: keep them from the reference image unless the custom request explicitly changes them.",
     "Camera: locked-off still camera, no zoom, pan, tilt, dolly, crop change, reframing, handheld shake, or scene cut.",
-    "Looping: start from a reference-matching frame and return to a reference-matching frame by the final frame so the clip loops cleanly.",
+    "Looping: return to the first-frame pose by the final frame for a seamless loop.",
     "Focus: single character only, no captions, subtitles, UI, logos, extra people, or unrelated costume/accessory changes.",
   ]
     .filter(Boolean)
