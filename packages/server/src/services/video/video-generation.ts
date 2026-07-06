@@ -611,42 +611,15 @@ async function generateSeedanceVideo(
     },
   };
 
-  const started = await safeFetch(startUrl, {
-    method: "POST",
-    headers: seedanceHeaders(apiKey),
-    body: JSON.stringify(body),
-    signal: request.signal,
-    policy: {
-      allowLocal: false,
-      allowLoopback: false,
-      allowMdns: false,
-      allowedProtocols: ["https:"],
-    },
-    maxResponseBytes: 2 * 1024 * 1024,
-    decodeCompressedResponse: true,
-  });
-
-  const startText = await started.text();
-  if (!started.ok) {
-    throw new Error(`Seedance video generation returned ${started.status}: ${formatProviderError(startText)}`);
-  }
-  let startJson: unknown;
-  try {
-    startJson = JSON.parse(startText) as unknown;
-  } catch {
-    throw new Error(`Seedance video generation returned non-JSON response: ${startText.slice(0, 300)}`);
-  }
-  const taskId = readSeedanceTaskId(startJson);
-  if (!taskId) {
-    throw new Error("Seedance video generation response did not include a taskId");
-  }
-
-  const pollUrl = buildSeedanceUrl(baseUrl, `v1/tasks/${encodeURIComponent(taskId)}`);
-  while (true) {
-    await delayWithSignal(SEEDANCE_POLL_INTERVAL_MS, request.signal);
-    const polled = await safeFetch(pollUrl, {
-      method: "GET",
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      logger.warn("[video-gen/seedance] Retrying failed generation after opaque provider task failure");
+    }
+    const started = await safeFetch(startUrl, {
+      method: "POST",
       headers: seedanceHeaders(apiKey),
+      body: JSON.stringify(body),
       signal: request.signal,
       policy: {
         allowLocal: false,
@@ -657,32 +630,80 @@ async function generateSeedanceVideo(
       maxResponseBytes: 2 * 1024 * 1024,
       decodeCompressedResponse: true,
     });
-    const pollText = await polled.text();
-    if (!polled.ok) {
-      throw new Error(`Seedance video polling returned ${polled.status}: ${formatProviderError(pollText)}`);
+
+    const startText = await started.text();
+    if (!started.ok) {
+      throw new Error(`Seedance video generation returned ${started.status}: ${formatProviderError(startText)}`);
     }
-    let pollJson: unknown;
+    let startJson: unknown;
     try {
-      pollJson = JSON.parse(pollText) as unknown;
+      startJson = JSON.parse(startText) as unknown;
     } catch {
-      throw new Error(`Seedance video polling returned non-JSON response: ${pollText.slice(0, 300)}`);
+      throw new Error(`Seedance video generation returned non-JSON response: ${startText.slice(0, 300)}`);
     }
-    const status = readSeedanceStatus(pollJson);
-    if (status && ["completed", "succeeded", "success", "done"].includes(status)) {
-      const url = findVideoUri(pollJson);
-      if (!url) {
-        logger.warn("[video-gen/seedance] completed response without video URL: %s", pollText.slice(0, 2000));
-        throw new Error("Seedance response did not include a downloadable video");
+    const taskId = readSeedanceTaskId(startJson);
+    if (!taskId) {
+      throw new Error("Seedance video generation response did not include a taskId");
+    }
+
+    const pollUrl = buildSeedanceUrl(baseUrl, `v1/tasks/${encodeURIComponent(taskId)}`);
+    while (true) {
+      await delayWithSignal(SEEDANCE_POLL_INTERVAL_MS, request.signal);
+      const polled = await safeFetch(pollUrl, {
+        method: "GET",
+        headers: seedanceHeaders(apiKey),
+        signal: request.signal,
+        policy: {
+          allowLocal: false,
+          allowLoopback: false,
+          allowMdns: false,
+          allowedProtocols: ["https:"],
+        },
+        maxResponseBytes: 2 * 1024 * 1024,
+        decodeCompressedResponse: true,
+      });
+      const pollText = await polled.text();
+      if (!polled.ok) {
+        throw new Error(`Seedance video polling returned ${polled.status}: ${formatProviderError(pollText)}`);
       }
-      return downloadSeedanceVideo(url, apiKey, request.signal);
-    }
-    if (status && ["failed", "error", "cancelled", "canceled", "expired"].includes(status)) {
-      throw new Error(`Seedance video generation ${status}: ${formatOperationError(asRecord(pollJson).error)}`);
-    }
-    if (status && !["pending", "queued", "processing", "running", "in_progress"].includes(status)) {
-      logger.debug("[video-gen/seedance] continuing after unknown status: %s", status);
+      let pollJson: unknown;
+      try {
+        pollJson = JSON.parse(pollText) as unknown;
+      } catch {
+        throw new Error(`Seedance video polling returned non-JSON response: ${pollText.slice(0, 300)}`);
+      }
+      const status = readSeedanceStatus(pollJson);
+      if (status && ["completed", "succeeded", "success", "done"].includes(status)) {
+        const url = findVideoUri(pollJson);
+        if (!url) {
+          logger.warn("[video-gen/seedance] completed response without video URL: %s", pollText.slice(0, 2000));
+          throw new Error("Seedance response did not include a downloadable video");
+        }
+        return downloadSeedanceVideo(url, apiKey, request.signal);
+      }
+      if (status && ["failed", "error", "cancelled", "canceled", "expired"].includes(status)) {
+        const errorMessage = formatSeedanceOperationError(pollJson);
+        logger.warn(
+          "[video-gen/seedance] task %s failed attempt %d/%d status=%s reason=%s response=%s",
+          taskId,
+          attempt,
+          maxAttempts,
+          status,
+          errorMessage,
+          compactJsonForLog(pollJson, 2000),
+        );
+        if (attempt < maxAttempts && isRetryableSeedanceTaskFailure(status, errorMessage)) {
+          break;
+        }
+        throw new Error(`Seedance video generation ${status}: ${errorMessage}`);
+      }
+      if (status && !["pending", "queued", "processing", "running", "in_progress"].includes(status)) {
+        logger.debug("[video-gen/seedance] continuing after unknown status: %s", status);
+      }
     }
   }
+
+  throw new Error("Seedance video generation failed after retrying an opaque provider task failure");
 }
 
 function withVideoGenerationDeadline<T>(
@@ -1458,4 +1479,52 @@ function formatOperationError(value: unknown): string {
     if (message) return message;
   }
   return (JSON.stringify(value) ?? String(value)).slice(0, 500);
+}
+
+function formatSeedanceOperationError(value: unknown): string {
+  const root = asRecord(value);
+  const data = asRecord(root.data);
+  const candidates: unknown[] = [
+    root.error,
+    root.failed_reason,
+    root.failedReason,
+    root.failure_reason,
+    root.failureReason,
+    root.error_message,
+    root.errorMessage,
+    root.message,
+    root.reason,
+    root.raiMediaFilteredReasons,
+    root.rai_media_filtered_reasons,
+    data.error,
+    data.failed_reason,
+    data.failedReason,
+    data.failure_reason,
+    data.failureReason,
+    data.failed_message,
+    data.failedMessage,
+    data.error_message,
+    data.errorMessage,
+    data.message,
+    data.reason,
+    data.raiMediaFilteredReasons,
+    data.rai_media_filtered_reasons,
+  ];
+  for (const candidate of candidates) {
+    const message = formatOperationError(candidate);
+    if (message && message !== "Unknown operation error") return message;
+  }
+  return "Unknown operation error";
+}
+
+function isRetryableSeedanceTaskFailure(status: string, message: string): boolean {
+  return (status === "failed" || status === "error") && message.trim().toLowerCase() === "unknown operation error";
+}
+
+function compactJsonForLog(value: unknown, maxLength: number): string {
+  try {
+    return JSON.stringify(value).replace(/\s+/g, " ").slice(0, maxLength);
+  } catch {
+    return String(value).replace(/\s+/g, " ").slice(0, maxLength);
+  }
 }
