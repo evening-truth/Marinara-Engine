@@ -1720,7 +1720,6 @@ export function SettingsPanel() {
   const pinnedSettingsItems = useUIStore((s) => s.pinnedSettingsItems);
   const settingsTab = normalizeSettingsTab(rawSettingsTab);
   const [settingsSearch, setSettingsSearch] = useState("");
-  const [advancedVisible, setAdvancedVisible] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
   const activePanelRef = useRef<HTMLDivElement | null>(null);
 
@@ -1783,15 +1782,6 @@ export function SettingsPanel() {
                 <X size="0.75rem" />
               </button>
             )}
-          </label>
-          <label className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)]/35 px-2 text-[0.6875rem] font-semibold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)]/60 hover:text-[var(--foreground)]">
-            <input
-              type="checkbox"
-              checked={advancedVisible}
-              onChange={(event) => setAdvancedVisible(event.target.checked)}
-              className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--primary)]"
-            />
-            Advanced
           </label>
         </div>
         {settingsSearch.trim() && (
