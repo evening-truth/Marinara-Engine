@@ -46,6 +46,7 @@ import { assertInsideDir, extensionFromImageMime, isAllowedImageBuffer } from ".
 import { logger } from "../lib/logger.js";
 import { parseLibraryPageQuery } from "../utils/list-pagination.js";
 import { importSTLorebook } from "../services/import/st-lorebook.importer.js";
+import { embedLorebookIntoCharacter, getEmbeddedLorebookId } from "../services/lorebook/character-book-sync.js";
 import AdmZip from "adm-zip";
 import { extname } from "path";
 import { pipeline } from "stream/promises";
@@ -1342,6 +1343,80 @@ export async function charactersRoutes(app: FastifyInstance) {
       reimported: result.reimported ?? false,
     };
   });
+
+  // Embed a standalone/linked character lorebook INTO this character's card
+  // (data.character_book) so it exports with the card — the inverse of the
+  // import above. Writes the lorebook's current entries and the forward
+  // pointer; future /lorebooks edits then keep the embedded copy in sync.
+  app.post<{ Params: { id: string }; Body: { lorebookId?: string } }>(
+    "/:id/embedded-lorebook/embed",
+    async (req, reply) => {
+      const lorebookId = typeof req.body?.lorebookId === "string" ? req.body.lorebookId.trim() : "";
+      if (!lorebookId) return reply.status(400).send({ error: "lorebookId is required" });
+
+      const char = await storage.getById(req.params.id);
+      if (!char) return reply.status(404).send({ error: "Character not found" });
+
+      const lorebook = (await lorebooksStorage.getById(lorebookId)) as Record<string, unknown> | null;
+      if (!lorebook) return reply.status(404).send({ error: "Lorebook not found" });
+
+      // A character card only carries a character-scoped book. Persona
+      // lorebooks are identified by persona links and have no card slot.
+      const personaIds = Array.isArray(lorebook.personaIds) ? (lorebook.personaIds as unknown[]) : [];
+      if (
+        personaIds.length > 0 ||
+        typeof lorebook.personaId === "string" ||
+        (typeof lorebook.category === "string" && lorebook.category !== "character")
+      ) {
+        return reply.status(400).send({ error: "Only character lorebooks can be embedded into a character card." });
+      }
+
+      // A card has a single character_book slot. Allow only when the slot is
+      // empty or already belongs to this lorebook (refresh); never clobber a
+      // different embedded book or an unpointered baked snapshot.
+      const charData = JSON.parse(char.data) as Record<string, unknown>;
+      const currentEmbeddedId = getEmbeddedLorebookId(charData);
+      const hasBook = charData.character_book !== null && charData.character_book !== undefined;
+      const slotBelongsToThis = currentEmbeddedId === lorebookId;
+      const slotEmpty = !currentEmbeddedId && !hasBook;
+      if (!slotBelongsToThis && !slotEmpty) {
+        return reply
+          .status(409)
+          .send({ error: "This character already has an embedded lorebook. Remove it first, then embed this one." });
+      }
+
+      // Ensure the book is linked to this character so it auto-activates and
+      // stays live-syncable — additively (union), never replacing other links.
+      const linkedIds = Array.isArray(lorebook.characterIds) ? (lorebook.characterIds as string[]) : [];
+      const linkAdded = !linkedIds.includes(req.params.id);
+      if (linkAdded) {
+        await lorebooksStorage.update(lorebookId, {
+          characterIds: Array.from(new Set([...linkedIds, req.params.id])),
+        });
+      }
+
+      let result: Awaited<ReturnType<typeof embedLorebookIntoCharacter>>;
+      try {
+        result = await embedLorebookIntoCharacter(app.db, req.params.id, lorebookId);
+      } catch (err) {
+        if (linkAdded) {
+          try {
+            await lorebooksStorage.update(lorebookId, { characterIds: linkedIds });
+          } catch (rollbackErr) {
+            logger.error(rollbackErr, "Failed to roll back lorebook link after embedded lorebook write failed");
+          }
+        }
+        throw err;
+      }
+      return {
+        success: true,
+        lorebookId,
+        entriesEmbedded: result.entriesEmbedded,
+        refreshed: result.refreshed,
+        characterBook: result.characterBook,
+      };
+    },
+  );
 
   // ── Export as PNG ──
 
