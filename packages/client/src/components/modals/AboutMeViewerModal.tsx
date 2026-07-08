@@ -263,7 +263,9 @@ export function AboutMeViewerModal({
     >
       <div
         ref={cardRef}
-        className="mari-modal-panel absolute w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
+        // No overflow-hidden — the emoji panel opens upward past the card top and
+        // must not be clipped. The banner rounds its own top corners instead.
+        className="mari-modal-panel absolute w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-2xl"
         style={{
           top: pos?.top ?? (anchorRect?.top ?? 80),
           left: pos?.left ?? (anchorRect ? anchorRect.right + 12 : 80),
@@ -271,7 +273,7 @@ export function AboutMeViewerModal({
         }}
       >
         {/* Banner */}
-        <div className="h-14 w-full" style={{ background: nameColor || "var(--accent)" }} />
+        <div className="h-14 w-full rounded-t-2xl" style={{ background: nameColor || "var(--accent)" }} />
 
         <button
           type="button"
