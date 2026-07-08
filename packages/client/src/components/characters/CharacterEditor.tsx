@@ -274,6 +274,7 @@ export function CharacterEditor() {
     lorebookEmbedInFlightRef.current = inFlight;
     setLorebookEmbedding(inFlight);
   }, []);
+  const isLorebookEmbeddingInFlight = useCallback(() => lorebookEmbedInFlightRef.current, []);
   const markDirty = useCallback(() => {
     editRevisionRef.current += 1;
     setDirtyState(true);
@@ -375,6 +376,10 @@ export function CharacterEditor() {
   // Save would resend the stale pre-remove data and silently re-embed it. The
   // linked standalone lorebook, if any, is left untouched.
   const handleLorebookUnembedded = useCallback(() => {
+    if (lorebookEmbedInFlightRef.current) {
+      toast.error("Wait for the embedded lorebook update to finish before removing it from the card.");
+      return;
+    }
     if (!dirtyRef.current) return;
     setFormData((prev) => {
       if (!prev) return prev;
@@ -1063,6 +1068,8 @@ export function CharacterEditor() {
               <LorebookTab
                 characterId={characterId}
                 formData={formData}
+                embedding={lorebookEmbedding}
+                isEmbeddingInFlight={isLorebookEmbeddingInFlight}
                 onEmbedded={handleLorebookEmbedded}
                 onEmbeddingChange={setLorebookEmbedInFlight}
                 onUnembed={handleLorebookUnembedded}
@@ -4096,12 +4103,16 @@ function ColorsTab({
 function LorebookTab({
   characterId,
   formData,
+  embedding,
+  isEmbeddingInFlight,
   onEmbedded,
   onEmbeddingChange,
   onUnembed,
 }: {
   characterId: string | null;
   formData: CharacterData;
+  embedding?: boolean;
+  isEmbeddingInFlight?: () => boolean;
   onEmbedded?: (lorebookId: string, characterBook: unknown) => void;
   onEmbeddingChange?: (embedding: boolean) => void;
   onUnembed?: () => void;
@@ -4134,6 +4145,14 @@ function LorebookTab({
     rawLinkedLorebookId && (linkedLorebookQuery.isLoading || linkedLorebookQuery.data) ? rawLinkedLorebookId : null;
   const hasEmbeddedLorebook = entries.length > 0 || embeddedLorebookMetadata.hasEmbeddedLorebook === true;
 
+  const isRemoveBlockedByEmbedding = () => {
+    if (embedding || isEmbeddingInFlight?.()) {
+      toast.error("Wait for the embedded lorebook update to finish before removing it from the card.");
+      return true;
+    }
+    return false;
+  };
+
   const handleImportEmbeddedLorebook = async () => {
     if (!characterId) return;
     setImporting(true);
@@ -4161,13 +4180,19 @@ function LorebookTab({
   };
 
   const handleRemoveFromCard = async () => {
-    if (!characterId) return;
+    if (!characterId || removing) return;
+    if (isRemoveBlockedByEmbedding()) return;
     if (
-      !window.confirm(
-        "Remove the embedded lorebook from this character's card? Its entries will no longer be baked into the card. Any linked standalone lorebook is kept.",
-      )
+      !(await showConfirmDialog({
+        title: "Remove Embedded Lorebook",
+        message:
+          "Remove the embedded lorebook from this character's card? Its entries will no longer be baked into the card. Any linked standalone lorebook is kept.",
+        confirmLabel: "Remove from card",
+        tone: "destructive",
+      }))
     )
       return;
+    if (isRemoveBlockedByEmbedding()) return;
     setRemoving(true);
     try {
       await api.delete(`/characters/${characterId}/embedded-lorebook`);
@@ -4231,11 +4256,15 @@ function LorebookTab({
           <button
             type="button"
             onClick={handleRemoveFromCard}
-            disabled={!characterId || removing}
+            disabled={!characterId || removing || embedding}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--destructive)]/10 px-3 py-1.5 text-xs font-medium text-[var(--destructive)] transition-all hover:bg-[var(--destructive)]/20 disabled:cursor-not-allowed disabled:opacity-50"
-            title="Remove the embedded lorebook (data.character_book) from the card"
+            title={
+              embedding
+                ? "Wait for the embedded lorebook update to finish."
+                : "Remove the embedded lorebook (data.character_book) from the card"
+            }
           >
-            {removing ? <Loader2 size="0.75rem" className="animate-spin" /> : <Trash2 size="0.75rem" />}
+            {removing || embedding ? <Loader2 size="0.75rem" className="animate-spin" /> : <Trash2 size="0.75rem" />}
             Remove from card
           </button>
           <span className="text-[0.6875rem] text-[var(--muted-foreground)]">
