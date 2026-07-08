@@ -4599,6 +4599,8 @@ export async function generateRoutes(app: FastifyInstance) {
 
               const executedToolResults = await executeToolCalls(permittedToolCalls, {
                 ...baseToolExecutionContext,
+                // The character whose turn this is — update_about_me writes their about-me.
+                callingCharacterId: targetCharId ?? input.forCharacterId ?? null,
               });
               const toolResultsById = new Map(
                 [...executedToolResults, ...deniedToolResults].map((result) => [result.toolCallId, result]),
@@ -4641,6 +4643,52 @@ export async function generateRoutes(app: FastifyInstance) {
                     }
                   } catch {
                     // Non-critical
+                  }
+                }
+
+                // update_about_me public scope: route the proposed edit through the
+                // character-card approval modal (the chat scope already persisted itself).
+                if (tr.name === "update_about_me" && tr.success) {
+                  try {
+                    const parsed = JSON.parse(tr.result);
+                    const proposal = parsed?.proposedCardUpdate;
+                    if (parsed?.scope === "public" && proposal && typeof proposal.characterId === "string") {
+                      const newText = typeof proposal.newText === "string" ? proposal.newText : "";
+                      let oldText = "";
+                      try {
+                        const row = await chars.getById(proposal.characterId);
+                        const data = row ? (typeof row.data === "string" ? JSON.parse(row.data) : row.data) : null;
+                        const ext = (data?.extensions ?? {}) as Record<string, unknown>;
+                        if (typeof ext.aboutMe === "string") oldText = ext.aboutMe;
+                      } catch {
+                        /* non-critical */
+                      }
+                      if (oldText !== newText) {
+                        sendAgentResultEvent({
+                          agentId: "about-me-keeper",
+                          agentType: "about-me-keeper",
+                          type: "character_card_update",
+                          data: {
+                            updates: [
+                              {
+                                action: "update",
+                                characterId: proposal.characterId,
+                                field: "aboutMe",
+                                oldText,
+                                newText,
+                                reason: "Character updated its public about me",
+                              },
+                            ],
+                          },
+                          tokensUsed: 0,
+                          durationMs: 0,
+                          success: true,
+                          error: null,
+                        });
+                      }
+                    }
+                  } catch {
+                    /* non-critical */
                   }
                 }
               }
