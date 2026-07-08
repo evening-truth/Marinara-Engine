@@ -374,7 +374,13 @@ import {
   withActiveGameMapMeta,
 } from "../services/game/map-position.service.js";
 import { applyAllSegmentEdits } from "../services/game/segment-edits.js";
-import type { GameMap, GameNpc, Lorebook, LorebookEntry } from "@marinara-engine/shared";
+import type { CharacterData, GameMap, GameNpc, Lorebook, LorebookEntry } from "@marinara-engine/shared";
+import {
+  buildConversationProfileBlocks,
+  parsePersonaConvoBehavior,
+  readCharacterConvoFields,
+  type ConversationProfileParticipant,
+} from "../services/conversation/conversation-profiles.js";
 import {
   isStandaloneCharacterProfileBlock,
   scopeIndividualGroupMessagesForTarget,
@@ -1670,6 +1676,61 @@ export async function generateRoutes(app: FastifyInstance) {
           });
           finalMessages = preparedHistory.finalMessages;
 
+          // ── Conversation-mode profiles (Convo ONLY): display name, about-me, behavior ──
+          // Built entirely inside this branch, so none of these fields can reach
+          // RP/VN/Game prompts. `convoFields` is set on the shared macro context here
+          // (never elsewhere), so {{char_about}}/{{convo_behavior}}/etc. resolve to ""
+          // in every other mode even if placed in a shared card/lorebook surface.
+          const aboutMeOverrides = (chatMeta.conversationAboutMeOverrides ?? {}) as Record<string, string>;
+          const autoInjectAbout = chatMeta.conversationAboutMeInject !== false;
+          const effectiveAbout = (id: string, fallback: string): string => {
+            const override = aboutMeOverrides[id];
+            return typeof override === "string" && override.trim() ? override : fallback;
+          };
+          const profileParticipants: ConversationProfileParticipant[] = [];
+          for (const info of convoCharInfo) {
+            const charRow = await chars.getById(info.charId);
+            let cdata: CharacterData | null = null;
+            if (charRow) {
+              try {
+                cdata = (typeof charRow.data === "string" ? JSON.parse(charRow.data) : charRow.data) as CharacterData;
+              } catch {
+                cdata = null;
+              }
+            }
+            const cf = readCharacterConvoFields(cdata);
+            profileParticipants.push({
+              id: info.charId,
+              name: info.name,
+              displayName: cf.convoDisplayName || info.name,
+              aboutMe: effectiveAbout(info.charId, cf.aboutMe),
+              isPersona: false,
+              behavior: cf.convoBehavior,
+              postHistoryInstructions: cf.postHistoryInstructions,
+            });
+          }
+          if (persona) {
+            const personaAboutDefault = typeof persona.aboutMe === "string" ? persona.aboutMe : "";
+            const personaConvoDisplay = typeof persona.convoDisplayName === "string" ? persona.convoDisplayName : "";
+            profileParticipants.push({
+              id: persona.id as string,
+              name: persona.name,
+              displayName: personaConvoDisplay || persona.name,
+              aboutMe: effectiveAbout(persona.id as string, personaAboutDefault),
+              isPersona: true,
+              behavior: parsePersonaConvoBehavior(persona.convoBehavior),
+              postHistoryInstructions: "",
+            });
+          }
+          const convoProfileBlocks = buildConversationProfileBlocks({
+            participants: profileParticipants,
+            primaryCharacterId: input.forCharacterId ?? convoCharInfo[0]?.charId ?? null,
+            autoInjectAbout,
+            isGroup,
+            resolveMacros: resolvePromptMacros,
+          });
+          promptMacroContext.convoFields = convoProfileBlocks.convoFields;
+
           // Build the system prompt
           // Use custom system prompt if set, otherwise the built-in default
           const customPrompt =
@@ -1825,10 +1886,26 @@ export async function generateRoutes(app: FastifyInstance) {
 
           conversationSystemPrompt = resolvePromptMacros(conversationSystemPrompt);
 
+          // Convo behavior + about-me are already macro-resolved in the helper, so
+          // append them after the system prompt's own macro pass to avoid double resolution.
+          if (convoProfileBlocks.behaviorConstantBefore) {
+            conversationSystemPrompt = convoProfileBlocks.behaviorConstantBefore + "\n\n" + conversationSystemPrompt;
+          }
+          if (convoProfileBlocks.behaviorConstantAfter) {
+            conversationSystemPrompt += "\n\n" + convoProfileBlocks.behaviorConstantAfter;
+          }
+          if (convoProfileBlocks.aboutMeBlock) {
+            conversationSystemPrompt += "\n\n" + convoProfileBlocks.aboutMeBlock;
+          }
+
           finalMessages = [
             { role: "system" as const, content: conversationSystemPrompt },
             ...finalMessages,
             ...(connectedChatBlock ? [{ role: "user" as const, content: connectedChatBlock }] : []),
+            // Post-history-strategy behavior sits closest to generation (the convo analog of post-history).
+            ...(convoProfileBlocks.behaviorPostHistoryBlock
+              ? [{ role: "user" as const, content: convoProfileBlocks.behaviorPostHistoryBlock }]
+              : []),
             { role: "user" as const, content: contextBlock },
           ];
 
