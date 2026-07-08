@@ -129,6 +129,7 @@ export function AboutMeViewerModal({
   const cardRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiPanelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
@@ -161,15 +162,30 @@ export function AboutMeViewerModal({
     });
   };
 
-  // Close on Escape.
+  // Close the emoji panel when clicking outside it (it's embedded in the card).
+  useEffect(() => {
+    if (!emojiOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (emojiPanelRef.current?.contains(t) || emojiBtnRef.current?.contains(t)) return;
+      setEmojiOpen(false);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [emojiOpen]);
+
+  // Escape: back out of the emoji panel, then edit mode, then close.
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (emojiOpen) setEmojiOpen(false);
+      else if (editing) setEditing(false);
+      else onClose();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [open, onClose, editing, emojiOpen]);
 
   // Anchor the card next to the avatar; flip/clamp to stay on screen.
   useLayoutEffect(() => {
@@ -233,13 +249,16 @@ export function AboutMeViewerModal({
 
   return createPortal(
     <div
-      // Just below the EmojiPicker's z-[9999] so its popover can layer above this
-      // card, but still far above all chat UI.
-      className="fixed inset-0 z-[9990]"
+      // Inline z-index (Tailwind didn't emit an arbitrary z-[9990]); far above chat UI.
+      className="fixed inset-0"
+      style={{ zIndex: 9990 }}
       data-component="AboutMeProfilePopout"
-      // Transparent — no dimming, Discord-style. Click outside closes.
+      // Transparent — no dimming, Discord-style. Click outside closes, but NOT
+      // while editing (protects the draft; use Cancel / Save / Escape / ✕).
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target !== e.currentTarget) return;
+        if (editing || emojiOpen) return;
+        onClose();
       }}
     >
       <div
@@ -330,6 +349,27 @@ export function AboutMeViewerModal({
               </div>
             ) : (
               <div className="relative">
+                {/* Embedded picker inside the card's own stacking context, so it
+                    reliably layers above the popout (portaled pickers fought the
+                    popout's z-index). */}
+                {emojiOpen && (
+                  <div
+                    ref={emojiPanelRef}
+                    className="absolute bottom-full right-0 z-30 mb-2 flex h-[17rem] w-[18rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
+                  >
+                    <EmojiPicker
+                      embedded
+                      open
+                      onClose={() => setEmojiOpen(false)}
+                      onSelect={insertEmoji}
+                      customTab={{
+                        icon: "⭐",
+                        label: "Custom emojis",
+                        render: (query) => <CustomEmojiTab onInsert={insertEmoji} query={query} />,
+                      }}
+                    />
+                  </div>
+                )}
                 <textarea
                   ref={textareaRef}
                   value={draft}
@@ -348,17 +388,6 @@ export function AboutMeViewerModal({
                 >
                   <Smile size="1rem" />
                 </button>
-                <EmojiPicker
-                  open={emojiOpen}
-                  onClose={() => setEmojiOpen(false)}
-                  onSelect={insertEmoji}
-                  anchorRef={emojiBtnRef}
-                  customTab={{
-                    icon: "⭐",
-                    label: "Custom emojis",
-                    render: (query) => <CustomEmojiTab onInsert={insertEmoji} query={query} />,
-                  }}
-                />
               </div>
             )}
           </div>
