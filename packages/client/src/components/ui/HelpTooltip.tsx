@@ -6,6 +6,10 @@ import { createPortal } from "react-dom";
 import { HelpCircle } from "lucide-react";
 import { cn } from "../../lib/utils";
 
+// Only one tooltip is open at a time: opening one closes whichever was open, so
+// hovering/opening a second tooltip dismisses the first instead of stacking.
+let activeTooltipClose: (() => void) | null = null;
+
 interface HelpTooltipProps {
   /** The help content to display */
   text: ReactNode;
@@ -37,6 +41,22 @@ export function HelpTooltip({
   const wrapRef = useRef<HTMLSpanElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; ready: boolean }>({ top: 0, left: 0, ready: false });
+
+  // Stable per-instance closer registered with the module-level "active tooltip".
+  const closeSelfRef = useRef<(() => void) | null>(null);
+  if (!closeSelfRef.current) {
+    closeSelfRef.current = () => {
+      setShow(false);
+      setPinned(false);
+      if (activeTooltipClose === closeSelfRef.current) activeTooltipClose = null;
+    };
+  }
+  const closeSelf = closeSelfRef.current;
+  const openSelf = () => {
+    if (activeTooltipClose && activeTooltipClose !== closeSelf) activeTooltipClose();
+    activeTooltipClose = closeSelf;
+    setShow(true);
+  };
 
   // Compute position before paint so the tooltip never flickers
   useLayoutEffect(() => {
@@ -77,15 +97,13 @@ export function HelpTooltip({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!wrapRef.current?.contains(target) && !tipRef.current?.contains(target)) {
-        setShow(false);
-        setPinned(false);
+        closeSelf();
       }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setShow(false);
-        setPinned(false);
+        closeSelf();
       }
     };
 
@@ -95,14 +113,14 @@ export function HelpTooltip({
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [show]);
+  }, [show, closeSelf]);
 
   return (
     <span
       ref={wrapRef}
       className={cn("relative inline-flex", className)}
       onMouseLeave={() => {
-        if (!pinned) setShow(false);
+        if (!pinned) closeSelf();
       }}
     >
       <button
@@ -113,7 +131,7 @@ export function HelpTooltip({
           "mari-chrome-accent-text-muted mari-accent-animated inline-flex cursor-help items-center gap-1 rounded-full opacity-70 transition-opacity hover:text-[var(--marinara-chat-chrome-button-text-hover)] hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--marinara-chat-chrome-focus-ring)]",
           buttonClassName,
         )}
-        onMouseEnter={() => setShow(true)}
+        onMouseEnter={openSelf}
         onPointerDown={(event) => {
           event.stopPropagation();
         }}
@@ -122,7 +140,8 @@ export function HelpTooltip({
           event.stopPropagation();
           setPinned((current) => {
             const nextPinned = !current;
-            setShow(nextPinned);
+            if (nextPinned) openSelf();
+            else closeSelf();
             return nextPinned;
           });
         }}
