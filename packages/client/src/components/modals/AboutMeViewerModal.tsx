@@ -500,7 +500,9 @@ export function AboutMeViewerModal({
               <div
                 className={cn(
                   "mari-about-me-text min-h-[2.5rem] whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--foreground)]",
-                  isMobile && "min-h-0 flex-1 overflow-y-auto",
+                  // Long bios scroll instead of stretching the popout off-screen: fill the
+                  // sheet on mobile, cap + scroll on the anchored desktop card.
+                  isMobile ? "min-h-0 flex-1 overflow-y-auto" : "max-h-[16rem] overflow-y-auto",
                 )}
               >
                 {effective.trim() ? (
