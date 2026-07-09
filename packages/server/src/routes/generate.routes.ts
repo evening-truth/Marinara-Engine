@@ -5497,23 +5497,24 @@ export async function generateRoutes(app: FastifyInstance) {
               }
             }
 
-            // Evict cachedPrompt from older messages to save storage (keep last 2 assistant msgs)
+            // Evict cachedPrompt from older messages to save storage (keep last 2 assistant msgs).
+            // Reuse the already-fetched message objects (they carry `extra`) rather than a
+            // per-id chats.getMessage — the latter is a full table scan each in the file-native
+            // store, which made this loop O(n^2) in total chat size (#3402). Only messages that
+            // still hold a cachedPrompt need the (bounded) update + swipe cleanup.
             const allMsgs = await chats.listMessages(input.chatId);
-            const assistantMsgIds = allMsgs.filter((m) => m.role === "assistant").map((m) => m.id);
-            const staleIds = assistantMsgIds.slice(0, -2);
-            for (const staleId of staleIds) {
-              const staleMsg = await chats.getMessage(staleId);
-              if (!staleMsg) continue;
+            const staleAssistants = allMsgs.filter((m) => m.role === "assistant").slice(0, -2);
+            for (const staleMsg of staleAssistants) {
               const staleExtra =
                 typeof staleMsg.extra === "string" ? JSON.parse(staleMsg.extra) : (staleMsg.extra ?? {});
               if (!staleExtra.cachedPrompt) continue;
-              await chats.updateMessageExtra(staleId, { cachedPrompt: null });
+              await chats.updateMessageExtra(staleMsg.id, { cachedPrompt: null });
               // Also clean swipes
-              const swipes = await chats.getSwipes(staleId);
+              const swipes = await chats.getSwipes(staleMsg.id);
               for (const sw of swipes) {
                 const swExtra = typeof sw.extra === "string" ? JSON.parse(sw.extra) : (sw.extra ?? {});
                 if (swExtra.cachedPrompt) {
-                  await chats.updateSwipeExtra(staleId, sw.index, { cachedPrompt: null });
+                  await chats.updateSwipeExtra(staleMsg.id, sw.index, { cachedPrompt: null });
                 }
               }
             }
