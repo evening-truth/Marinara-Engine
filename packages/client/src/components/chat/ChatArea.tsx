@@ -806,6 +806,7 @@ export function ChatArea() {
         if (typeof snapshot.name !== "string") continue;
         map.set(id, {
           name: snapshot.name,
+          convoDisplayName: snapshot.convoDisplayName,
           description: snapshot.description ?? "",
           personality: snapshot.personality ?? "",
           backstory: snapshot.backstory ?? "",

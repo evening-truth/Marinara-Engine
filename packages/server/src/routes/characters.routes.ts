@@ -554,6 +554,17 @@ export async function charactersRoutes(app: FastifyInstance) {
   const personaGallery = createPersonaGalleryStorage(app.db);
   const lorebooksStorage = createLorebooksStorage(app.db);
   const connections = createConnectionsStorage(app.db);
+  const loadCharacterLorebookEntries = async (characterId: string) => {
+    const books = (await lorebooksStorage.listByCharacter(characterId)) as Array<{ id: string }>;
+    if (books.length === 0) return [];
+    const entries = (await lorebooksStorage.listEntriesByLorebooks(books.map((b) => b.id))) as Array<{
+      id?: string;
+      name?: string;
+      content?: string;
+      enabled?: boolean;
+    }>;
+    return entries.filter((e) => e.enabled !== false && typeof e.content === "string" && e.content.trim().length > 0);
+  };
 
   /**
    * POST /api/characters/generate-about-me
@@ -611,17 +622,13 @@ export async function charactersRoutes(app: FastifyInstance) {
     if (sources.lorebook && input.characterId && input.kind === "character") {
       try {
         const loreLines: string[] = [];
-        const books = (await lorebooksStorage.listByCharacter(input.characterId)) as Array<{ id: string }>;
-        const entries = books.length
-          ? await lorebooksStorage.listEntriesByLorebooks(books.map((b) => b.id))
-          : [];
+        const entries = await loadCharacterLorebookEntries(input.characterId);
         // When the user picked specific entries, include only those; absent → all.
         const selectedEntryIds = Array.isArray(sources.lorebookEntryIds) ? new Set(sources.lorebookEntryIds) : null;
-        for (const e of entries as Array<{ id?: string; content?: string; name?: string; enabled?: boolean }>) {
-          if (e.enabled === false) continue;
+        for (const e of entries) {
           if (selectedEntryIds && (!e.id || !selectedEntryIds.has(e.id))) continue;
-          const content = typeof e.content === "string" ? e.content.trim() : "";
-          if (content) loreLines.push(e.name ? `[${e.name}] ${content}` : content);
+          const content = e.content?.trim() ?? "";
+          loreLines.push(e.name ? `[${e.name}] ${content}` : content);
         }
         const lore = loreLines.join("\n").slice(0, 8000).trim();
         if (lore) cardParts.push(`From their lorebook:\n${lore}`);
@@ -680,18 +687,11 @@ export async function charactersRoutes(app: FastifyInstance) {
    * the AI-write source picker to choose which entries feed the "about me". Names only.
    */
   app.get<{ Params: { id: string } }>("/:id/lorebook-entries", async (req) => {
-    const books = (await lorebooksStorage.listByCharacter(req.params.id)) as Array<{ id: string }>;
-    if (books.length === 0) return { entries: [] };
-    const entries = (await lorebooksStorage.listEntriesByLorebooks(books.map((b) => b.id))) as unknown as Array<{
-      id: string;
-      name?: string;
-      content?: string;
-      enabled?: boolean;
-    }>;
+    const entries = await loadCharacterLorebookEntries(req.params.id);
     return {
-      entries: entries
-        .filter((e) => e.enabled !== false && typeof e.content === "string" && e.content.trim().length > 0)
-        .map((e) => ({ id: e.id, name: e.name || "(unnamed entry)" })),
+      entries: entries.flatMap((e) =>
+        typeof e.id === "string" ? [{ id: e.id, name: e.name || "(unnamed entry)" }] : [],
+      ),
     };
   });
 
