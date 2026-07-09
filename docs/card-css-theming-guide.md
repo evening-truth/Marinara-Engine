@@ -177,10 +177,11 @@ While a character generates a reply, conversation mode in the Linear layout show
 
 ### Avatar
 
-The avatar is a circle by default — reshape and ring it with pure CSS. Target the
-avatar **button** (it's a `<button>` in both layouts; a `<div>` only when it isn't
-clickable). In **roleplay** the button sits inside an extra glow-wrapper `div`, so
-flatten that wrapper if you want only your own ring:
+The avatar is a circle by default — reshape and ring it with pure CSS. The
+examples below target the clickable avatar **button**. If the avatar is rendered
+non-clickable in a surface, use the same idea on the `.mari-message-avatar > div`
+fallback hook for that specific layout. In **roleplay** the button sits inside an
+extra glow-wrapper `div`, so flatten that wrapper if you want only your own ring:
 
 ```css
 [data-card-css] .mari-message-avatar button {
@@ -342,9 +343,10 @@ Sections are split by `@chat-mode` so each mode gets exactly the hooks it has. E
     color: rgba(243, 215, 255, 0.5);
     font-variant: small-caps;
   }
-  /* reshape + ring + saturate the clipped avatar. It's a <button> in both the
-     conversation and roleplay layouts; roleplay nests it under a glow wrapper,
-     which the roleplay block below flattens so only this ring shows. */
+  /* reshape + ring + saturate the clipped clickable avatar. If a surface renders
+     a non-clickable avatar, target `.mari-message-avatar > div` for that layout.
+     Roleplay nests the button under a glow wrapper, which the roleplay block
+     below flattens so only this ring shows. */
   [data-card-css] .mari-message-avatar button {
     border-radius: 7px;
     box-shadow: 0 0 0 2px rgba(220, 38, 120, 0.6), 0 0 14px rgba(168, 85, 247, 0.5);
@@ -494,7 +496,7 @@ A prompt template if you'd rather not hand-write CSS:
 > **Technical constraints:**
 >
 > - Use `[data-card-css]` for the message row (works in both "Exclusive" and "Chat" modes); use normal class selectors for things inside it.
-> - `[data-card-css] .mari-message-bubble` = the visible bubble (background / border / corners / shadow); `[data-card-css] .mari-message-content` = the text; `[data-card-css] .mari-message-name` = the display name; `[data-card-css] .mari-message-avatar button` = the avatar (in roleplay it sits under an extra glow-wrapper `div`).
+> - `[data-card-css] .mari-message-bubble` = the visible bubble (background / border / corners / shadow); `[data-card-css] .mari-message-content` = the text; `[data-card-css] .mari-message-name` = the display name; `[data-card-css] .mari-message-avatar button` = the clickable avatar (non-clickable fallback: `.mari-message-avatar > div`; in roleplay the button sits under an extra glow-wrapper `div`).
 > - Style the typing indicator via `[data-card-css] .mari-typing-text` and `[data-card-css] .mari-typing-dots span`.
 > - Conversation only: the avatar-click "about me" popout is themable via `[data-card-css].mari-about-me-popout` (the card), `… .mari-about-me-banner`, `… .mari-about-me-avatar > div`, `… .mari-about-me-name`, `… .mari-about-me-box`, and `… .mari-about-me-text`. Wrap these in `@chat-mode conversation { … }`.
 > - Wrap roleplay-only CSS in `@chat-mode roleplay { … }`, conversation-only in `@chat-mode conversation { … }`; CSS outside applies everywhere.

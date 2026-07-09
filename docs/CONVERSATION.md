@@ -77,7 +77,7 @@ Conversation Mode gives every participant — characters **and** your persona �
 
 ### Convo display name
 
-An optional name shown as the sender label above a character's (or your persona's) messages in Conversation, in place of the card/persona name. Leave it blank to fall back to the card name.
+An optional name shown as the sender label above a character's (or your persona's) messages in Conversation, in place of the card/persona name. Leave it blank to fall back to the character card name or persona name.
 
 - Set it in the character card's **Convo** tab (**Convo Display Name**) or in the **Persona editor**.
 - It updates live — renaming reflects on existing messages in the chat.

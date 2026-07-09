@@ -234,26 +234,29 @@ export function injectIdentityFallbackMessages(args: {
       mesExample: resolveCharacterMacros(character.mesExample),
     };
     const namedProfilePresent = hasNamedProfileBlock(allContent, character.name);
-    if (namedProfilePresent) continue;
-
-    const fieldsToInject = CHARACTER_FALLBACK_FIELDS.flatMap((field) => {
-      const value = resolvedFields[field.key];
-      if (!value.trim()) return [];
-      if (sourceReferencesAnyMacro(promptTemplateSources, field.macroAliases)) return [];
-      if (contentIncludesResolvedField(allContent, value)) return [];
-      return [{ label: field.label, value }];
-    });
-    const fieldParts = wrapFieldEntries(fieldsToInject, args.wrapFormat);
-    if (fieldParts.length === 0) continue;
 
     // Conversation mode only: when opted in, prefix the card with the character's
     // convo display name so the model can map the display name to this specific
-    // card. Gated on convo mode so the field never reaches RP/VN/Game prompts.
+    // card. This is independent from fallback card-field injection so it still
+    // appears when normal profile fields are already present.
     const convoName = character.convoDisplayName?.trim();
     const convoNameLine =
       args.isConversation && character.convoDisplayNameInCard && convoName
         ? `Conversation display name: ${sanitizePromptLeaf(convoName, args.wrapFormat)}\n`
         : "";
+
+    const fieldsToInject = namedProfilePresent
+      ? []
+      : CHARACTER_FALLBACK_FIELDS.flatMap((field) => {
+          const value = resolvedFields[field.key];
+          if (!value.trim()) return [];
+          if (sourceReferencesAnyMacro(promptTemplateSources, field.macroAliases)) return [];
+          if (contentIncludesResolvedField(allContent, value)) return [];
+          return [{ label: field.label, value }];
+        });
+    const fieldParts = wrapFieldEntries(fieldsToInject, args.wrapFormat);
+    if (fieldParts.length === 0 && !convoNameLine) continue;
+
     const block = wrapContent(convoNameLine + fieldParts.join("\n"), character.name, args.wrapFormat, 1);
     const firstSysIdx = args.messages.findIndex((message) => message.role === "system");
     const insertAt = firstSysIdx >= 0 ? firstSysIdx + 1 : 0;

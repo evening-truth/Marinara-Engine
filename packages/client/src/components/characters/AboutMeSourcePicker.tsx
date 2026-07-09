@@ -67,6 +67,7 @@ export function AboutMeSourcePicker({
   lorebookEntries?: Array<{ id: string; name: string }>;
 }) {
   const toggle = (key: keyof AboutMeSourceConfig, checked: boolean) => onChange({ ...value, [key]: checked });
+  const [chatContextLimitText, setChatContextLimitText] = useState<string | null>(null);
 
   // Per-entry selection: absent `lorebookEntryIds` means "all". First toggle materializes
   // the full list so unchecking one keeps the rest.
@@ -150,11 +151,13 @@ export function AboutMeSourcePicker({
                 type="number"
                 min={1}
                 max={200}
-                value={value.chatContextLimit ?? DEFAULT_ABOUT_ME_CHAT_CONTEXT_LIMIT}
+                aria-label="Chat context message limit"
+                value={chatContextLimitText ?? (value.chatContextLimit ?? DEFAULT_ABOUT_ME_CHAT_CONTEXT_LIMIT)}
                 onChange={(e) => {
                   // Empty (mid-edit) clears to the default; only clamp real numbers, so
                   // clearing the field to retype doesn't snap it to 1 (Number("") === 0).
                   const raw = e.target.value;
+                  setChatContextLimitText(raw);
                   if (raw === "") {
                     onChange({ ...value, chatContextLimit: undefined });
                     return;
@@ -167,6 +170,7 @@ export function AboutMeSourcePicker({
                       : value.chatContextLimit,
                   });
                 }}
+                onBlur={() => setChatContextLimitText(null)}
                 className="w-14 rounded-md border border-[var(--border)] bg-[var(--secondary)] px-1.5 py-0.5 text-xs outline-none focus:border-[var(--primary)]/40"
               />
               msgs

@@ -561,6 +561,7 @@ export function AboutMeViewerModal({
                     <select
                       value={effectiveConnectionId}
                       onChange={(e) => setConnectionId(e.target.value)}
+                      aria-label="Generation connection"
                       className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-1.5 py-1 text-[0.6875rem] outline-none focus:border-[var(--primary)]/40"
                     >
                       {connectionOptions.length === 0 && <option value="">No connections</option>}

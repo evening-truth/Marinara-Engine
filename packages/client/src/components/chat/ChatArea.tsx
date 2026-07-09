@@ -928,7 +928,7 @@ export function ChatArea() {
     return {
       id: persona.id,
       name: persona.name,
-      convoDisplayName: (persona as { convoDisplayName?: string }).convoDisplayName || undefined,
+      convoDisplayName: persona.convoDisplayName || undefined,
       phoneticName: persona.phoneticName || undefined,
       description: persona.description ?? "",
       personality: persona.personality || undefined,
