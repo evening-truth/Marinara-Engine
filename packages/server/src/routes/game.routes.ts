@@ -162,6 +162,7 @@ import {
   generateNpcPortrait,
   generateBackground,
   generateSceneIllustration,
+  resolveSceneIllustrationGenerationConcurrency,
   resolveSceneIllustrationReferenceImageLimit,
   readAvatarBase64,
   buildBackgroundProviderPrompt,
@@ -10383,6 +10384,7 @@ export async function gameRoutes(app: FastifyInstance) {
             debugLog: debugLogsEnabled ? debugLog : undefined,
             promptOverridesStorage,
             size: backgroundSize,
+            useDirectScenePrompt: meta.gameStoryboardUseDirectScenePrompt !== false,
             preserveFullScenePrompt: true,
             onCompiledPrompt: (compiled) => {
               sentIllustrationPrompt = compiled.prompt;
@@ -10494,9 +10496,18 @@ export async function gameRoutes(app: FastifyInstance) {
           frameResults[index] = await renderStoryboardFrame(frame);
         }
       };
-      const frameWorkerLimit = videoRuntime
+      const requestedFrameWorkerLimit = videoRuntime
         ? GAME_STORYBOARD_VIDEO_FRAME_CONCURRENCY
         : GAME_STORYBOARD_IMAGE_FRAME_CONCURRENCY;
+      const frameWorkerLimit = resolveSceneIllustrationGenerationConcurrency(
+        {
+          imgSource,
+          imgModel,
+          imgBaseUrl,
+          imgService: imgServiceHint,
+        },
+        requestedFrameWorkerLimit,
+      );
       const frameWorkerCount = Math.min(frameWorkerLimit, frameRows.length);
       const initialStoryboard = await serializeGameTurnStoryboard({
         storyboards,

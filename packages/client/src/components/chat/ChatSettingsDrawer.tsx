@@ -1605,6 +1605,7 @@ export function ChatSettingsDrawer({
   const gameImageDynamicPromptEnabled = metadata.gameImageDynamicPromptEnabled === true;
   const gameStoryboardAutoIllustrationsEnabled = metadata.gameStoryboardAutoIllustrationsEnabled === true;
   const gameStoryboardAutoAnimationsEnabled = metadata.gameStoryboardAutoGenerationEnabled === true;
+  const gameStoryboardUseDirectScenePrompt = metadata.gameStoryboardUseDirectScenePrompt !== false;
   const gameStoryboardKeyframeCount = normalizeGameStoryboardKeyframeCount(metadata.gameStoryboardKeyframeCount);
   const gameStoryboardAnimationDurationConfigured = hasGameStoryboardAnimationDuration(
     metadata.gameStoryboardAnimationDurationSeconds,
@@ -7669,6 +7670,17 @@ export function ChatSettingsDrawer({
                           ...(nextEnabled ? { gameStoryboardAutoIllustrationsEnabled: true } : {}),
                         });
                       }}
+                    />
+                    <AgentSettingsToggle
+                      label="Use Storyboard Prompt Directly"
+                      description="Send each illustrator imagePrompt directly to the image model with global style tags. Character references are attached only when Send Avatar References is enabled. Bypasses the Game Scene Illustration prompt override and prevents tag distillation."
+                      enabled={gameStoryboardUseDirectScenePrompt}
+                      onToggle={() =>
+                        updateMeta.mutate({
+                          id: chat.id,
+                          gameStoryboardUseDirectScenePrompt: !gameStoryboardUseDirectScenePrompt,
+                        })
+                      }
                     />
                     <div className="space-y-2 rounded-lg bg-[var(--background)]/75 px-3 py-2 ring-1 ring-[var(--border)]">
                       <div className="flex items-center justify-between gap-3">

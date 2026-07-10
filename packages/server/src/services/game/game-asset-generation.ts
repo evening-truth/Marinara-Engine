@@ -125,6 +125,14 @@ function resolveSceneIllustrationImageBackend(req: Pick<
   return explicit;
 }
 
+export function resolveSceneIllustrationGenerationConcurrency(
+  req: Pick<SceneIllustrationGenRequest, "imgSource" | "imgModel" | "imgBaseUrl" | "imgService">,
+  requestedConcurrency: number,
+): number {
+  const concurrency = Math.max(1, Math.trunc(requestedConcurrency));
+  return resolveSceneIllustrationImageBackend(req) === "novelai" ? 1 : concurrency;
+}
+
 export function resolveSceneIllustrationReferenceImageLimit(req: Pick<
   SceneIllustrationGenRequest,
   "imgSource" | "imgModel" | "imgBaseUrl" | "imgService"
@@ -799,6 +807,8 @@ export interface SceneIllustrationGenRequest {
   negativePromptOverride?: string;
   /** Receives the exact compiled prompt passed to the image provider. */
   onCompiledPrompt?: (compiled: CompiledGameImagePrompt) => void;
+  /** Use the storyboard illustrator's imagePrompt as the complete scene source, bypassing the scene-illustration prompt template. */
+  useDirectScenePrompt?: boolean;
   /** Preserve the full generated scene prompt instead of distilling it into the selected tagged prompt grammar. */
   preserveFullScenePrompt?: boolean;
   /** Optional request-scoped abort signal. */
@@ -911,9 +921,11 @@ async function buildSceneIllustrationRawPrompt(req: SceneIllustrationGenRequest)
     artDirectionLine: styleHint ? `Art direction: ${styleHint}.` : "",
     imagePromptInstructionsLine,
   };
-  const rawIllustrationPrompt = req.promptOverridesStorage
-    ? await loadPrompt(req.promptOverridesStorage, GAME_SCENE_ILLUSTRATION, sceneIllustrationVars)
-    : GAME_SCENE_ILLUSTRATION.defaultBuilder(sceneIllustrationVars);
+  const rawIllustrationPrompt = req.useDirectScenePrompt
+    ? req.prompt.trim()
+    : req.promptOverridesStorage
+      ? await loadPrompt(req.promptOverridesStorage, GAME_SCENE_ILLUSTRATION, sceneIllustrationVars)
+      : GAME_SCENE_ILLUSTRATION.defaultBuilder(sceneIllustrationVars);
   const finalPrompt =
     imagePromptInstructionsLine && !rawIllustrationPrompt.includes(imagePromptInstructionsLine)
       ? `${rawIllustrationPrompt}\n${imagePromptInstructionsLine}`

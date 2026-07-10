@@ -515,6 +515,8 @@ export interface ChatMetadata {
   gameStoryboardAnimationPromptTemplateId?: string | null;
   /** Chat-local storyboard prompt templates, merged with built-in storyboard prompt modes. */
   gameStoryboardPromptTemplates?: import("./agent.js").AgentPromptTemplateOption[];
+  /** Send storyboard imagePrompt tags directly to the image provider instead of wrapping them with the global scene-illustration template. */
+  gameStoryboardUseDirectScenePrompt?: boolean;
   /** Last generated scene-video record ID for this game. */
   gameLastSceneVideoId?: string | null;
   /** Connection used for roleplay/gallery scene-video generation. */
