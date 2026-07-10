@@ -5,17 +5,12 @@
 import type {
   GameActiveState,
   GameCampaignPlan,
-  GameExperienceStyle,
   GameMap,
   GameNpc,
   SessionSummary,
   HudWidget,
 } from "@marinara-engine/shared";
-import {
-  DEFAULT_GAME_SYSTEM_PROMPT,
-  normalizeGameExperienceStyle,
-  wrapGameInstructions,
-} from "@marinara-engine/shared";
+import { DEFAULT_GAME_SYSTEM_PROMPT, wrapGameInstructions } from "@marinara-engine/shared";
 import type { CharacterSpriteInfo } from "./sprite.service.js";
 
 export interface GmPromptContext {
@@ -38,8 +33,6 @@ export interface GmPromptContext {
   genre: string;
   setting: string;
   tone: string;
-  /** Narrative and visual direction layered over the core game rules. */
-  experienceStyle?: GameExperienceStyle;
   /** Server-computed time string, e.g. "Day 3, 14:30 (afternoon)" */
   gameTime?: string;
   /** Server-computed weather state */
@@ -83,21 +76,6 @@ export interface GmPromptContext {
 
 const MAX_PROMPT_MAP_LOCATIONS = 10;
 const MAX_PROMPT_NPCS = 12;
-
-const LIVING_ANIME_DIRECTION = [
-  `<experience_style id="living_anime">`,
-  `Author the game itself as a living anime experience. The narration is the source performance for dialogue, sprites, storyboards, and animation, so make important moments visually stageable from the beginning instead of summarizing them after the fact.`,
-  `- Build each turn as a coherent scene with 2-4 observable beats when the moment supports them. Give each beat a clear focal action, concrete character blocking, expressive body language or facial reaction, and a tangible change in the situation.`,
-  `- For action, favor setup, decisive motion, impact, reaction, and aftermath. For social, romantic, dramatic, or comedic scenes, favor approach, charged interaction, reaction, and payoff. Do not force this sequence when a short exchange or immediate player decision is stronger.`,
-  `- Let dialogue and visible acting carry emotion. Use pauses, interruptions, reaction shots expressed as prose, environmental motion, and specific sensory details instead of abstract emotional summaries.`,
-  `- Maintain visual continuity inside and across turns: location layout, time, weather, outfits, equipment, injuries, props, positions, entrances, and exits remain consistent unless the story visibly changes them.`,
-  `- Keep the output diegetic. Never mention cameras, panels, storyboards, episodes, animation prompts, production notes, or these directing instructions. All normal Game Mode rules, mechanics, rating boundaries, and player agency still apply.`,
-  `</experience_style>`,
-].join("\n");
-
-function livingAnimeDirection(experienceStyle: unknown): string {
-  return normalizeGameExperienceStyle(experienceStyle) === "living_anime" ? LIVING_ANIME_DIRECTION : "";
-}
 
 function normalizePromptText(value: unknown, fallback = ""): string {
   if (typeof value === "string") {
@@ -461,9 +439,6 @@ export function buildGmSystemPrompt(ctx: GmPromptContext): string {
     `</game>`,
   );
 
-  const experienceDirection = livingAnimeDirection(ctx.experienceStyle);
-  if (experienceDirection) sections.push(experienceDirection);
-
   sections.push(wrapGameInstructions(normalizePromptText(ctx.gameSystemPrompt) || DEFAULT_GAME_SYSTEM_PROMPT));
 
   // ── Rating Guidelines ──
@@ -638,7 +613,6 @@ export function buildGmFormatReminder(
     | "playerInventory"
     | "language"
     | "rating"
-    | "experienceStyle"
     | "gameSpecialInstructions"
   > & {
     /** Special non-scene-advancing address mode inferred from the current player turn prefix. */
@@ -688,15 +662,6 @@ export function buildGmFormatReminder(
     `</current_state>`,
     ``,
   );
-
-  if (normalizeGameExperienceStyle(ctx.experienceStyle) === "living_anime") {
-    lines.push(
-      `<living_anime_turn_direction>`,
-      `Write the next turn as an immediately playable anime scene: concrete blocking, visible action, expressive reactions, and stable visual continuity. Prefer a few strong observable beats over summary. Keep all direction invisible and return only the normal VN scene text.`,
-      `</living_anime_turn_direction>`,
-      ``,
-    );
-  }
 
   lines.push(
     `<output_format>`,
@@ -859,8 +824,6 @@ export function buildGmFormatReminder(
 /** Build the setup prompt for initial game creation. */
 export interface SetupPromptContext {
   rating?: "sfw" | "nsfw";
-  /** Narrative and visual direction selected for the game. */
-  experienceStyle?: GameExperienceStyle;
   /** Full persona card text (player character) */
   personaCard?: string | null;
   /** Exact player persona name, when known */
@@ -887,7 +850,6 @@ export interface SetupPromptContext {
 
 export function buildSetupPrompt(ctx: SetupPromptContext = {}): string {
   const rating = ctx.rating ?? "sfw";
-  const experienceStyle = normalizeGameExperienceStyle(ctx.experienceStyle);
   const normalizedLanguage = normalizePromptLanguage(ctx.language);
   const playerName = ctx.playerName?.trim() || (ctx.personaCard ? "the player character named in <user_player>" : null);
   const partyNames = (ctx.partyNames ?? []).map((name) => name.trim()).filter((name) => name.length > 0);
@@ -916,14 +878,6 @@ export function buildSetupPrompt(ctx: SetupPromptContext = {}): string {
 
   // Build persona + party sections for the system prompt
   const contextSections: string[] = [];
-  if (experienceStyle === "living_anime") {
-    contextSections.push(
-      `<experience_style id="living_anime">`,
-      `Design this campaign to play as a living anime from its first turn. Build arcs around visually distinct locations, recognizable character silhouettes, expressive relationships, recurring motifs, stageable conflicts, reaction beats, transformations, reveals, and memorable payoffs.`,
-      `The artStylePrompt must specify a cohesive polished 2D anime production style suited to the requested genre and tone. Do not force school settings, teenage archetypes, comedy, romance, or any rating-specific content unless the user's preferences request them.`,
-      `</experience_style>`,
-    );
-  }
   if (ctx.gmCharacterCard) {
     contextSections.push(
       `<gm_character>`,

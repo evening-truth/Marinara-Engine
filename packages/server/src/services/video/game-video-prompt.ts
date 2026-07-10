@@ -48,11 +48,8 @@ export function normalizeGameVideoPromptTemplates(value: unknown): AgentPromptTe
 function resolveGameVideoPromptTemplateId(args: {
   meta: Record<string, unknown>;
   options: AgentPromptTemplateOption[];
-  templateId?: unknown;
 }): string {
-  const selected = readTrimmedString(
-    args.templateId === undefined ? args.meta.gameVideoPromptTemplateId : args.templateId,
-  );
+  const selected = readTrimmedString(args.meta.gameVideoPromptTemplateId);
   if (selected && args.options.some((option) => option.id === selected)) return selected;
   return GAME_VIDEO_PROMPT_TEMPLATE_ID;
 }
@@ -94,22 +91,17 @@ export async function loadGameVideoPrompt(args: {
   meta: Record<string, unknown>;
   ctx: GameVideoCtx;
   debugMode?: boolean;
-  /** Optional selection override, used to keep storyboard motion separate from ordinary scene videos. */
-  templateId?: unknown;
 }): Promise<string> {
   const options = [
     ...GAME_VIDEO_BUILT_IN_PROMPT_TEMPLATES,
     ...normalizeGameVideoPromptTemplates(args.meta.gameVideoPromptTemplates),
   ];
-  const explicitTemplateId = readTrimmedString(
-    args.templateId === undefined ? args.meta.gameVideoPromptTemplateId : args.templateId,
-  );
+  const explicitTemplateId = readTrimmedString(args.meta.gameVideoPromptTemplateId);
   const hasExplicitTemplateSelection =
     explicitTemplateId !== null && options.some((option) => option.id === explicitTemplateId);
   const templateId = resolveGameVideoPromptTemplateId({
     meta: args.meta,
     options,
-    templateId: args.templateId,
   });
   const selectedTemplate =
     options.find((template) => template.id === templateId) ??

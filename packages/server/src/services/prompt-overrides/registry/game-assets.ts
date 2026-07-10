@@ -385,10 +385,6 @@ export interface GameVideoCtx extends Record<string, string | number | undefined
   durationSeconds: number;
   aspectRatio: string;
   sourceIllustrationLine: string;
-  experienceStyleLine: string;
-  motionPlanLine: string;
-  continuityLine: string;
-  transitionLine: string;
 }
 
 export const GAME_VIDEO: PromptOverrideKeyDef<GameVideoCtx> = {
@@ -429,26 +425,6 @@ export const GAME_VIDEO: PromptOverrideKeyDef<GameVideoCtx> = {
       description: "Pre-formatted reminder that the provided image is the first frame/reference.",
       example: "Use the provided scene illustration as the first frame/reference image.",
     },
-    {
-      name: "experienceStyleLine",
-      description: "Optional experience-specific animation direction.",
-      example: "Experience direction: preserve polished limited 2D anime acting and timing.",
-    },
-    {
-      name: "motionPlanLine",
-      description: "Optional planned subject, camera, panel, and environmental motion.",
-      example: "Motion plan: rain moves behind Lyra as the focus settles on her reaction.",
-    },
-    {
-      name: "continuityLine",
-      description: "Optional identities, layout, wardrobe, props, or lettering that must remain stable.",
-      example: "Continuity: preserve faces, wet outfits, the broken blade, and panel borders.",
-    },
-    {
-      name: "transitionLine",
-      description: "Optional timing and ending-pose plan.",
-      example: "Timing: begin on the exact reference composition and settle on Lyra's final expression.",
-    },
   ],
   defaultBuilder: (ctx) => renderTemplate(GAME_VIDEO_PROMPT_TEMPLATE, ctx, GAME_VIDEO_PROMPT_TEMPLATE_VARIABLES),
   exampleContext: {
@@ -461,9 +437,5 @@ export const GAME_VIDEO: PromptOverrideKeyDef<GameVideoCtx> = {
     durationSeconds: 10,
     aspectRatio: "16:9",
     sourceIllustrationLine: "Use the provided scene illustration as the first frame/reference image.",
-    experienceStyleLine: "Experience direction: polished limited 2D anime acting and timing.",
-    motionPlanLine: "Motion plan: rain moves behind Lyra as the focus settles on her reaction.",
-    continuityLine: "Continuity: preserve faces, wet outfits, the broken blade, and panel borders.",
-    transitionLine: "Timing: begin on the exact reference composition and settle on Lyra's final expression.",
   },
 };

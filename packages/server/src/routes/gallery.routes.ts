@@ -832,10 +832,6 @@ export async function galleryRoutes(app: FastifyInstance) {
         durationSeconds,
         aspectRatio,
         sourceIllustrationLine: `Use the selected gallery image (${galleryImage.id}) as the first frame/reference image.`,
-        experienceStyleLine: "",
-        motionPlanLine: "",
-        continuityLine: "",
-        transitionLine: "",
       },
     });
     const prompt = limitSceneVideoPromptForProvider(promptDraft, promptLimits.finalPrompt);

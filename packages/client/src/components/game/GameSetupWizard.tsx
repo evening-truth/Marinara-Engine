@@ -29,7 +29,6 @@ import {
 import {
   DEFAULT_GAME_SYSTEM_PROMPT,
   type CharacterGroup,
-  type GameExperienceStyle,
   type GameSetupConfig,
   type GameGmMode,
 } from "@marinara-engine/shared";
@@ -178,7 +177,7 @@ const GAME_SETUP_STEPS = [
   {
     key: "world",
     title: "World",
-    body: "Pick the experience direction, genre, tone, difficulty, rating, and starting language.",
+    body: "Pick genre, tone, difficulty, rating, and the starting language.",
   },
   {
     key: "party",
@@ -380,7 +379,6 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
   const [tones, setTones] = useState<string[]>(["Heroic"]);
   const [customTone, setCustomTone] = useState("");
   const [difficulty, setDifficulty] = useState("Normal");
-  const [experienceStyle, setExperienceStyle] = useState<GameExperienceStyle>("standard");
   const [gmMode, setGmMode] = useState<GameGmMode>("standalone");
   const [gmCharacterId, setGmCharacterId] = useState<string | null>(null);
   const [partyCharacterIds, setPartyCharacterIds] = useState<string[]>([]);
@@ -769,7 +767,6 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
         gmCharacterId: gmMode === "character" && gmCharacterId ? gmCharacterId : undefined,
         partyCharacterIds,
         playerGoals: playerGoals || "Have an adventure",
-        experienceStyle,
         personaId: personaId ?? undefined,
         sceneConnectionId: sceneModelValue && sceneModelValue !== "local" ? sceneModelValue : undefined,
         enableSpriteGeneration: enableSpriteGeneration || undefined,
@@ -957,50 +954,6 @@ export function GameSetupWizard({ onComplete, onCancel, isLoading, characters }:
 
         {step === 1 && (
           <>
-            <div>
-              <label className={GAME_SETUP_FIELD_LABEL}>Experience Style</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setExperienceStyle("standard")}
-                  aria-pressed={experienceStyle === "standard"}
-                  className={cn(
-                    "min-w-0 rounded-lg p-3 text-left ring-1 transition-colors",
-                    experienceStyle === "standard"
-                      ? "bg-[var(--primary)]/10 ring-[var(--primary)]/40"
-                      : "bg-[var(--secondary)] ring-[var(--border)] hover:ring-[var(--primary)]/20",
-                  )}
-                >
-                  <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
-                    <BookOpen size={13} />
-                    Standard
-                  </span>
-                  <span className="mt-1 block text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
-                    Flexible RPG and visual-novel narration.
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExperienceStyle("living_anime")}
-                  aria-pressed={experienceStyle === "living_anime"}
-                  className={cn(
-                    "min-w-0 rounded-lg p-3 text-left ring-1 transition-colors",
-                    experienceStyle === "living_anime"
-                      ? "bg-[var(--primary)]/10 ring-[var(--primary)]/40"
-                      : "bg-[var(--secondary)] ring-[var(--border)] hover:ring-[var(--primary)]/20",
-                  )}
-                >
-                  <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--foreground)]">
-                    <PanelsTopLeft size={13} />
-                    Living Anime
-                  </span>
-                  <span className="mt-1 block text-[0.625rem] leading-snug text-[var(--muted-foreground)]">
-                    Visually staged beats, expressive acting, and anime continuity.
-                  </span>
-                </button>
-              </div>
-            </div>
-
             {/* Genre — multi-select */}
             <div>
               <label className="mb-1.5 block text-xs font-medium text-[var(--foreground)]">

@@ -1,7 +1,6 @@
-import { BookOpen, ExternalLink, PanelsTopLeft, Pencil, Sliders, Trash2 } from "lucide-react";
-import { DEFAULT_GAME_SYSTEM_PROMPT, type GameExperienceStyle } from "@marinara-engine/shared";
+import { ExternalLink, Pencil, Sliders, Trash2 } from "lucide-react";
+import { DEFAULT_GAME_SYSTEM_PROMPT } from "@marinara-engine/shared";
 import { ExpandedTextarea } from "../../../components/ui/ExpandedTextarea";
-import { cn } from "../../../lib/utils";
 import { ChatSettingsSection } from "../ChatSettingsSection";
 
 interface PromptPresetOption {
@@ -15,14 +14,12 @@ interface GameExtraPromptSectionProps {
   storedValue: string;
   value: string;
   specialInstructionsValue: string;
-  experienceStyle: GameExperienceStyle;
   promptPresetId: string | null;
   promptPresets: PromptPresetOption[];
   selectedPresetName: string | null;
   selectedPresetPrompt: string;
   onCommit: (value: string | null) => void;
   onSpecialInstructionsCommit: (value: string | null) => void;
-  onExperienceStyleChange: (value: GameExperienceStyle) => void;
   onExpandedChange: (expanded: boolean) => void;
   onValueChange: (value: string) => void;
   onSpecialInstructionsChange: (value: string) => void;
@@ -35,14 +32,12 @@ export function GameExtraPromptSection({
   storedValue,
   value,
   specialInstructionsValue,
-  experienceStyle,
   promptPresetId,
   promptPresets,
   selectedPresetName,
   selectedPresetPrompt,
   onCommit,
   onSpecialInstructionsCommit,
-  onExperienceStyleChange,
   onExpandedChange,
   onValueChange,
   onSpecialInstructionsChange,
@@ -76,42 +71,6 @@ export function GameExtraPromptSection({
         help="Choose a preset's Game prompt, then optionally edit a chat-local copy."
       >
         <div className="space-y-2">
-          <div className="space-y-1.5">
-            <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">Experience style</span>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(
-                [
-                  { id: "standard", label: "Standard", icon: BookOpen },
-                  { id: "living_anime", label: "Living Anime", icon: PanelsTopLeft },
-                ] as const
-              ).map((option) => {
-                const Icon = option.icon;
-                const selected = experienceStyle === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => onExperienceStyleChange(option.id)}
-                    className={cn(
-                      "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[0.625rem] font-medium ring-1 transition-colors",
-                      selected
-                        ? "bg-[var(--primary)]/10 text-[var(--primary)] ring-[var(--primary)]/40"
-                        : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)] hover:text-[var(--foreground)]",
-                    )}
-                    aria-pressed={selected}
-                  >
-                    <Icon size={12} className="shrink-0" />
-                    <span className="truncate">{option.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[0.575rem] leading-relaxed text-[var(--muted-foreground)]">
-              {experienceStyle === "living_anime"
-                ? "The GM writes visually staged anime scenes before storyboard and animation generation."
-                : "Uses the general RPG and visual-novel narration direction."}
-            </p>
-          </div>
           <label className="flex flex-col gap-1.5">
             <span className="text-[0.6875rem] font-medium text-[var(--muted-foreground)]">Prompt source</span>
             <div className="flex items-center gap-1.5">

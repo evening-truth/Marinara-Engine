@@ -157,16 +157,12 @@ export interface SessionSummary {
 // ── Setup ──
 
 /** User preferences for creating a new game. */
-export type GameExperienceStyle = "standard" | "living_anime";
-
 export interface GameSetupConfig {
   genre: string;
   setting: string;
   tone: string;
   difficulty: string;
   playerGoals: string;
-  /** Narrative and visual direction layered over the core Game Mode rules. */
-  experienceStyle?: GameExperienceStyle;
   gmMode: GameGmMode;
   /** Content rating: sfw or nsfw */
   rating: "sfw" | "nsfw";

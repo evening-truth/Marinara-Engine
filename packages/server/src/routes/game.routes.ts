@@ -106,7 +106,6 @@ import {
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MAX,
   GAME_STORYBOARD_ANIMATION_DURATION_SECONDS_MIN,
   GAME_STORYBOARD_BUILT_IN_PROMPT_TEMPLATES,
-  GAME_STORYBOARD_COMIC_NEGATIVE_PROMPT,
   GAME_STORYBOARD_ILLUSTRATION_PROMPT_TEMPLATE_ID,
   GAME_STORYBOARD_KEYFRAME_COUNT_DEFAULT,
   GAME_STORYBOARD_KEYFRAME_COUNT_MAX,
@@ -116,7 +115,6 @@ import {
   normalizeVideoGenerationUserSettings,
   normalizeVideoGenerationProfile,
   normalizeAgentPromptTemplateOptions,
-  normalizeGameExperienceStyle,
   isClaudeAdaptiveOnlyNoSamplingModel,
   localAuthProviderBaseUrl,
   resolveProviderReasoningEffort,
@@ -1479,13 +1477,11 @@ async function buildStoryboardGalleryAnimatePrompt(args: {
     args.plannedFrame.characters.length > 0
       ? args.plannedFrame.characters
       : collectOmniCharacterNames(args.meta, args.latestState);
-  const isLivingAnime = normalizeGameExperienceStyle(args.setupConfig?.experienceStyle) === "living_anime";
 
   const promptDraft = await loadGameVideoPrompt({
     promptOverridesStorage: args.promptOverridesStorage,
     meta: args.meta,
     debugMode: args.debugMode,
-    templateId: args.meta.gameStoryboardVideoPromptTemplateId ?? args.meta.gameVideoPromptTemplateId,
     ctx: {
       sceneTitle: compactVideoPromptText(
         args.plannedFrame.title || sceneTitleFromGalleryImage(args.galleryImage),
@@ -1504,18 +1500,6 @@ async function buildStoryboardGalleryAnimatePrompt(args: {
       durationSeconds: args.plannedFrame.durationSeconds,
       aspectRatio: args.plannedFrame.aspectRatio,
       sourceIllustrationLine: `Use ${sourceDescription} as the first frame/reference image.`,
-      experienceStyleLine: isLivingAnime
-        ? "Experience direction: animate this as polished limited 2D anime acting with deliberate timing, expressive reactions, and a stable hand-drawn look."
-        : "",
-      motionPlanLine: args.plannedFrame.cameraMotion
-        ? `Motion plan: ${compactVideoPromptText(args.plannedFrame.cameraMotion, 900)}`
-        : "",
-      continuityLine: args.plannedFrame.continuityNotes
-        ? `Continuity: ${compactVideoPromptText(args.plannedFrame.continuityNotes, 900)}`
-        : "",
-      transitionLine: args.plannedFrame.transitionHint
-        ? `Timing and ending: ${compactVideoPromptText(args.plannedFrame.transitionHint, 700)}`
-        : "",
     },
   });
   return limitSceneVideoPromptForProvider(promptDraft, args.promptLimits.finalPrompt);
@@ -1594,7 +1578,6 @@ const gameSetupConfigSchema = z.object({
   tone: z.string().min(1).max(200),
   difficulty: z.string().min(1).max(100),
   playerGoals: z.string().max(2000).default(""),
-  experienceStyle: z.enum(["standard", "living_anime"]).optional().default("standard"),
   gmMode: z.enum(["standalone", "character"]),
   rating: z.enum(["sfw", "nsfw"]).default("sfw"),
   gmCharacterId: z.string().nullable().optional(),
@@ -4982,13 +4965,11 @@ function fallbackStoryboardPlan(args: {
   keyframeCount: number;
   durationSeconds: number;
   aspectRatio: GameSceneVideoAspectRatio;
-  generateVideos?: boolean;
   allowedCharacterNames?: string[];
   maxVisibleCharacters?: number;
 }): PlannedStoryboard {
   const cleanNarration = compactStoryboardText(args.sourceNarration, 2000);
   const frameCount = normalizeStoryboardKeyframeCount(args.keyframeCount);
-  const comicPanelCount = args.durationSeconds <= 6 ? 2 : args.durationSeconds <= 10 ? 3 : 4;
   const sentences = cleanNarration.split(/(?<=[.!?])\s+/).filter(Boolean);
   const chunks = Array.from({ length: frameCount }, (_, index) => {
     if (args.sections.length > 0) {
@@ -5015,9 +4996,7 @@ function fallbackStoryboardPlan(args: {
       const lastSection = chunk.sections[chunk.sections.length - 1] ?? null;
       const beat = compactStoryboardText(chunk.text, 900);
       const title = `Keyframe ${index + 1}`;
-      const imagePrompt = args.generateVideos
-        ? `Polished colored anime comic page, exactly ${comicPanelCount} stable panels in clear reading order, expressive character acting, concise readable lettering, detailed environment, dramatic lighting. Divide this story beat into one focal action per panel: ${beat}`
-        : `Manga illustration keyframe, cinematic anime panel, expressive character acting, detailed environment, dramatic lighting. ${beat}`;
+      const imagePrompt = `Manga illustration keyframe, cinematic anime panel, expressive character acting, detailed environment, dramatic lighting. ${beat}`;
       const reconciledCharacters = reconcileStoryboardCharactersForFrame({
         value: [],
         allowedCharacterNames: args.allowedCharacterNames,
@@ -5042,15 +5021,9 @@ function fallbackStoryboardPlan(args: {
         videoPrompt: "",
         characters: reconciledCharacters.characters,
         characterPrompts: [],
-        continuityNotes: args.generateVideos
-          ? "Preserve character identity, outfits, equipment, injuries, props, setting geometry, panel layout, borders, and existing lettering."
-          : "",
-        cameraMotion: args.generateVideos
-          ? "Move attention through the panels in their established reading order. Use restrained character acting, secondary hair and clothing motion, and subtle environmental movement without deforming the page."
-          : "",
-        transitionHint: args.generateVideos
-          ? "Begin on the exact source page, give each panel a clear moment of emphasis, and settle on the final panel's stable reaction or aftermath pose."
-          : "",
+        continuityNotes: "",
+        cameraMotion: "",
+        transitionHint: "",
         durationSeconds: args.durationSeconds,
         aspectRatio: args.aspectRatio,
       };
@@ -5066,7 +5039,6 @@ function sanitizeStoryboardPlan(
     keyframeCount: number;
     durationSeconds: number;
     aspectRatio: GameSceneVideoAspectRatio;
-    generateVideos: boolean;
     allowedCharacterNames?: string[];
     maxVisibleCharacters?: number;
   },
@@ -5133,15 +5105,9 @@ function sanitizeStoryboardPlan(
         videoPrompt: "",
         characters: reconciledCharacters.characters,
         characterPrompts,
-        continuityNotes: args.generateVideos
-          ? compactStoryboardText(frame.continuityNotes, 1400) || fallbackFrame?.continuityNotes || ""
-          : "",
-        cameraMotion: args.generateVideos
-          ? compactStoryboardText(frame.cameraMotion, 1200) || fallbackFrame?.cameraMotion || ""
-          : "",
-        transitionHint: args.generateVideos
-          ? compactStoryboardText(frame.transitionHint, 900) || fallbackFrame?.transitionHint || ""
-          : "",
+        continuityNotes: "",
+        cameraMotion: "",
+        transitionHint: "",
         durationSeconds: normalizeStoryboardDuration(frame.durationSeconds, args.durationSeconds),
         aspectRatio: normalizeStoryboardAspectRatio(frame.aspectRatio, args.aspectRatio),
       };
@@ -5210,10 +5176,6 @@ function buildStoryboardGameContextBlock(args: {
     readTrimmedString(latest.time) ? `Time: ${readTrimmedString(latest.time)}` : "",
     readTrimmedString(args.setupConfig?.genre) ? `Genre: ${readTrimmedString(args.setupConfig?.genre)}` : "",
     readTrimmedString(args.setupConfig?.setting) ? `Setting: ${readTrimmedString(args.setupConfig?.setting)}` : "",
-    readTrimmedString(args.setupConfig?.tone) ? `Tone: ${readTrimmedString(args.setupConfig?.tone)}` : "",
-    normalizeGameExperienceStyle(args.setupConfig?.experienceStyle) === "living_anime"
-      ? "Experience style: Living Anime. Preserve anime-first staging, expressive acting, and visual continuity from the GM narration."
-      : "",
     readTrimmedString(args.meta.gameWorldOverview)
       ? `World: ${compactStoryboardText(args.meta.gameWorldOverview, 1200)}`
       : "",
@@ -5378,9 +5340,7 @@ async function buildStoryboardIllustratorMessages(args: {
             promptTask,
             `Target keyframes: ${args.keyframeCount}.`,
             `Aspect ratio: ${args.aspectRatio}.`,
-            args.generateVideos
-              ? "Do not include a videoPrompt field. Include concrete cameraMotion, transitionHint, and continuityNotes fields for every keyframe."
-              : "Do not include videoPrompt, cameraMotion, transitionHint, or continuityNotes fields.",
+            "Do not include videoPrompt, cameraMotion, transitionHint, or continuityNotes fields.",
             "Remember: storyboard only this GM narration turn, not the user's next CYOA/action.",
             "Use only allowed visible characters from game_context; include a new NPC only if that exact name appears in this GM narration.",
             args.maxVisibleCharacters
@@ -6212,7 +6172,6 @@ export async function gameRoutes(app: FastifyInstance) {
         role: "system",
         content: buildSetupPrompt({
           rating: setupConfig.rating ?? "sfw",
-          experienceStyle: setupConfig.experienceStyle,
           personaCard: personaCard || null,
           playerName: personaName,
           partyCards: partyCards.length > 0 ? partyCards : undefined,
@@ -10319,7 +10278,6 @@ export async function gameRoutes(app: FastifyInstance) {
           keyframeCount: storyboardKeyframeCount,
           durationSeconds: storyboardDurationSeconds,
           aspectRatio: input.aspectRatio,
-          generateVideos: generateStoryboardVideos,
           allowedCharacterNames: storyboardCharacterContext.allowedCharacterNames,
           maxVisibleCharacters: storyboardMaxVisibleCharacters,
         });
@@ -10335,7 +10293,6 @@ export async function gameRoutes(app: FastifyInstance) {
           keyframeCount: storyboardKeyframeCount,
           durationSeconds: storyboardDurationSeconds,
           aspectRatio: input.aspectRatio,
-          generateVideos: generateStoryboardVideos,
           allowedCharacterNames: storyboardCharacterContext.allowedCharacterNames,
           maxVisibleCharacters: storyboardMaxVisibleCharacters,
         });
@@ -10579,7 +10536,6 @@ export async function gameRoutes(app: FastifyInstance) {
             setting,
             artStyle,
             imagePromptInstructions,
-            negativePromptOverride: generateStoryboardVideos ? GAME_STORYBOARD_COMIC_NEGATIVE_PROMPT : undefined,
             referenceImages: illustrationAssets.referenceImages,
             characterPrompts: illustration.characterPrompts,
             imgSource,
@@ -11017,13 +10973,6 @@ export async function gameRoutes(app: FastifyInstance) {
         durationSeconds,
         aspectRatio,
         sourceIllustrationLine: `Use ${sourceDescription} as the first frame/reference image.`,
-        experienceStyleLine:
-          normalizeGameExperienceStyle(setupConfig?.experienceStyle) === "living_anime"
-            ? "Experience direction: animate this as polished limited 2D anime acting with deliberate timing, expressive reactions, and a stable hand-drawn look."
-            : "",
-        motionPlanLine: "",
-        continuityLine: "",
-        transitionLine: "",
       },
     });
     const prompt = limitSceneVideoPromptForProvider(promptDraft, promptLimits.finalPrompt);

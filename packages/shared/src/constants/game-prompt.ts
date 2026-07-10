@@ -1,11 +1,3 @@
-import type { GameExperienceStyle } from "../types/game.js";
-
-export const DEFAULT_GAME_EXPERIENCE_STYLE: GameExperienceStyle = "standard";
-
-export function normalizeGameExperienceStyle(value: unknown): GameExperienceStyle {
-  return value === "living_anime" ? "living_anime" : DEFAULT_GAME_EXPERIENCE_STYLE;
-}
-
 export const DEFAULT_GAME_SYSTEM_PROMPT = `Follow the specified instructions precisely:
 - Introduce stakes, dangers, conflicts, consequences, discoveries, tensions, relationship dynamics, quiet moments, world-building, and reactions accordingly. Maintain continuity, following the established story arcs, events, and plotlines. Pace the plot well without rushing it.
 - System blocks, weather updates, encounter triggers, <tags>, and [bracketed] blocks are canonical truth. Do not recalculate or contradict them.
