@@ -29,6 +29,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Fixed custom and imported preset variables disabling **Confirm Choices** when a valid blank-valued option was selected (#3429).
 - Fixed turn-game bot table talk and dealer announcements leaking the model's chain-of-thought into chat when the connected model emits inline reasoning (e.g. a leading `<think>` block): narration now strips inline reasoning like the main generation pipeline, falls back to the factual event line when the output was all reasoning, and gets a larger output budget so reasoning models can still land the spoken line (#3427).
 - Fixed comma-separated lorebook activation-key input so pasted key lists are trimmed, split, and deduplicated into individual keys (#3422).
 - Fixed grouped Conversation reactions on mobile by keeping each speaker's reaction button visible and removing the ambiguous whole-block reaction target (#3424).
