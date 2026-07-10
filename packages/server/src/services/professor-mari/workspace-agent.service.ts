@@ -38,11 +38,13 @@ import {
   LOCAL_SIDECAR_CONNECTION_ID,
   MODEL_LISTS,
   PROFESSOR_MARI_ID,
+  sanitizeMariSuggestionChips,
   type APIProvider,
   type GenerationParameterSendMap,
 } from "@marinara-engine/shared";
 import type {
   MariDbCommandResult,
+  MariSuggestionChip,
   MariWorkspaceConnectionSummary,
   MariWorkspacePromptEvent,
   MariWorkspaceStatus,
@@ -103,6 +105,7 @@ type JsonPayloadMatch = {
 type AssistantWorkspaceAction = {
   visibleText: string;
   commands: WorkspaceCommandCall[];
+  suggestions: MariSuggestionChip[];
   stop: boolean;
   protocolValid: boolean;
   assistantHistoryContent: string;
@@ -410,15 +413,20 @@ Required schema:
   "commands": [
     { "name": "read|grep|find|ls|edit|write|bash|app_data", "arguments": {} }
   ],
+  "suggestions": [
+    { "label": "short button text", "prompt": "exact message to send if tapped", "entity": "characters|lorebooks|personas|presets|connections|agents|settings|chat", "tone": "danger|caution|success" }
+  ],
   "stop": false
 }
 
 Field rules:
 - \`say\` is the only text Marinara may show to the user.
 - \`commands\` is the command list to execute now. Use \`[]\` only when no command is needed.
+- \`suggestions\` is optional. Include at most 5 quick-reply chips when useful; omit it when no chips are needed.
 - \`stop\` is \`false\` while you need command results or another model turn. Set \`stop\` to \`true\` only when the response is complete.
 - If \`commands\` is not empty, \`stop\` should usually be \`false\`.
 - If you say you will do workspace/app-data work, include the command in the same JSON object.
+- When the user is creating or editing something, ask ONE focused question at a time and offer 3-5 suggested answers as \`suggestions\`, each tagged with the matching entity so the UI colors them. Use tone:"danger" only for irreversible actions. Suggestions never replace your natural reply text.
 
 \`app_data\` quick reference:
 - Reads: \`character.list|get|search\`, \`persona.list|active|get|search\`, \`lorebook.list|get|entries|search\`, \`theme.list|active|get\`, \`agent.list|get|search\`, \`preset.list|get|search\`.
@@ -897,12 +905,18 @@ function dedupeWorkspaceCommandCalls(calls: WorkspaceCommandCall[]): WorkspaceCo
   });
 }
 
-function assistantHistoryContentForAction(action: Pick<AssistantWorkspaceAction, "visibleText" | "commands" | "stop">): string {
-  return JSON.stringify({
+function assistantHistoryContentForAction(
+  action: Pick<AssistantWorkspaceAction, "visibleText" | "commands" | "stop"> & {
+    suggestions?: MariSuggestionChip[];
+  },
+): string {
+  const payload: Record<string, unknown> = {
     say: action.visibleText,
     commands: action.commands.map((command) => ({ name: command.name, arguments: command.arguments })),
     stop: action.stop,
-  });
+  };
+  if (action.suggestions && action.suggestions.length > 0) payload.suggestions = action.suggestions;
+  return JSON.stringify(payload);
 }
 
 function assistantHistoryContentFromVisibleText(content: string): string {
@@ -945,6 +959,7 @@ function parseAssistantWorkspaceAction(content: string): AssistantWorkspaceActio
     .filter(Boolean)
     .join("\n\n");
   const visibleText = [inlineVisibleText, frameVisibleText].filter(Boolean).join("\n\n").trim();
+  const suggestions = matches.flatMap((match) => sanitizeSuggestionChips(match.payload.suggestions));
   const commands = dedupeWorkspaceCommandCalls([
     ...parseXmlCommandCalls(contentWithoutJson),
     ...jsonCommands,
@@ -957,10 +972,19 @@ function parseAssistantWorkspaceAction(content: string): AssistantWorkspaceActio
   return {
     visibleText,
     commands,
+    suggestions,
     stop,
     protocolValid,
-    assistantHistoryContent: assistantHistoryContentForAction({ visibleText, commands, stop }),
+    assistantHistoryContent: assistantHistoryContentForAction({ visibleText, commands, suggestions, stop }),
   };
+}
+
+function sanitizeSuggestionChips(raw: unknown): MariSuggestionChip[] {
+  const chips = sanitizeMariSuggestionChips(raw, { maxChips: 6 });
+  if (Array.isArray(raw) && raw.length > 0 && chips.length === 0) {
+    logger.debug("[Professor Mari] Dropped invalid workspace suggestion chips");
+  }
+  return chips;
 }
 
 function roleForMessage(row: { role: string }): "system" | "user" | "assistant" {
@@ -1456,6 +1480,7 @@ export class ProfessorMariWorkspaceService {
               assistantHistoryContent: assistantHistoryContentForAction({
                 visibleText: parsedAction.visibleText,
                 commands: [],
+                suggestions: parsedAction.suggestions,
                 stop: true,
               }),
             }
@@ -1498,6 +1523,7 @@ export class ProfessorMariWorkspaceService {
           assistantText = appendVisibleText(assistantText, action.visibleText);
           appendTraceText(workspaceTrace, `${action.visibleText}\n`);
         }
+        if (action.suggestions.length > 0) args.onEvent({ type: "suggestions", data: action.suggestions });
         streamedVisibleText = "";
 
         messages.push({ role: "assistant", content: action.assistantHistoryContent });
@@ -1559,6 +1585,7 @@ export class ProfessorMariWorkspaceService {
           if (finalAction.visibleText) {
             assistantText = appendVisibleText(assistantText, finalAction.visibleText);
             appendTraceText(workspaceTrace, finalAction.visibleText);
+            if (finalAction.suggestions.length > 0) args.onEvent({ type: "suggestions", data: finalAction.suggestions });
           } else if (finalAction.commands.length > 0) {
             const content =
               "Professor Mari tried to run more workspace commands after the command limit, so I stopped the loop. Ask her to continue if you want her to keep working from the saved trace.";

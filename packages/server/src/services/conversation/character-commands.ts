@@ -31,6 +31,7 @@
 // - <create_lorebook>{"name":"...","description":"...","category":"...","tags":["..."],"entries":[{"name":"...","content":"...","keys":["..."],"tag":"..."}]}</create_lorebook>
 // - <update_lorebook>{"name":"Existing","description":"...","entries":[{"name":"Entry","content":"refined content","keys":["..."]}]}</update_lorebook>
 // - <create_preset>{"name":"...","description":"...","sections":[{"name":"...","content":"...","role":"system"}],"choiceBlocks":[{"variableName":"...","question":"...","options":[{"label":"...","value":"..."}]}]}</create_preset>
+// - <suggestions>[{"label":"...","prompt":"...","entity":"characters"}]</suggestions>
 // - [create_chat: character="...", mode="conversation|roleplay"]
 // - [navigate: panel="...", tab="..."]
 // - [fetch: type="character|persona|lorebook|chat|preset", name="..."]
@@ -331,6 +332,11 @@ export interface FetchCommand {
   name: string;
 }
 
+export interface SuggestionsCommand {
+  type: "suggestions";
+  suggestions: unknown;
+}
+
 export type AssistantCommand =
   | CreatePersonaCommand
   | CreateCharacterCommand
@@ -341,7 +347,8 @@ export type AssistantCommand =
   | CreatePresetCommand
   | CreateChatCommand
   | NavigateCommand
-  | FetchCommand;
+  | FetchCommand
+  | SuggestionsCommand;
 
 export type CharacterCommand =
   | ScheduleUpdateCommand
@@ -456,6 +463,7 @@ const CREATE_LOREBOOK_RE = new RegExp(`\\[create_lorebook:\\s*(${QUOTED_PARAM_BL
 const CREATE_LOREBOOK_BLOCK_RE = /<create_lorebook>([\s\S]*?)<\/create_lorebook>/gi;
 const UPDATE_LOREBOOK_BLOCK_RE = /<update_lorebook>([\s\S]*?)<\/update_lorebook>/gi;
 const CREATE_PRESET_BLOCK_RE = /<create_preset>([\s\S]*?)<\/create_preset>/gi;
+const SUGGESTIONS_BLOCK_RE = /<suggestions>([\s\S]*?)<\/suggestions>/gi;
 const CREATE_CHAT_RE = new RegExp(`\\[create_chat:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const NAVIGATE_RE = new RegExp(`\\[navigate:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
 const FETCH_RE = new RegExp(`\\[fetch:\\s*(${QUOTED_PARAM_BLOCK})\\]`, "gi");
@@ -583,6 +591,109 @@ function stripJsonFence(raw: string): string {
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function parseJsonValue(raw: string): unknown | null {
+  try {
+    return JSON.parse(stripJsonFence(raw)) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function findBracketJsonCommandBlocks(content: string, commandName: string): string[] {
+  const blocks: string[] = [];
+  const marker = `[${commandName}:`;
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.toLowerCase().indexOf(marker, cursor);
+    if (start === -1) break;
+    let index = start + marker.length;
+    while (/\s/.test(content[index] ?? "")) index += 1;
+    const opening = content[index];
+    const closing = opening === "[" ? "]" : opening === "{" ? "}" : null;
+    if (!closing) {
+      cursor = start + marker.length;
+      continue;
+    }
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (; index < content.length; index += 1) {
+      const char = content[index] ?? "";
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === opening) depth += 1;
+      else if (char === closing) {
+        depth -= 1;
+        if (depth === 0 && content[index + 1] === "]") {
+          blocks.push(content.slice(start + marker.length, index + 1).trim());
+          cursor = index + 2;
+          break;
+        }
+      }
+    }
+    if (index >= content.length) cursor = start + marker.length;
+  }
+  return blocks;
+}
+
+function stripBracketJsonCommandBlocks(content: string, commandName: string): string {
+  const marker = `[${commandName}:`;
+  let result = "";
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.toLowerCase().indexOf(marker, cursor);
+    if (start === -1) break;
+    let index = start + marker.length;
+    while (/\s/.test(content[index] ?? "")) index += 1;
+    const opening = content[index];
+    const closing = opening === "[" ? "]" : opening === "{" ? "}" : null;
+    if (!closing) {
+      cursor = start + marker.length;
+      continue;
+    }
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+    for (; index < content.length; index += 1) {
+      const char = content[index] ?? "";
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+      if (char === opening) depth += 1;
+      else if (char === closing) {
+        depth -= 1;
+        if (depth === 0 && content[index + 1] === "]") {
+          end = index + 2;
+          break;
+        }
+      }
+    }
+    if (end === -1) {
+      cursor = start + marker.length;
+      continue;
+    }
+    result += content.slice(cursor, start);
+    cursor = end;
+  }
+  return result + content.slice(cursor);
 }
 
 function parseLorebookBlock(raw: string): CreateLorebookCommand | null {
@@ -1154,6 +1265,16 @@ export function parseCharacterCommands(content: string): {
     if (cmd) commands.push(cmd);
   }
 
+  for (const match of content.matchAll(SUGGESTIONS_BLOCK_RE)) {
+    const suggestions = parseJsonValue(match[1] ?? "");
+    if (suggestions !== null) commands.push({ type: "suggestions", suggestions });
+  }
+
+  for (const suggestionsBlock of findBracketJsonCommandBlocks(content, "suggestions")) {
+    const suggestions = parseJsonValue(suggestionsBlock);
+    if (suggestions !== null) commands.push({ type: "suggestions", suggestions });
+  }
+
   for (const match of content.matchAll(CREATE_LOREBOOK_RE)) {
     const params = match[1]!;
     const name = parseQuotedParam(params, "name");
@@ -1234,12 +1355,14 @@ export function parseCharacterCommands(content: string): {
     .replace(CREATE_LOREBOOK_BLOCK_RE, "")
     .replace(UPDATE_LOREBOOK_BLOCK_RE, "")
     .replace(CREATE_PRESET_BLOCK_RE, "")
+    .replace(SUGGESTIONS_BLOCK_RE, "")
     .replace(CREATE_LOREBOOK_RE, "")
     .replace(CREATE_CHAT_RE, "")
     .replace(NAVIGATE_RE, "")
     .replace(FETCH_RE, "")
     .replace(/\n{3,}/g, "\n\n") // collapse excessive newlines left by removals
     .trim();
+  cleanContent = stripBracketJsonCommandBlocks(cleanContent, "suggestions").replace(/\n{3,}/g, "\n\n").trim();
 
   return { cleanContent, commands };
 }

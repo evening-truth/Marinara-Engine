@@ -1,4 +1,4 @@
-import { PROFESSOR_MARI_ID, normalizeTextForMatch } from "@marinara-engine/shared";
+import { PROFESSOR_MARI_ID, normalizeTextForMatch, sanitizeMariSuggestionChips } from "@marinara-engine/shared";
 
 import type { DB } from "../../db/connection.js";
 import { logger } from "../../lib/logger.js";
@@ -12,6 +12,7 @@ import {
   type CreatePresetCommand,
   type FetchCommand,
   type NavigateCommand,
+  type SuggestionsCommand,
   type UpdateCharacterCommand,
   type UpdateLorebookCommand,
   type UpdatePersonaCommand,
@@ -42,6 +43,7 @@ const PROFESSOR_MARI_COMMAND_TYPES = new Set([
   "create_chat",
   "navigate",
   "fetch",
+  "suggestions",
 ]);
 
 type ProfessorMariCommandStores = {
@@ -104,6 +106,9 @@ export async function handleProfessorMariCommand(args: {
         handled: true,
         fetchSucceeded: await fetchProfessorMariContext(args.command as FetchCommand, args),
       };
+    case "suggestions":
+      sendSuggestions(args.command as SuggestionsCommand, args);
+      break;
   }
 
   return { handled: true, fetchSucceeded: false };
@@ -545,6 +550,15 @@ async function createChat(command: CreateChatCommand, args: Parameters<typeof ha
 function navigate(command: NavigateCommand, args: Parameters<typeof handleProfessorMariCommand>[0]) {
   args.sendAssistantAction({ action: "navigate", panel: command.panel, tab: command.tab ?? null });
   logger.info("[commands] Assistant navigate: panel=%s, tab=%s", command.panel, command.tab ?? "none");
+}
+
+function sendSuggestions(command: SuggestionsCommand, args: Parameters<typeof handleProfessorMariCommand>[0]) {
+  const suggestions = sanitizeMariSuggestionChips(command.suggestions, { maxChips: 6 });
+  if (suggestions.length === 0) {
+    logger.debug("[commands] Dropped invalid Professor Mari suggestions payload");
+    return;
+  }
+  args.sendAssistantAction({ action: "suggestions", suggestions });
 }
 
 async function fetchProfessorMariContext(

@@ -4,6 +4,115 @@
 
 export type MariWorkspaceToolName = "read" | "grep" | "find" | "ls" | "edit" | "write" | "bash" | "app_data";
 
+export type MariChipEntity =
+  | "characters"
+  | "lorebooks"
+  | "personas"
+  | "presets"
+  | "connections"
+  | "agents"
+  | "settings"
+  | "chat";
+
+export type MariChipTone = "default" | "danger" | "caution" | "success";
+
+export interface MariSuggestionChip {
+  id: string;
+  label: string;
+  prompt: string;
+  entity?: MariChipEntity;
+  icon?: string;
+  tone?: MariChipTone;
+}
+
+export const MARI_STARTER_CHIPS: MariSuggestionChip[] = [
+  {
+    id: "starter-character",
+    label: "Create a character",
+    entity: "characters",
+    icon: "UserPlus",
+    prompt: "Let's create a new character together - guide me through it step by step.",
+  },
+  {
+    id: "starter-lorebook",
+    label: "Create a lorebook",
+    entity: "lorebooks",
+    icon: "BookOpen",
+    prompt: "Help me build a new lorebook, one entry at a time.",
+  },
+  {
+    id: "starter-persona",
+    label: "Create a persona",
+    entity: "personas",
+    icon: "Sparkles",
+    prompt: "Help me create a persona for myself, step by step.",
+  },
+  {
+    id: "starter-explore",
+    label: "What can you do?",
+    icon: "Wand2",
+    prompt: "What kinds of things can you help me do here?",
+  },
+  {
+    id: "starter-surprise",
+    label: "Surprise me",
+    icon: "Dices",
+    prompt: "Surprise me - suggest something fun we could create.",
+  },
+];
+
+const MARI_CHIP_ENTITIES = new Set<MariChipEntity>([
+  "characters",
+  "lorebooks",
+  "personas",
+  "presets",
+  "connections",
+  "agents",
+  "settings",
+  "chat",
+]);
+
+const MARI_CHIP_TONES = new Set<MariChipTone>(["default", "danger", "caution", "success"]);
+
+function truncateMariChipText(value: string, maxLength: number): string {
+  const trimmed = value.trim();
+  return trimmed.length > maxLength ? trimmed.slice(0, maxLength).trimEnd() : trimmed;
+}
+
+export function sanitizeMariSuggestionChips(raw: unknown, options: { maxChips?: number } = {}): MariSuggestionChip[] {
+  if (!Array.isArray(raw)) return [];
+  const maxChips = options.maxChips ?? 6;
+  const chips: MariSuggestionChip[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.label !== "string" || typeof record.prompt !== "string") continue;
+    const label = truncateMariChipText(record.label, 40);
+    const prompt = truncateMariChipText(record.prompt, 400);
+    if (!label || !prompt) continue;
+    const chip: MariSuggestionChip = {
+      id:
+        typeof record.id === "string" && record.id.trim()
+          ? truncateMariChipText(record.id, 80)
+          : `suggestion-${chips.length + 1}`,
+      label,
+      prompt,
+    };
+    if (typeof record.entity === "string" && MARI_CHIP_ENTITIES.has(record.entity as MariChipEntity)) {
+      chip.entity = record.entity as MariChipEntity;
+    }
+    if (typeof record.icon === "string" && record.icon.trim()) {
+      chip.icon = truncateMariChipText(record.icon, 40);
+    }
+    if (typeof record.tone === "string" && MARI_CHIP_TONES.has(record.tone as MariChipTone)) {
+      chip.tone = record.tone as MariChipTone;
+    }
+    chips.push(chip);
+    if (chips.length >= maxChips) break;
+  }
+  return chips;
+}
+
 export interface MariWorkspaceToolTrace {
   id: string;
   name: string;
@@ -172,5 +281,6 @@ export type MariWorkspacePromptEvent =
   | { type: "tool_end"; data: { id?: string; name?: string; isError?: boolean; output?: string } }
   | { type: "approval_pending"; data: MariDbPendingApproval }
   | { type: "metadata"; data: Record<string, unknown> }
+  | { type: "suggestions"; data: MariSuggestionChip[] }
   | { type: "done"; data?: unknown }
   | { type: "error"; data: string };
