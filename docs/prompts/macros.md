@@ -90,7 +90,7 @@ Conversation Mode automatically inserts several blocks into the prompt for you. 
 | `{{memories}}`, `{{memoryRecall}}` | The memory-recall block. |
 | `{{lorebook}}`, `{{lore}}` | Lorebook injections. |
 
-These only apply in Conversation Mode. Placing the participant bios yourself with `{{char_about}}` / `{{persona_about}}` (see above) works the same way: Marinara then skips its automatic participant "about me" block so the bios are not inserted twice.
+These only apply in Conversation Mode. In a one-character conversation, placing the participant bios yourself with `{{char_about}}` / `{{persona_about}}` (see above) works the same way: Marinara then skips its automatic participant "about me" block so the bios are not inserted twice. Group conversations keep the automatic participant block because either singular macro covers only one participant and must not hide everyone else's bio.
 
 ## Context macros
 
