@@ -37,6 +37,7 @@ const CHARACTER_LORE_DESCRIPTION_LIMIT = 2000;
 const CHARACTER_LORE_FIELD_LIMIT = 1200;
 const DEFAULT_AGENT_TEMPERATURE = 0.3;
 const DEFAULT_AGENT_CALL_TIMEOUT_MS = 5 * 60_000;
+const ILLUSTRATOR_AGENT_CALL_TIMEOUT_MS = 30 * 60_000;
 const AGENT_BATCH_FALLBACK_MAX_CONCURRENT = 4;
 
 /** Strip HTML/XML-style tags (e.g. <div style="..."> <br> <speaker>) from text to save tokens. */
@@ -452,8 +453,9 @@ function combineAbortSignals(signals: AbortSignal[]): AbortSignal {
   return controller.signal;
 }
 
-function agentCallSignal(parentSignal?: AbortSignal): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(DEFAULT_AGENT_CALL_TIMEOUT_MS);
+function agentCallSignal(parentSignal?: AbortSignal, agentType?: string): AbortSignal {
+  const timeoutMs = agentType === "illustrator" ? ILLUSTRATOR_AGENT_CALL_TIMEOUT_MS : DEFAULT_AGENT_CALL_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return parentSignal ? combineAbortSignals([parentSignal, timeoutSignal]) : timeoutSignal;
 }
 
@@ -621,7 +623,7 @@ export async function executeAgent(
             responseText += chunk;
           }
         : undefined,
-      signal: agentCallSignal(context.signal),
+      signal: agentCallSignal(context.signal, config.type),
     });
 
     if (!responseText && result.content) responseText = result.content;
@@ -667,7 +669,7 @@ export async function executeAgent(
               retryResponseText += chunk;
             }
           : undefined,
-        signal: agentCallSignal(context.signal),
+        signal: agentCallSignal(context.signal, config.type),
       });
       totalTokens += retryResult.usage?.totalTokens ?? 0;
       if (!retryResponseText && retryResult.content) retryResponseText = retryResult.content;
@@ -740,7 +742,7 @@ async function executeAgentWithTools(
   let totalTokens = 0;
   const debugAgentsEnabled = isDebugAgentsEnabled() && logger.isLevelEnabled("debug");
   const customParameters = agentCustomParameters(config);
-  const toolLoopSignal = agentCallSignal(context.signal);
+  const toolLoopSignal = agentCallSignal(context.signal, config.type);
 
   for (let round = 0; round < maxToolRounds; round++) {
     emitAgentDebug(context, {
@@ -1029,7 +1031,7 @@ export async function executeAgentBatch(
             responseText += chunk;
           }
         : undefined,
-      signal: agentCallSignal(context.signal),
+      signal: agentCallSignal(context.signal, configs.some((config) => config.type === "illustrator") ? "illustrator" : undefined),
     });
 
     // chatComplete also accumulates content, but streaming via onToken is
