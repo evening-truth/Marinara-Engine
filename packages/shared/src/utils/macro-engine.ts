@@ -690,6 +690,18 @@ function resolveConditionalOperand(raw: string, ctx: MacroContext): string {
       return ctx.characterFields?.systemPrompt ?? "";
     case "charposthistory":
       return ctx.characterFields?.postHistoryInstructions ?? "";
+    // Conversation-mode-only macros. Resolve them the same way the flat {{...}}
+    // pass does (from convoFields) so `{{#if char_about != ""}}` compares the
+    // real value instead of the unresolved literal token (#3435). Kept in sync
+    // with the flat-pass replacements below.
+    case "convo_display":
+      return ctx.convoFields?.charDisplayName ?? "";
+    case "char_about":
+      return ctx.convoFields?.charAbout ?? "";
+    case "persona_about":
+      return ctx.convoFields?.personaAbout ?? "";
+    case "convo_behavior":
+      return ctx.convoFields?.convoBehavior ?? "";
     default:
       if (/^var[:.]/i.test(token)) {
         const name = token.replace(/^var[:.]/i, "").trim();
@@ -972,14 +984,45 @@ function resolveConditionalBlocks(input: string, ctx: MacroContext, options: Res
       content: input.slice(branch.contentStart, branch.contentEnd),
     }));
 
-    result += resolveVariableOperationMacros(input.slice(index, blockStart), ctx, options);
+    const preTag = input.slice(index, blockStart);
+    // Resolve the pre-tag text first so its side effects (e.g. {{setvar}}) are
+    // applied before the condition is evaluated — preserves original ordering.
+    const resolvedPreTag = resolveVariableOperationMacros(preTag, ctx, options);
     if (options.deferCharacterMacros && branchDependsOnCharacter(branches)) {
+      result += resolvedPreTag;
       result += encodeDeferredConditional({ branches });
+      index = blockEnd.endEnd;
     } else {
       const selected = selectConditionalPayloadBranch({ branches }, ctx, options);
-      result += resolveConditionalBlocks(selected, ctx, options);
+      const resolvedBlock = resolveConditionalBlocks(selected, ctx, options);
+      // Standalone-block whitespace control (Jinja trim_blocks / lstrip_blocks):
+      // when the {{#if}} and/or {{/if}} tag occupies its own line, collapse that
+      // tag line so a block — whether removed or rendered — never leaves a stray
+      // blank line (#3435). Standalone-ness is judged from the raw layout, so an
+      // empty (removed) block is handled the same as a rendered one. Each side is
+      // decided independently, so inline tags stay exactly as authored.
+      const openLineStart = /(^|\n)[ \t]*$/.test(preTag);
+      const openLineEnd = /^[ \t]*\n/.test(input.slice(contentStart));
+      const openStandalone = openLineStart && openLineEnd;
+      const closeLineIndentStart = input.lastIndexOf("\n", blockEnd.endStart - 1) + 1;
+      const closeLineStart = /^[ \t]*$/.test(input.slice(closeLineIndentStart, blockEnd.endStart));
+      const closeTrailing = input.slice(blockEnd.endEnd).match(/^[ \t]*\n/);
+      const closeStandalone = closeLineStart && closeTrailing !== null;
+
+      let emittedPre = resolvedPreTag;
+      let emittedBlock = resolvedBlock;
+      let nextIndex = blockEnd.endEnd;
+      if (openStandalone) {
+        emittedPre = emittedPre.replace(/[ \t]*$/, ""); // lstrip {{#if}} indent
+        emittedBlock = emittedBlock.replace(/^[ \t]*\n/, ""); // trim newline after {{#if}}
+      }
+      if (closeStandalone) {
+        emittedBlock = emittedBlock.replace(/[ \t]*$/, ""); // lstrip {{/if}} indent
+        nextIndex = blockEnd.endEnd + closeTrailing![0].length; // trim newline after {{/if}}
+      }
+      result += emittedPre + emittedBlock;
+      index = nextIndex;
     }
-    index = blockEnd.endEnd;
   }
 
   return result;
