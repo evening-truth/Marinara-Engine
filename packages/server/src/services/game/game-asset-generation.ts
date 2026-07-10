@@ -20,6 +20,7 @@ import {
   inferImageSource,
   type ImageGenerationDefaultsProfile,
   type ImageStyleProfileSettings,
+  type SceneIllustrationCharacterPrompt,
 } from "@marinara-engine/shared";
 import type { ImageGenerationSize } from "../image/image-generation-settings.js";
 import { compileImagePrompt } from "../image/image-prompt-compiler.js";
@@ -131,6 +132,14 @@ export function resolveSceneIllustrationGenerationConcurrency(
 ): number {
   const concurrency = Math.max(1, Math.trunc(requestedConcurrency));
   return resolveSceneIllustrationImageBackend(req) === "novelai" ? 1 : concurrency;
+}
+
+export function supportsSceneIllustrationStructuredCharacterPrompts(
+  req: Pick<SceneIllustrationGenRequest, "imgSource" | "imgModel" | "imgBaseUrl" | "imgService">,
+): boolean {
+  if (resolveSceneIllustrationImageBackend(req) !== "novelai") return false;
+  if (!req.imgBaseUrl.toLowerCase().includes("novelai.net")) return false;
+  return /^nai-diffusion-(?:4(?:-(?:curated-preview|full))?|4-5(?:-(?:curated|full))?)$/i.test(req.imgModel.trim());
 }
 
 export function resolveSceneIllustrationReferenceImageLimit(req: Pick<
@@ -787,6 +796,8 @@ export interface SceneIllustrationGenRequest {
   /** Extra user instructions appended to scene illustration prompts. */
   imagePromptInstructions?: string;
   referenceImages?: string[];
+  /** Structured named-character prompts for providers with native multi-character controls. */
+  characterPrompts?: SceneIllustrationCharacterPrompt[];
   imgSource?: string | null;
   imgModel: string;
   imgBaseUrl: string;
@@ -1190,6 +1201,7 @@ export async function generateSceneIllustration(req: SceneIllustrationGenRequest
         imageDefaults: req.imgDefaults ?? undefined,
         signal: req.signal,
         referenceImages: referenceImages.length ? referenceImages : undefined,
+        characterPrompts: req.characterPrompts,
       },
     );
 

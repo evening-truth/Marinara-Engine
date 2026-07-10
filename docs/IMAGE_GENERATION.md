@@ -39,6 +39,12 @@ Style profile precedence is: explicit chat/game/profile selection, then the imag
 
 The backend-specific controls for AUTOMATIC1111/Forge, ComfyUI, NovelAI, and other providers remain in the existing connection defaults. Style profiles only control prompt shape.
 
+### NovelAI multi-character storyboards
+
+Game Mode storyboards use NovelAI's native multi-character prompting automatically with official V4 and V4.5 connections. For keyframes with two or more named visible characters, the Storyboard Illustrator produces a shared base scene prompt plus up to six character-specific prompts. Marinara sends those prompts as NovelAI character captions with matching character-only negatives and approximate normalized positions. This helps keep identity, hair, clothing, expression, pose, and interaction roles from leaking between characters.
+
+Character reference images remain separate and still follow **Chat Settings -> Agents -> Illustrator -> Send Avatar References**. If multiple Precise References cause blended identities in a group scene, turn that setting off and let the native character prompts carry identity and placement. NovelAI-compatible proxy endpoints continue using their normal combined-prompt behavior; structured character captions require the official NovelAI V4/V4.5 image endpoint.
+
 ## Prompt review
 
 When **Expose image prompts before sending** is enabled in **Settings -> Generations -> Image Generation**, Marinara shows the final compiled positive prompt and, when available, the final compiled negative prompt before generation. Editing either field changes exactly what is sent for that request; reviewed prompts are not compiled a second time after confirmation.

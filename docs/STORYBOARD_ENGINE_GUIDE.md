@@ -71,7 +71,7 @@ When a storyboard starts, Marinara:
 5. Renders keyframe images through the Game Illustrator image connection.
 6. If animations are enabled and a video connection is selected, builds the selected **Game Video Prompt** from each saved keyframe image, like the Gallery **Animate illustration** action, then renders each keyframe clip from that generated image as the first frame/reference.
 
-The default plan targets 4 keyframes, 16:9 output, and 6-second clips when videos are generated. Very short turns may produce fewer frames, but the engine keeps storyboards between 2 and 6 keyframes.
+The default plan targets 3 keyframes, 16:9 output, and 6-second clips when videos are generated. Very short turns may produce fewer frames, and the engine accepts between 1 and 6 keyframes.
 
 ## Using the Viewer
 
@@ -120,7 +120,7 @@ Keep storyboard and video templates concise. Providers with smaller prompt limit
 
 ## Cost and Performance
 
-A storyboard usually creates about 4 image jobs. With animations enabled, it also creates about 4 video jobs. These jobs can run concurrently, so provider rate limits or slow queues may show up as partial storyboards.
+A storyboard usually creates 3 image jobs. With animations enabled, it also creates 3 video jobs. Most providers can run these jobs concurrently, so provider rate limits or slow queues may show up as partial storyboards. NovelAI image jobs run serially because its API locks concurrent generations.
 
 A practical starting point:
 
