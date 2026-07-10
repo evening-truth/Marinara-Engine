@@ -437,13 +437,14 @@ import {
 } from "./generate/agent-write-approval.js";
 
 const PROFESSOR_MARI_INTERNAL_CHAT_MARKER = "professor-mari";
-type ConversationContextMacroKey = "context" | "commands" | "reactRules" | "memories" | "lorebook";
+type ConversationContextMacroKey = "context" | "commands" | "reactRules" | "replyRules" | "memories" | "lorebook";
 type ConversationContextMacroSlots = Record<ConversationContextMacroKey, boolean>;
 
 const EMPTY_CONVERSATION_CONTEXT_MACRO_SLOTS: ConversationContextMacroSlots = {
   context: false,
   commands: false,
   reactRules: false,
+  replyRules: false,
   memories: false,
   lorebook: false,
 };
@@ -452,6 +453,11 @@ const CONVERSATION_CONTEXT_MACRO_ALIASES: Record<ConversationContextMacroKey, st
   context: ["context", "status"],
   commands: ["commands", "commandList"],
   reactRules: ["reactRules", "emojiReact"],
+  // Relocates the custom-emoji/sticker "reply" advertisement (the parity gap
+  // next to {{reactRules}}); rendered in conversation-custom-assets.ts (#3438).
+  // Single macro covering both emoji and sticker reply rules — deliberately no
+  // emoji-only/sticker-only aliases, since every alias renders the same block.
+  replyRules: ["replyRules"],
   memories: ["memories", "memoryRecall"],
   lorebook: ["lorebook", "lore"],
 };
@@ -2318,6 +2324,11 @@ export async function generateRoutes(app: FastifyInstance) {
           characterGallery,
           connections,
           conversationCustomEmojiUrlByName,
+          replyRulesMacroPlacement: conversationContextMacroSlots.replyRules
+            ? (content) => {
+                replaceConversationContextMacro(finalMessages, "replyRules", content);
+              }
+            : undefined,
         });
 
         let resolvedGameDiscordSpeakerName: string | null = null;
