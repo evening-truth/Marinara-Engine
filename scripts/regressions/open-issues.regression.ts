@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { appendLorebookActivationKeys } from "../../packages/client/src/lib/lorebook-keys.js";
+import { arePresetChoiceSelectionsComplete } from "../../packages/client/src/lib/preset-choice-selection.js";
 import {
   isBundledGameAssetFolderPath,
   isBundledGameAssetPath,
@@ -24,5 +25,40 @@ assert.equal(isBundledGameAssetPath("../package.json"), false);
 assert.equal(isGitUpdateApplyAllowed({ updatesApplyEnabled: false, localChannelSwitchRequested: false }), false);
 assert.equal(isGitUpdateApplyAllowed({ updatesApplyEnabled: false, localChannelSwitchRequested: true }), true);
 assert.equal(isGitUpdateApplyAllowed({ updatesApplyEnabled: true, localChannelSwitchRequested: false }), true);
+
+const choiceVariables = [
+  {
+    variableName: "optional_instruction",
+    options: [{ value: "" }, { value: "Add the instruction" }],
+    multiSelect: false,
+  },
+  {
+    variableName: "boolean_toggle",
+    options: [{ value: "Enabled" }],
+    multiSelect: false,
+  },
+  {
+    variableName: "tags",
+    options: [{ value: "Action" }, { value: "Romance" }],
+    multiSelect: true,
+  },
+] as const;
+
+assert.equal(
+  arePresetChoiceSelectionsComplete(choiceVariables, {
+    optional_instruction: "",
+    boolean_toggle: "",
+    tags: [],
+  }),
+  true,
+);
+assert.equal(
+  arePresetChoiceSelectionsComplete(choiceVariables, {
+    optional_instruction: "not-an-option",
+    boolean_toggle: "",
+    tags: [],
+  }),
+  false,
+);
 
 console.info("Open-issue regressions passed.");
