@@ -9,13 +9,21 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BaseLLMProvider, type ChatMessage, type ChatOptions, type LLMUsage } from "../base-provider.js";
 import { isDebugAgentsEnabled } from "../../../config/runtime-config.js";
 import { logger, logDebugOverride } from "../../../lib/logger.js";
 import { DATA_DIR } from "../../../utils/data-dir.js";
 
-const GROK_SCRATCH_DIR = join(DATA_DIR, "grok-cli");
+// The scratch cwd must live OUTSIDE any git checkout: the grok CLI walks up
+// from its working directory to the nearest repo root and indexes the whole
+// working tree on every one-shot call (45k+ file opens and ~10s of startup
+// CPU on a full Marinara checkout — paid by every chat AND agent request
+// when this lived under DATA_DIR). The OS temp dir is never inside a repo;
+// the uid suffix keeps per-user paths distinct on shared multi-user hosts.
+const GROK_SCRATCH_OWNER = typeof process.getuid === "function" ? `-${process.getuid()}` : "";
+const GROK_SCRATCH_DIR = join(tmpdir(), `marinara-grok-cli${GROK_SCRATCH_OWNER}`);
 const GROK_PROMPT_DIR = join(DATA_DIR, "grok-cli-prompts");
 const GROK_ERROR_PREVIEW_CHARS = 2000;
 const GROK_MODELS_TIMEOUT_MS = 30 * 1000;
@@ -214,7 +222,7 @@ async function runGrokCliCommand(
   args: string[],
   options: { timeoutMs: number; signal?: AbortSignal; timeoutLabel: string },
 ): Promise<GrokCliCommandResult> {
-  await mkdir(GROK_SCRATCH_DIR, { recursive: true });
+  await mkdir(GROK_SCRATCH_DIR, { recursive: true, mode: 0o700 });
 
   const child = spawn("grok", args, {
     cwd: GROK_SCRATCH_DIR,
