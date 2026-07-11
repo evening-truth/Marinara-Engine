@@ -47,6 +47,10 @@ function isPrivilegedAccessError(message: string): boolean {
 export function formatGenerationParameterError(message: string): string {
   if (isPrivilegedAccessError(message)) return message;
 
+  if (/\b(concurrenc(?:y|ies)|concurrent(?:ly)?|parallel request limit|simultaneous request limit)\b/i.test(message)) {
+    return `The provider's concurrency limit was reached. Wait for another generation to finish, then try again. Provider message: ${message}`;
+  }
+
   const unsupported = extractParameter(message, [
     /\bunsupported parameters?\b[:\s]+([A-Za-z0-9_.-]+)/i,
     /\bunknown parameters?\b[:\s]+([A-Za-z0-9_.-]+)/i,

@@ -31,6 +31,9 @@ function classifyAgentFailureReason(error: string | null | undefined): string | 
   if (/\b(unauthorized|forbidden|invalid api key|api key|401|403|permission|credential|auth)\b/.test(value)) {
     return "Authentication";
   }
+  if (/\b(concurrenc(?:y|ies)|concurrent(?:ly)?|parallel (?:request|generation)|simultaneous (?:request|generation))\b/.test(value)) {
+    return "Concurrency limit";
+  }
   if (/\b(rate limit|too many requests|quota|429)\b/.test(value)) {
     return "Rate limit";
   }
@@ -75,8 +78,8 @@ export function formatAgentFailuresToast(failures: AgentFailure[]): string {
 
   if (failures.length === 1) {
     const failure = failures[0]!;
-    const reason = failure.reasonLabel ? `: ${failure.reasonLabel}` : "";
-    return `${failure.agentName} failed${reason}. Use Retry Failed Agents in the Agents menu to try again.`;
+    const detail = formatAgentFailureDetail(failure);
+    return `${failure.agentName} failed: ${detail}. Use Retry Failed Agents in the Agents menu to try again.`;
   }
 
   const visible = failures.slice(0, 3).map(formatAgentFailureTitle).join(", ");
