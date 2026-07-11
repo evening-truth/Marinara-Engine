@@ -8,10 +8,10 @@ import { visibleText } from "./tracker-display";
 // full-width row below (see WorldStatePanel), so no per-tile width balancing is
 // needed. Word-based times ("Afternoon") get a wider Time column so the word
 // stays readable and wraps on spaces instead of shrinking; clock times keep the
-// compact 2.5rem column.
-export const WORLD_GRID_BASE_CLASS = "grid-cols-[2.5rem_2.5rem_minmax(0,1fr)]";
+// compact 3.25rem column.
+export const WORLD_GRID_BASE_CLASS = "grid-cols-[2.5rem_3.25rem_minmax(0,1fr)]";
 export const WORLD_GRID_PHRASE_TIME_CLASS = "grid-cols-[2.5rem_4.5rem_minmax(0,1fr)]";
-export const WORLD_FREEFORM_DATE_GRID_BASE_CLASS = "grid-cols-[minmax(3.8rem,4.45rem)_2.5rem_minmax(0,1fr)]";
+export const WORLD_FREEFORM_DATE_GRID_BASE_CLASS = "grid-cols-[minmax(3.8rem,4.45rem)_3.25rem_minmax(0,1fr)]";
 export const WORLD_FREEFORM_DATE_GRID_PHRASE_TIME_CLASS =
   "grid-cols-[minmax(3.8rem,4.45rem)_4.5rem_minmax(0,1fr)]";
 
