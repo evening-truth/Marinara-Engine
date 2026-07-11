@@ -16,7 +16,10 @@ import { isGitUpdateApplyAllowed } from "../../packages/server/src/services/upda
 import { parseNoodleAvatarCrop } from "../../packages/server/src/services/storage/noodle.storage.js";
 import { sanitizeExampleDialoguePromptLeaf } from "../../packages/server/src/services/prompt/prompt-escaping.js";
 import { resolveInitialGameGmConnectionId } from "../../packages/server/src/services/game/initial-game-setup.js";
-import { buildGameSessionReplayTurns } from "../../packages/client/src/lib/game-session-replay.js";
+import {
+  buildGameSessionReplayTurns,
+  findReplayStoryboardKeyframe,
+} from "../../packages/client/src/lib/game-session-replay.js";
 import { findReplayableGameSessionChat } from "../../packages/client/src/lib/game-session-resolution.js";
 import { formatGameSetupShareText } from "../../packages/client/src/lib/game-setup-share.js";
 import {
@@ -81,6 +84,15 @@ assert.equal(replayTurns[1]?.recordedChoice?.label, "Wait");
 assert.equal(replayTurns[1]?.presentation.background, "hall-night");
 assert.deepEqual(replayTurns[1]?.presentation.segmentEffects, [{ segment: 0, sfx: ["door-creak"] }]);
 assert.equal(replayTurns[2]?.playerMessage?.content, "Wait for sunrise");
+
+const replayStoryboardFrames = [
+  { id: "frame-2", index: 1, sectionStartIndex: 2, sectionEndIndex: 3 },
+  { id: "frame-1", index: 0, sectionStartIndex: 0, sectionEndIndex: 1 },
+  { id: "frame-3", index: 2, sectionStartIndex: 5, sectionEndIndex: 5 },
+] as Parameters<typeof findReplayStoryboardKeyframe>[0];
+assert.equal(findReplayStoryboardKeyframe(replayStoryboardFrames, null)?.id, "frame-1");
+assert.equal(findReplayStoryboardKeyframe(replayStoryboardFrames, 3)?.id, "frame-2");
+assert.equal(findReplayStoryboardKeyframe(replayStoryboardFrames, 4)?.id, "frame-3");
 
 const replaySessionChats = [
   {
