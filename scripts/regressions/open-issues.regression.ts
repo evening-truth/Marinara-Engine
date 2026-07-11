@@ -17,6 +17,18 @@ import { parseNoodleAvatarCrop } from "../../packages/server/src/services/storag
 import { sanitizeExampleDialoguePromptLeaf } from "../../packages/server/src/services/prompt/prompt-escaping.js";
 import { buildGameSessionReplayTurns } from "../../packages/client/src/lib/game-session-replay.js";
 import { findReplayableGameSessionChat } from "../../packages/client/src/lib/game-session-resolution.js";
+import {
+  getTemperatureGaugeDisplay,
+  parsePureTemperatureValue,
+} from "../../packages/client/src/features/tracker-panel/lib/world-state-display.js";
+
+assert.equal(parsePureTemperatureValue("15°C"), 15);
+assert.equal(parsePureTemperatureValue("59 Fahrenheit"), 15);
+assert.equal(parsePureTemperatureValue("Around 15°C, windy skies ahead"), null);
+assert.equal(
+  getTemperatureGaugeDisplay("Around 15°C, windy skies ahead", "celsius").label,
+  "Around 15°C, windy skies ahead",
+);
 
 const replayMessages = [
   { id: "start", chatId: "session-1", role: "user", content: "[start game]" },
