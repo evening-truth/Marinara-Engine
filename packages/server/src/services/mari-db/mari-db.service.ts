@@ -3374,13 +3374,20 @@ export class MariDbService {
         const lorebookId = parsed.positionals[0];
         if (!lorebookId) {
           throw new Error(
-            "Usage: mari lorebooks add-entry <lorebook-id> --name <name> [--content <text>] [--keys <k1,k2,...>] [--description <text>] [--tag <tag>] [--apply] [--reason <text>]",
+            "Usage: mari lorebooks add-entry <lorebook-id> --name <name> [--content <text>] [--keys <k1,k2,...>] [--description <text>] [--tag <tag>] [--folder-id <folder-id>] [--apply] [--reason <text>]",
           );
         }
         const entryName = flagString(flags, "name")?.trim();
         if (!entryName) throw new Error("--name is required for add-entry");
         const lorebookExists = await this.getRawById(getMeta("lorebooks"), lorebookId);
         if (!lorebookExists) throw new Error(`Lorebook ${lorebookId} not found`);
+        const addFolderId = flagString(flags, "folder-id");
+        if (addFolderId) {
+          const folderRow = await this.getRawById(getMeta("lorebook_folders"), addFolderId);
+          if (!folderRow || String(folderRow.lorebookId) !== lorebookId) {
+            throw new Error(`Folder ${addFolderId} not found in lorebook ${lorebookId}`);
+          }
+        }
         const keysRaw = flagString(flags, "keys") ?? "";
         const keys = keysRaw
           ? keysRaw
@@ -3392,6 +3399,7 @@ export class MariDbService {
         const entryRow: Row = {
           id: flagString(flags, "id") ?? newId(),
           lorebookId,
+          folderId: addFolderId ?? null,
           name: entryName,
           content: flagString(flags, "content") ?? "",
           description: flagString(flags, "description") ?? "",
@@ -3444,7 +3452,7 @@ export class MariDbService {
         const entryId = parsed.positionals[0];
         if (!entryId) {
           throw new Error(
-            "Usage: mari lorebooks update-entry <entry-id> [--name <name>] [--content <text>] [--keys <k1,k2,...>] [--description <text>] [--tag <tag>] [--enable] [--disable] [--constant] [--no-constant] [--order <n>] [--apply] [--reason <text>]",
+            "Usage: mari lorebooks update-entry <entry-id> [--name <name>] [--content <text>] [--keys <k1,k2,...>] [--description <text>] [--tag <tag>] [--enable] [--disable] [--constant] [--no-constant] [--order <n>] [--folder-id <folder-id>|none] [--apply] [--reason <text>]",
           );
         }
         const entryExists = await this.getRawById(getMeta("lorebook_entries"), entryId);
@@ -3476,9 +3484,21 @@ export class MariDbService {
         if (hasFlag(flags, "disable")) entryPatch.enabled = "false";
         if (hasFlag(flags, "constant")) entryPatch.constant = "true";
         if (hasFlag(flags, "no-constant")) entryPatch.constant = "false";
+        const patchFolderId = flagString(flags, "folder-id");
+        if (patchFolderId !== undefined) {
+          if (!patchFolderId || patchFolderId === "none") {
+            entryPatch.folderId = null;
+          } else {
+            const folderRow = await this.getRawById(getMeta("lorebook_folders"), patchFolderId);
+            if (!folderRow || String(folderRow.lorebookId) !== String(entryExists.lorebookId)) {
+              throw new Error(`Folder ${patchFolderId} not found in this entry's lorebook`);
+            }
+            entryPatch.folderId = patchFolderId;
+          }
+        }
         if (Object.keys(entryPatch).length <= 1) {
           throw new Error(
-            "Provide at least one field to update (--name, --content, --keys, --description, --tag, --enable, --disable, --constant, --no-constant, --order)",
+            "Provide at least one field to update (--name, --content, --keys, --description, --tag, --enable, --disable, --constant, --no-constant, --order, --folder-id)",
           );
         }
         const updateEntryRequest: ParsedMutationRequest = {

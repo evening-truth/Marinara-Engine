@@ -2105,6 +2105,7 @@ export async function backupRoutes(app: FastifyInstance) {
               );
               const folderIdMap = new Map<string, string>();
               if (created && Array.isArray(lb.folders)) {
+                // Pass 1: create all folders without parent references
                 for (const folder of lb.folders) {
                   const oldId = typeof folder.id === "string" ? folder.id : null;
                   const createdFolder = (await lbs.createFolder((created as any).id, {
@@ -2114,6 +2115,23 @@ export async function backupRoutes(app: FastifyInstance) {
                     order: folder.order ?? 0,
                   })) as { id?: string } | null;
                   if (oldId && createdFolder?.id) folderIdMap.set(oldId, createdFolder.id);
+                }
+                // Pass 2: restore nesting using the fully-populated map (same
+                // parent→child pattern as the preset group import below)
+                for (const folder of lb.folders) {
+                  const oldId = typeof folder.id === "string" ? folder.id : null;
+                  const oldParentId = typeof folder.parentFolderId === "string" ? folder.parentFolderId : null;
+                  if (oldId && oldParentId && folderIdMap.has(oldId) && folderIdMap.has(oldParentId)) {
+                    try {
+                      await lbs.updateFolder(
+                        folderIdMap.get(oldId)!,
+                        { parentFolderId: folderIdMap.get(oldParentId)! },
+                        (created as any).id,
+                      );
+                    } catch {
+                      /* skip */
+                    }
+                  }
                 }
               }
               if (created && Array.isArray(lb.entries)) {
