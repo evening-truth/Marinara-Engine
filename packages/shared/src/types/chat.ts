@@ -671,8 +671,10 @@ export interface MessageExtra {
   isConversationStart?: boolean;
   /** Model's reasoning/thinking content (if available) */
   thinking?: string | null;
-  /** Original assistant message before a post-processing rewrite, used for one-click restore. */
+  /** Original assistant message before a post-processing rewrite, retained for version comparison. */
   proseGuardianOriginalText?: string | null;
+  /** Rewritten assistant message retained so the user can compare and restore either version. */
+  proseGuardianRewrittenText?: string | null;
   /** Timestamp for the last post-processing rewrite applied to this message. */
   proseGuardianRewrittenAt?: string | null;
   /**

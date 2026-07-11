@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import type { Chat, Message } from "../../packages/shared/src/types/chat.js";
 import type { Lorebook } from "../../packages/shared/src/types/lorebook.js";
-import { createLorebookSchema } from "../../packages/shared/src/schemas/lorebook.schema.js";
+import {
+  createLorebookSchema,
+  normalizeLorebookCategory,
+  updateLorebookSchema,
+} from "../../packages/shared/src/schemas/lorebook.schema.js";
 import { buildLorebookDuplicateInput } from "../../packages/client/src/lib/lorebook-duplicate.js";
 import { appendLorebookActivationKeys } from "../../packages/client/src/lib/lorebook-keys.js";
 import { arePresetChoiceSelectionsComplete } from "../../packages/client/src/lib/preset-choice-selection.js";
@@ -230,6 +234,25 @@ const characterAssignedDuplicate = buildLorebookDuplicateInput(characterAssigned
 assert.equal(Object.hasOwn(characterAssignedDuplicate, "characterId"), false);
 assert.deepEqual(characterAssignedDuplicate.characterIds, ["character-1"]);
 assert.equal(createLorebookSchema.safeParse(characterAssignedDuplicate).success, true);
+assert.equal(normalizeLorebookCategory("World"), "world");
+assert.equal(normalizeLorebookCategory("Professor Mari's Experimental Category"), "uncategorized");
+assert.equal(
+  updateLorebookSchema.safeParse({
+    category: normalizeLorebookCategory("Professor Mari's Experimental Category"),
+    isGlobal: false,
+    enabled: true,
+    scanDepth: 2,
+    tokenBudget: 2048,
+    entryLimit: 100,
+    maxRecursionDepth: 3,
+    vectorQueryDepth: 10,
+    vectorScoreThreshold: 0.3,
+    vectorMaxResults: 10,
+    characterIds: [],
+    personaIds: [],
+  }).success,
+  true,
+);
 assert.equal(characterAssignedDuplicate.vectorQueryDepth, characterAssignedLorebook.vectorQueryDepth);
 assert.equal(characterAssignedDuplicate.vectorScoreThreshold, characterAssignedLorebook.vectorScoreThreshold);
 assert.equal(characterAssignedDuplicate.vectorMaxResults, characterAssignedLorebook.vectorMaxResults);
