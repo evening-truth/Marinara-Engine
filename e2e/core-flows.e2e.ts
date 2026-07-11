@@ -844,6 +844,9 @@ test("Noodle desktop composers insert emojis at the active cursor", async ({ pag
     await expect
       .poll(() => postTextarea.evaluate((element: HTMLTextAreaElement) => element.selectionStart))
       .toBe(8);
+    await expect
+      .poll(() => postTextarea.evaluate((element: HTMLTextAreaElement) => element.selectionEnd))
+      .toBe(8);
     await inlineComposer.getByTitle("Emoji, GIFs and stickers").click();
 
     const activePost = noodle.locator(`[data-noodle-post-id="${post.id}"]`);
@@ -853,14 +856,17 @@ test("Noodle desktop composers insert emojis at the active cursor", async ({ pag
     await replyTextarea.fill("Reply here");
     await replyTextarea.evaluate((element: HTMLTextAreaElement) => {
       element.focus();
-      element.setSelectionRange(6, 6);
+      element.setSelectionRange(6, 10);
     });
     await replyComposer.getByTitle("Emoji, GIFs and stickers").click();
     await page.getByRole("textbox", { name: "Search emojis" }).fill("test tube");
     await page.getByRole("button", { name: /test tube/i }).click();
-    await expect(replyTextarea).toHaveValue("Reply 🧪here");
+    await expect(replyTextarea).toHaveValue("Reply 🧪");
     await expect
       .poll(() => replyTextarea.evaluate((element: HTMLTextAreaElement) => element.selectionStart))
+      .toBe(8);
+    await expect
+      .poll(() => replyTextarea.evaluate((element: HTMLTextAreaElement) => element.selectionEnd))
       .toBe(8);
 
     expect(errors).toEqual([]);
