@@ -64,6 +64,7 @@ import {
   parseStoredGenerationParameters,
   prefixGroupIndividualHistorySpeakers,
   resolveActiveCharacterIds,
+  resolveActivePersonaCandidate,
   resolvePromptCharacterIdsForTarget,
   resolveCharacterNameMap,
   resolveRegenerationGameStateAnchor,
@@ -711,9 +712,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     let persona: any = null;
     try {
       const allPersonas = await chars.listPersonas();
-      persona =
-        ((chat as any).personaId ? allPersonas.find((p: any) => p.id === (chat as any).personaId) : null) ??
-        allPersonas.find((p: any) => p.isActive === "true");
+      persona = resolveActivePersonaCandidate(allPersonas, (chat as any).personaId, chatMode);
       if (persona) {
         personaId = persona.id as string;
         personaName = persona.name;
