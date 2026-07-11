@@ -49,8 +49,8 @@ const STEPS: TourStep[] = [
   },
   {
     target: "panel-bot-browser",
-    title: "Browser",
-    body: "The Browser allows you to browse and import downloadable character cards and resources. Start here when you want new characters or ready-made material to bring into your library.",
+    title: "Bot Browser",
+    body: "The Bot Browser allows you to browse and import downloadable character cards and resources. Start here when you want new characters or ready-made material to bring into your library.",
     side: "bottom",
     openPanel: "bot-browser",
     sprite: { src: "/sprites/mari/Mari_point_up_left.png", flip: true },
