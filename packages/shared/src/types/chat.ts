@@ -482,6 +482,8 @@ export interface ChatMetadata {
   gameCombatState?: import("./game.js").GameCombatStateSnapshot | null;
   /** User's initial game setup preferences */
   gameSetupConfig?: import("./game.js").GameSetupConfig | null;
+  /** Immutable creation-time setup retained for viewing and sharing after the campaign changes. */
+  gameInitialSetup?: import("./game.js").GameInitialSetupSnapshot | null;
   /** Generated game blueprint, including campaign plan and initial HUD widgets. */
   gameBlueprint?: Record<string, unknown> | null;
   /** Runtime HUD widget state shown in Game Mode. */
@@ -687,6 +689,15 @@ export interface MessageExtra {
   spriteExpressions?: Record<string, string> | null;
   /** Per-swipe CYOA choices from the CYOA Choices agent */
   cyoaChoices?: Array<{ label: string; text: string }> | null;
+  /** Presentation-only Game Mode cues retained so completed turns can be replayed without rerunning scene analysis. */
+  gameReplayCue?: {
+    background?: string | null;
+    music?: string | null;
+    ambient?: string | null;
+    sfx?: string[];
+    directions?: import("./game.js").DirectionCommand[];
+    segmentEffects?: import("./sidecar.js").SceneSegmentEffect[];
+  } | null;
   /** Snapshot of the persona that was active when this message was sent (user messages only) */
   personaSnapshot?: {
     personaId: string;

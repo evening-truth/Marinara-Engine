@@ -6,6 +6,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Added
 
+- Added read-only replay for completed Game Mode sessions from Session History, including click-through narration, stored presentation cues, and deterministic choice forks that only permit the option selected during the original session (#3465).
 - Added an Anime Episode presentation for Game Mode with coordinated **Anime Game Prompt**, **Anime Episode Director**, and **Anime Game Video** presets; setup-time keyframe targeting; a `{{gameStoryboardKeyframeCount}}` GM macro; and a storyboard-only video prompt selector that leaves manual scene videos unchanged.
 - Added GLM-5.2 to custom OpenAI-compatible connection model choices, including its 1M context and 128K output limits.
 - Added prefix-matched `@handle` suggestions to Noodle post and reply composers, with click, touch, and keyboard insertion.
