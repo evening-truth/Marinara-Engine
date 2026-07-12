@@ -16,6 +16,11 @@ import type {
 } from "../../../../stores/ui.store";
 import { cn } from "../../../../lib/utils";
 import { visibleText } from "../../lib/tracker-display";
+import {
+  makeUniqueCharacterCustomFieldName,
+  normalizeCharacterCustomFieldName,
+  resolveCharacterCustomFieldName,
+} from "../../lib/character-custom-field-names";
 import { getCharacterAmbienceStyle, type TrackerProfileColors } from "../../lib/tracker-profile-style";
 import { FittedText, InlineAddRow, InlineEdit } from "../controls/InlineControls";
 import {
@@ -74,21 +79,6 @@ const CHARACTER_CUSTOM_FIELD_LIST_CLASS =
   "relative z-[1] mt-1 grid gap-px border-t border-[color-mix(in_srgb,var(--tracker-profile-rule)_34%,transparent)] pt-1 text-[0.5625rem] @min-[176px]:text-[0.625rem]";
 const CHARACTER_CUSTOM_FIELD_ROW_CLASS =
   "grid min-w-0 grid-cols-[minmax(2.05rem,0.42fr)_minmax(0,1fr)] items-center gap-0.5 @min-[176px]:grid-cols-[minmax(2.35rem,0.42fr)_minmax(0,1fr)] @min-[176px]:gap-1";
-
-function makeUniqueCharacterCustomFieldName(customFields: Record<string, string> | null | undefined) {
-  const existing = new Set(Object.keys(customFields ?? {}).map(normalizeCharacterCustomFieldName));
-  let index = 1;
-  let name = "New Field";
-  while (existing.has(normalizeCharacterCustomFieldName(name))) {
-    index += 1;
-    name = `New Field ${index}`;
-  }
-  return name;
-}
-
-function normalizeCharacterCustomFieldName(value: string) {
-  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
-}
 
 function CompactCharacterNameplate({ children }: { children: ReactNode }) {
   return (
@@ -227,9 +217,8 @@ export function CharacterTrackerCard({
   const updateCustomField = (oldName: string, nextName: string, nextValue: string) => {
     if (!onUpdate) return;
     const nextFields = { ...(character.customFields ?? {}) };
-    const trimmedName = nextName.trim();
+    const trimmedName = resolveCharacterCustomFieldName(nextName, oldName);
     if (
-      trimmedName &&
       trimmedName !== oldName &&
       Object.keys(nextFields).some(
         (name) =>
@@ -239,7 +228,7 @@ export function CharacterTrackerCard({
     ) {
       return;
     }
-    if (trimmedName && trimmedName !== oldName) {
+    if (trimmedName !== oldName) {
       onUpdateFieldLocks?.((locks) =>
         renameTrackerFieldLockPrefix(
           locks,
@@ -249,7 +238,7 @@ export function CharacterTrackerCard({
       );
     }
     delete nextFields[oldName];
-    if (trimmedName) nextFields[trimmedName] = nextValue;
+    nextFields[trimmedName] = nextValue;
     onUpdate({ ...character, customFields: nextFields });
   };
   const addCharacterStat = () => {

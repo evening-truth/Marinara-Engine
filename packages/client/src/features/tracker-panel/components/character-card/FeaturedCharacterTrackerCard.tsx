@@ -16,6 +16,11 @@ import type {
 } from "../../../../stores/ui.store";
 import { cn } from "../../../../lib/utils";
 import {
+  makeUniqueCharacterCustomFieldName,
+  normalizeCharacterCustomFieldName,
+  resolveCharacterCustomFieldName,
+} from "../../lib/character-custom-field-names";
+import {
   FEATURED_CHARACTER_PORTRAIT_ROOMY_STAGE_REM,
   FEATURED_CHARACTER_PORTRAIT_STAGE_REM,
   TRACKER_PROFILE_PORTRAIT_FRAME_STAGE_MAX_CLASS,
@@ -70,21 +75,6 @@ const FEATURED_CUSTOM_FIELD_LIST_CLASS =
   "relative z-[1] mx-1 mb-1 mt-1 grid gap-px border-t border-[var(--tracker-profile-rule)] pt-0.5 text-[0.625rem]";
 const FEATURED_CUSTOM_FIELD_ROW_CLASS =
   "grid min-w-0 grid-cols-[minmax(3rem,0.42fr)_minmax(0,1fr)] items-center gap-1 border-b border-[var(--tracker-profile-rule)] px-0.5 py-px last:border-b-0";
-
-function makeUniqueCharacterCustomFieldName(customFields: Record<string, string> | null | undefined) {
-  const existing = new Set(Object.keys(customFields ?? {}).map(normalizeCharacterCustomFieldName));
-  let index = 1;
-  let name = "New Field";
-  while (existing.has(normalizeCharacterCustomFieldName(name))) {
-    index += 1;
-    name = `New Field ${index}`;
-  }
-  return name;
-}
-
-function normalizeCharacterCustomFieldName(value: string) {
-  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
-}
 
 export function FeaturedCharacterTrackerCard({
   character,
@@ -230,9 +220,8 @@ export function FeaturedCharacterTrackerCard({
   const updateCustomField = (oldName: string, nextName: string, nextValue: string) => {
     if (!onUpdate) return;
     const nextFields = { ...(character.customFields ?? {}) };
-    const trimmedName = nextName.trim();
+    const trimmedName = resolveCharacterCustomFieldName(nextName, oldName);
     if (
-      trimmedName &&
       trimmedName !== oldName &&
       Object.keys(nextFields).some(
         (name) =>
@@ -242,7 +231,7 @@ export function FeaturedCharacterTrackerCard({
     ) {
       return;
     }
-    if (trimmedName && trimmedName !== oldName) {
+    if (trimmedName !== oldName) {
       onUpdateFieldLocks?.((locks) =>
         renameTrackerFieldLockPrefix(
           locks,
@@ -252,7 +241,7 @@ export function FeaturedCharacterTrackerCard({
       );
     }
     delete nextFields[oldName];
-    if (trimmedName) nextFields[trimmedName] = nextValue;
+    nextFields[trimmedName] = nextValue;
     onUpdate({ ...character, customFields: nextFields });
   };
 

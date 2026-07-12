@@ -105,7 +105,14 @@ import {
   listPromptOverrideKeys,
 } from "../../packages/server/src/services/prompt-overrides/index.js";
 import { buildElevenLabsTextInput } from "../../packages/server/src/routes/tts.routes.js";
-import { buildCommittedTrackerContextBlock } from "../../packages/server/src/services/generation/committed-tracker-context.js";
+import {
+  buildCommittedTrackerContextBlock,
+  MAX_WORLD_CUSTOM_FIELDS_IN_COMMITTED_CONTEXT,
+} from "../../packages/server/src/services/generation/committed-tracker-context.js";
+import {
+  makeUniqueCharacterCustomFieldName,
+  resolveCharacterCustomFieldName,
+} from "../../packages/client/src/features/tracker-panel/lib/character-custom-field-names.js";
 import type { LLMToolCall } from "../../packages/server/src/services/llm/base-provider.js";
 import {
   cleanTTSInputText,
@@ -2306,15 +2313,28 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
         Goal: "Find the atlas",
       });
 
+      assert.equal(resolveCharacterCustomFieldName("  ", "Goal"), "Goal");
+      assert.equal(makeUniqueCharacterCustomFieldName({ "New Field": "", "new   field 2": "" }), "New Field 3");
+
       const promptBlock = buildCommittedTrackerContextBlock({
         chatEnableAgents: true,
         activeAgentIds: ["world-state", "character-tracker"],
         latestGameState: {
-          worldCustomFields: currentState.worldCustomFields,
+          date: "12 July",
+          location: "The lab",
+          worldCustomFields: [
+            ...currentState.worldCustomFields,
+            { name: "location", value: "Duplicate lab" },
+            ...Array.from({ length: MAX_WORLD_CUSTOM_FIELDS_IN_COMMITTED_CONTEXT }, (_, index) => ({
+              name: `Field ${index + 1}`,
+              value: `${index + 1}`,
+            })),
+          ],
           presentCharacters: [
             {
               name: "Mira",
-              customFields: { Goal: "Find the atlas" },
+              mood: "Calm",
+              customFields: { Goal: "Find the atlas", mood: "Duplicate mood" },
             },
           ],
         },
@@ -2323,6 +2343,10 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       });
       assert.match(promptBlock ?? "", /Moon Phase: Waxing/);
       assert.match(promptBlock ?? "", /Goal: Find the atlas/);
+      assert.doesNotMatch(promptBlock ?? "", /Duplicate lab/);
+      assert.doesNotMatch(promptBlock ?? "", /Duplicate mood/);
+      assert.match(promptBlock ?? "", /Field 62: 62/);
+      assert.doesNotMatch(promptBlock ?? "", /Field 63: 63/);
     },
   },
   {

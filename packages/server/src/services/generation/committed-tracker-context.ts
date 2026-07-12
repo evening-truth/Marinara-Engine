@@ -21,6 +21,19 @@ type GameStateSnapshotLike = {
   playerStats?: unknown;
 };
 
+export const MAX_WORLD_CUSTOM_FIELDS_IN_COMMITTED_CONTEXT = 64;
+
+const WORLD_RESERVED_CUSTOM_FIELD_NAMES = new Set(["date", "time", "location", "weather", "temperature"]);
+const CHARACTER_RESERVED_CUSTOM_FIELD_NAMES = new Set([
+  "emoji",
+  "name",
+  "mood",
+  "appearance",
+  "outfit",
+  "thoughts",
+  "stats",
+]);
+
 function parseMaybeJson(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
@@ -63,11 +76,15 @@ function formatStatSummary(stat: any): string | null {
   return `${name}: ${formatStatValue(stat?.value, stat?.max)}`;
 }
 
-function formatNamedValueLine(field: unknown): string | null {
+function normalizeTrackerFieldName(value: string) {
+  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US").replace(/\s+/gu, " ");
+}
+
+function formatNamedValueLine(field: unknown, reservedNames?: ReadonlySet<string>): string | null {
   if (!field || typeof field !== "object" || Array.isArray(field)) return null;
   const record = field as Record<string, unknown>;
   const name = asText(record.name);
-  if (!name) return null;
+  if (!name || reservedNames?.has(normalizeTrackerFieldName(name))) return null;
   const value = asText(record.value);
   return value ? `${name}: ${value}` : null;
 }
@@ -87,9 +104,11 @@ function formatCharacterLine(character: any): string | null {
   if (character.thoughts) details.push(`thoughts: ${character.thoughts}`);
   if (character.customFields && typeof character.customFields === "object" && !Array.isArray(character.customFields)) {
     for (const [fieldName, fieldValue] of Object.entries(character.customFields)) {
-      const name = asText(fieldName);
-      const value = asText(fieldValue);
-      if (name && value) details.push(`${name}: ${value}`);
+      const line = formatNamedValueLine(
+        { name: fieldName, value: fieldValue },
+        CHARACTER_RESERVED_CUSTOM_FIELD_NAMES,
+      );
+      if (line) details.push(line);
     }
   }
   if (Array.isArray(character.stats) && character.stats.length > 0) {
@@ -156,7 +175,14 @@ export function buildCommittedTrackerContextBlock(args: {
     if (snap.temperature) wsParts.push(`Temperature: ${snap.temperature}`);
     const worldCustomFields = parseMaybeJson(snap.worldCustomFields);
     if (Array.isArray(worldCustomFields)) {
-      wsParts.push(...worldCustomFields.map(formatNamedValueLine).filter(isNonEmptyLine));
+      const customLines: string[] = [];
+      for (const field of worldCustomFields) {
+        const line = formatNamedValueLine(field, WORLD_RESERVED_CUSTOM_FIELD_NAMES);
+        if (!line) continue;
+        customLines.push(line);
+        if (customLines.length >= MAX_WORLD_CUSTOM_FIELDS_IN_COMMITTED_CONTEXT) break;
+      }
+      wsParts.push(...customLines);
     }
     if (wsParts.length > 0) trackerParts.push(wrapContent(wsParts.join("\n"), "World", args.wrapFormat));
   }
