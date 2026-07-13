@@ -185,15 +185,15 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
           aria-live="polite"
         >
           {castClash.phase === "reveal" && <div className="game-combat-impact-flash pointer-events-none absolute inset-0" />}
-          <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
             <div className={`min-w-0 text-left transition-all duration-300 ease-out ${castSideClass("you")}`}>
               <div className="truncate text-[0.65rem] font-semibold text-[var(--muted-foreground)]">You</div>
-              <div className="mt-1 flex min-h-14 items-center gap-2 px-1 py-2">
-                <span className="text-3xl leading-none">
-                  {castClash.phase === "reveal" ? CHOICE_EMOJI[castClash.yourChoice] : "?"}
-                </span>
+              <div className="mt-1 flex min-h-14 items-center justify-end gap-2 px-1 py-2 text-right">
                 <span className="truncate text-xs font-semibold text-[var(--foreground)]">
                   {castClash.phase === "reveal" ? CHOICE_LABEL[castClash.yourChoice] : "Casting"}
+                </span>
+                <span className="text-3xl leading-none">
+                  {castClash.phase === "reveal" ? CHOICE_EMOJI[castClash.yourChoice] : "?"}
                 </span>
               </div>
             </div>
@@ -204,12 +204,12 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
               <div className="truncate text-[0.65rem] font-semibold text-[var(--muted-foreground)]">
                 {opponent?.displayName ?? "Opponent"}
               </div>
-              <div className="mt-1 ml-auto flex min-h-14 w-fit max-w-full items-center gap-2 px-1 py-2">
-                <span className="truncate text-xs font-semibold text-[var(--foreground)]">
-                  {castClash.phase === "reveal" && castClash.opponentChoice ? CHOICE_LABEL[castClash.opponentChoice] : "Casting"}
-                </span>
+              <div className="mt-1 flex min-h-14 items-center justify-start gap-2 px-1 py-2 text-left">
                 <span className="text-3xl leading-none">
                   {castClash.phase === "reveal" && castClash.opponentChoice ? CHOICE_EMOJI[castClash.opponentChoice] : "?"}
+                </span>
+                <span className="truncate text-xs font-semibold text-[var(--foreground)]">
+                  {castClash.phase === "reveal" && castClash.opponentChoice ? CHOICE_LABEL[castClash.opponentChoice] : "Casting"}
                 </span>
               </div>
             </div>
