@@ -583,12 +583,19 @@ function compileGameImagePrompt(
   negativePrompt?: string | null,
 ) {
   const canonicalAppearance = kind === "portrait" && typeof req.appearance === "string" ? req.appearance.trim() : "";
-  const canonicalPrefix = canonicalAppearance
-    ? `Required canonical NPC visual profile: ${canonicalAppearance.slice(0, 700)}`
+  const protectedCanonicalAppearance = canonicalAppearance.slice(0, 700);
+  const canonicalPrefix = protectedCanonicalAppearance
+    ? `Required canonical NPC visual profile: ${protectedCanonicalAppearance}`
     : "";
   if (!req.styleProfiles) {
     return {
-      prompt: [canonicalPrefix, prompt].filter(Boolean).join(". ").slice(0, maxLength),
+      prompt: prependCanonicalAppearanceIfMissing(
+        prompt,
+        protectedCanonicalAppearance,
+        canonicalPrefix,
+        maxLength,
+        ". ",
+      ),
       negativePrompt: [negativePrompt, hardNegative].filter(Boolean).join(", "),
     };
   }
@@ -621,11 +628,44 @@ function compileGameImagePrompt(
     generatedStyle: req.artStyle,
     applyPromptModeToSourcePrompt: kind === "background" || (kind === "illustration" && !req.preserveFullScenePrompt),
   });
-  const protectedPrompt = [canonicalPrefix, compiled.prompt].filter(Boolean).join(", ");
   return {
-    prompt: protectedPrompt.slice(0, maxLength),
+    prompt: prependCanonicalAppearanceIfMissing(
+      compiled.prompt,
+      protectedCanonicalAppearance,
+      canonicalPrefix,
+      maxLength,
+      ", ",
+    ),
     negativePrompt: compiled.negativePrompt,
   };
+}
+
+function prependCanonicalAppearanceIfMissing(
+  prompt: string,
+  canonicalAppearance: string,
+  canonicalPrefix: string,
+  maxLength: number,
+  separator: string,
+): string {
+  // Inspect the provider-visible slice. If identity is missing, rebuild from the original
+  // prompt so prefixing still happens before the single final maxLength truncation.
+  const truncatedPrompt = prompt.slice(0, maxLength);
+  if (!canonicalPrefix || promptContainsCanonicalAppearance(truncatedPrompt, canonicalAppearance)) {
+    return truncatedPrompt;
+  }
+  return [canonicalPrefix, prompt].filter(Boolean).join(separator).slice(0, maxLength);
+}
+
+function promptContainsCanonicalAppearance(prompt: string, canonicalAppearance: string): boolean {
+  // Whole-word matching can still treat short or generic appearances as incidental matches;
+  // changing this behavior trades duplicate suppression against identity preservation.
+  const normalizedAppearance = normalizedPromptText(canonicalAppearance);
+  if (!normalizedAppearance) return false;
+  return ` ${normalizedPromptText(prompt)} `.includes(` ${normalizedAppearance} `);
+}
+
+function normalizedPromptText(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 async function maybeGenerateDynamicGameImagePrompt(

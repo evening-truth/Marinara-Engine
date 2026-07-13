@@ -4053,35 +4053,38 @@ function normalizePortraitAppearancePart(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function addPortraitAppearancePart(parts: string[], value: unknown, label?: string): void {
+function addPortraitAppearancePart(parts: string[], seenValues: Set<string>, value: unknown, label?: string): void {
   const trimmed = optionalTrimmedString(value);
   if (!trimmed) return;
 
+  const normalizedValue = normalizePortraitAppearancePart(trimmed);
+  if (!normalizedValue || seenValues.has(normalizedValue)) return;
+  seenValues.add(normalizedValue);
+
   const part = label ? `${label}: ${trimmed}` : trimmed;
-  const normalized = normalizePortraitAppearancePart(part);
-  if (!normalized || parts.some((existing) => normalizePortraitAppearancePart(existing) === normalized)) return;
   parts.push(part);
 }
 
-function addPortraitAppearanceNotes(parts: string[], notes: unknown): void {
+function addPortraitAppearanceNotes(parts: string[], seenValues: Set<string>, notes: unknown): void {
   if (!Array.isArray(notes)) return;
 
   const noteText = notes
     .map((note) => optionalTrimmedString(note))
     .filter((note): note is string => Boolean(note))
     .join("; ");
-  addPortraitAppearancePart(parts, noteText, "Notable details");
+  addPortraitAppearancePart(parts, seenValues, noteText, "Notable details");
 }
 
 function addPresentCharacterPortraitAppearance(
   parts: string[],
+  seenValues: Set<string>,
   presentCharacter: Record<string, unknown> | null,
 ): void {
   if (!presentCharacter) return;
 
-  addPortraitAppearancePart(parts, presentCharacter.appearance);
-  addPortraitAppearancePart(parts, presentCharacter.outfit, "Current outfit");
-  addPortraitAppearancePart(parts, presentCharacter.mood, "Current expression or mood");
+  addPortraitAppearancePart(parts, seenValues, presentCharacter.appearance);
+  addPortraitAppearancePart(parts, seenValues, presentCharacter.outfit, "Current outfit");
+  addPortraitAppearancePart(parts, seenValues, presentCharacter.mood, "Current expression or mood");
 }
 
 function findNpcRecordByName(npcs: GameNpc[], name: string): GameNpc | null {
@@ -4100,29 +4103,30 @@ function findRecordByName(records: Array<Record<string, unknown>>, name: string)
   );
 }
 
-function resolveNpcPortraitAppearance(
+export function resolveNpcPortraitAppearance(
   npc: { description?: string | null },
   metadataNpc: GameNpc | null,
   presentCharacter: Record<string, unknown> | null,
 ): string {
   const parts: string[] = [];
+  const seenValues = new Set<string>();
   const metadataDescriptionIsCanonical =
     metadataNpc?.descriptionSource === "model" ||
     metadataNpc?.descriptionSource === "library" ||
     metadataNpc?.descriptionSource === "user";
 
   if (metadataDescriptionIsCanonical) {
-    addPortraitAppearancePart(parts, metadataNpc?.description, "Canonical NPC profile");
+    addPortraitAppearancePart(parts, seenValues, metadataNpc?.description, "Canonical NPC profile");
   }
 
-  addPortraitAppearancePart(parts, npc.description);
+  addPortraitAppearancePart(parts, seenValues, npc.description);
 
   if (!metadataDescriptionIsCanonical) {
-    addPortraitAppearancePart(parts, metadataNpc?.description);
+    addPortraitAppearancePart(parts, seenValues, metadataNpc?.description);
   }
 
-  addPresentCharacterPortraitAppearance(parts, presentCharacter);
-  addPortraitAppearanceNotes(parts, metadataNpc?.notes);
+  addPresentCharacterPortraitAppearance(parts, seenValues, presentCharacter);
+  addPortraitAppearanceNotes(parts, seenValues, metadataNpc?.notes);
 
   return parts.join(" ");
 }
