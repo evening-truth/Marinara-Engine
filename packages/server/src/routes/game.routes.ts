@@ -2,7 +2,7 @@
 // Routes: Game Mode
 // ──────────────────────────────────────────────
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { createHash, randomUUID } from "crypto";
+import { createHash, randomInt, randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { basename, extname, join } from "path";
 import { z } from "zod";
@@ -127,6 +127,10 @@ import {
   parseTrackerHiddenFields,
   normalizeRpgStatPools,
   resolveGameSetupArtStylePrompt,
+  createTacticalCombat,
+  applyAction as applyTacticalAction,
+  runEnemyPhase as runTacticalEnemyPhase,
+  isTerminal as isTacticalTerminal,
   type RPGStatsConfig,
 } from "@marinara-engine/shared";
 import { mergeCustomParameters, parseGameStateRow, resolveBaseUrl } from "./generate/generate-route-utils.js";
@@ -161,6 +165,9 @@ import type {
   PartyArc,
   HudWidget,
   AgentPromptTemplateOption,
+  Combatant,
+  TacticalCombatState,
+  TacticalAction,
 } from "@marinara-engine/shared";
 import { getAssetManifest, GAME_ASSETS_DIR } from "../services/game/asset-manifest.service.js";
 import {
@@ -1517,6 +1524,7 @@ const gameSetupConfigSchema = z.object({
   setting: z.string().min(1),
   tone: z.string().min(1).max(200),
   difficulty: z.string().min(1).max(100),
+  combatStyle: z.enum(["classic", "tactical"]).optional(),
   playerGoals: z.string().max(2000).default(""),
   gmMode: z.enum(["standalone", "character"]),
   rating: z.enum(["sfw", "nsfw"]).default("sfw"),
@@ -8699,6 +8707,133 @@ export async function gameRoutes(app: FastifyInstance) {
     );
 
     return { result, combatants };
+  });
+
+  // ── Tactical (grid) combat ──
+  // Alternative to classic menu combat. The battle engine lives in the shared
+  // package (pure, deterministic, seeded); these endpoints are thin adapters.
+  // State round-trips through the client exactly like classic combat — no DB
+  // table; the client persists the snapshot to chat metadata.
+
+  // A combatant blob from the client. The engine reads a fixed set of numeric
+  // fields; everything else (mp/skills/statusEffects/element/sprite/side) passes
+  // through untouched so hydration stays lossless.
+  const tacticalCombatantSchema = z
+    .object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      hp: z.number(),
+      maxHp: z.number(),
+      attack: z.number(),
+      defense: z.number(),
+      speed: z.number(),
+      level: z.number(),
+    })
+    .passthrough();
+
+  // The persisted TacticalCombatState blob. Validated defensively at the
+  // envelope level only — the shared engine owns the full invariants and never
+  // throws on unexpected shapes.
+  const tacticalStateSchema = z
+    .object({
+      schemaVersion: z.literal(1),
+      grid: z
+        .object({
+          width: z.number().int().positive(),
+          height: z.number().int().positive(),
+          tiles: z.array(z.array(z.string())),
+        })
+        .passthrough(),
+      units: z.array(z.record(z.unknown())),
+      phase: z.enum(["player", "enemy"]),
+      round: z.number().int().min(1),
+      seed: z.number().int(),
+      actionCounter: z.number().int().min(0),
+      log: z.array(z.record(z.unknown())),
+      difficulty: z.string(),
+      outcome: z.enum(["victory", "defeat", "fled"]).optional(),
+    })
+    .passthrough();
+
+  // A player action. The `type` gate is enforced here; legality (unit exists,
+  // in range, tile reachable, MP/cooldown) is validated by the engine, which
+  // returns `{ ok: false, error }` for illegal input.
+  const tacticalActionSchema = z
+    .object({
+      type: z.enum(["move", "attack", "skill", "item", "defend", "wait", "endTurn", "flee"]),
+    })
+    .passthrough();
+
+  // ── POST /game/combat/tactical/start ──
+  app.post("/combat/tactical/start", async (req, reply) => {
+    const schema = z.object({
+      chatId: z.string().min(1),
+      party: z.array(tacticalCombatantSchema).min(1),
+      enemies: z.array(tacticalCombatantSchema).min(1),
+      seed: z.number().int().optional(),
+    });
+    const { chatId, party, enemies, seed } = schema.parse(req.body);
+
+    const chats = createChatsStorage(app.db);
+    const chat = await chats.getById(chatId);
+    if (!chat) return reply.status(404).send({ error: "Chat not found" });
+
+    const meta = parseMeta(chat.metadata);
+    const difficulty = ((meta.gameSetupConfig as Record<string, unknown>)?.difficulty as string) ?? "normal";
+    // Determinism only matters once the seed exists, so any source is fine here.
+    const resolvedSeed = seed ?? randomInt(0, 0x1_0000_0000);
+
+    const state = createTacticalCombat(party as unknown as Combatant[], enemies as unknown as Combatant[], {
+      seed: resolvedSeed,
+      difficulty,
+    });
+
+    logger.info(
+      "Tactical combat started for chat %s (%d party, %d enemies, difficulty=%s, seed=%d)",
+      chatId,
+      party.length,
+      enemies.length,
+      difficulty,
+      resolvedSeed,
+    );
+
+    return { state };
+  });
+
+  // ── POST /game/combat/tactical/action ──
+  app.post("/combat/tactical/action", async (req, reply) => {
+    const schema = z.object({
+      chatId: z.string().min(1),
+      state: tacticalStateSchema,
+      action: tacticalActionSchema,
+    });
+    const { chatId, state, action } = schema.parse(req.body);
+
+    const chats = createChatsStorage(app.db);
+    const chat = await chats.getById(chatId);
+    if (!chat) return reply.status(404).send({ error: "Chat not found" });
+
+    const applied = applyTacticalAction(
+      state as unknown as TacticalCombatState,
+      action as unknown as TacticalAction,
+    );
+    if (!applied.ok) {
+      return reply.status(400).send({ error: applied.error });
+    }
+
+    let nextState = applied.state;
+    const events = [...applied.events];
+
+    // The player action auto-advances the phase once every party unit has acted.
+    // Resolve the enemy phase in the same round-trip and append its events after
+    // the player's, so the client animates one continuous sequence.
+    if (nextState.phase === "enemy" && !isTacticalTerminal(nextState)) {
+      const enemyResult = runTacticalEnemyPhase(nextState);
+      nextState = enemyResult.state;
+      events.push(...enemyResult.events);
+    }
+
+    return { state: nextState, events };
   });
 
   // ── POST /game/combat/loot ──

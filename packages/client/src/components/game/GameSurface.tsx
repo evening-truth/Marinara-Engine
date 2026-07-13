@@ -1396,13 +1396,26 @@ const GameCombatUI = lazy(async () => {
   return { default: module.GameCombatUI };
 });
 
+const TacticalCombatUI = lazy(async () => {
+  const module = await import("./TacticalCombatUI");
+  return { default: module.TacticalCombatUI };
+});
+
 const StoryboardBackgroundControls = lazy(async () => {
   const module = await import("./StoryboardBackgroundControls");
   return { default: module.StoryboardBackgroundControls };
 });
 
 import { Modal } from "../ui/Modal";
-import type { Chat, SessionSummary, Combatant, Message, GameCombatStateSnapshot } from "@marinara-engine/shared";
+import type {
+  Chat,
+  SessionSummary,
+  Combatant,
+  Message,
+  GameCombatStateSnapshot,
+  GameCombatStyle,
+  TacticalCombatState,
+} from "@marinara-engine/shared";
 import type { CharacterMap, PersonaInfo } from "../chat/chat-area.types";
 
 /** Typewriter component for the intro screen — reveals text character-by-character. */
@@ -11127,6 +11140,14 @@ function GameSurfaceComponent({
                       </>
                     );
 
+                    // Effective combat style: runtime metadata override (settings drawer) ??
+                    // wizard setup choice ?? legacy default "classic".
+                    const combatSetupConfig = chatMeta.gameSetupConfig as Record<string, unknown> | undefined;
+                    const effectiveCombatStyle: GameCombatStyle =
+                      (chatMeta.gameCombatStyle as GameCombatStyle | undefined) ??
+                      (combatSetupConfig?.combatStyle as GameCombatStyle | undefined) ??
+                      "classic";
+
                     return (
                       <div className="relative h-full min-h-0">
                         <Suspense
@@ -11136,27 +11157,42 @@ function GameSurfaceComponent({
                             </div>
                           }
                         >
-                          <GameCombatUI
-                            chatId={activeChatId}
-                            party={combatParty}
-                            enemies={combatEnemies}
-                            inventoryItems={inventoryItems}
-                            onCombatEnd={handleCombatEnd}
-                            onInventoryItemUsed={handleUseCombatInventoryItem}
-                            onCombatantsChange={handleCombatantsChange}
-                            onOpenInventory={() => setInventoryOpen(true)}
-                            onCustomInstruction={handleCombatCustomInstruction}
-                            onSpriteSuggestionChange={setCombatSpriteSuggestion}
-                            isStreaming={isStreaming}
-                            narration="Battle starts."
-                            combatDialogue={combatDialogueLines}
-                            combatDialogueCues={combatDialogueCues}
-                            combatItemEffects={combatItemEffects}
-                            combatMechanics={combatMechanics}
-                            voicedCombatSpeakerNames={voicedCombatSpeakerNames}
-                            gameVoiceVolume={effectiveGameVoiceVolume}
-                            combatControlsSlot={combatControlsSlot}
-                          />
+                          {effectiveCombatStyle === "tactical" ? (
+                            <TacticalCombatUI
+                              chatId={activeChatId}
+                              party={combatParty}
+                              enemies={combatEnemies}
+                              difficulty={(combatSetupConfig?.difficulty as string | undefined) ?? "normal"}
+                              initialState={
+                                (chatMeta.gameTacticalCombatSnapshot as TacticalCombatState | null | undefined) ?? null
+                              }
+                              playerCombatantId={combatParty[0]?.id ?? null}
+                              onCombatEnd={handleCombatEnd}
+                              onCustomInstruction={handleCombatCustomInstruction}
+                            />
+                          ) : (
+                            <GameCombatUI
+                              chatId={activeChatId}
+                              party={combatParty}
+                              enemies={combatEnemies}
+                              inventoryItems={inventoryItems}
+                              onCombatEnd={handleCombatEnd}
+                              onInventoryItemUsed={handleUseCombatInventoryItem}
+                              onCombatantsChange={handleCombatantsChange}
+                              onOpenInventory={() => setInventoryOpen(true)}
+                              onCustomInstruction={handleCombatCustomInstruction}
+                              onSpriteSuggestionChange={setCombatSpriteSuggestion}
+                              isStreaming={isStreaming}
+                              narration="Battle starts."
+                              combatDialogue={combatDialogueLines}
+                              combatDialogueCues={combatDialogueCues}
+                              combatItemEffects={combatItemEffects}
+                              combatMechanics={combatMechanics}
+                              voicedCombatSpeakerNames={voicedCombatSpeakerNames}
+                              gameVoiceVolume={effectiveGameVoiceVolume}
+                              combatControlsSlot={combatControlsSlot}
+                            />
+                          )}
                         </Suspense>
                       </div>
                     );
