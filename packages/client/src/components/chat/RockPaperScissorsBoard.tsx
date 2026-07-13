@@ -41,7 +41,6 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
   const rpsThrow = useRockPaperScissorsThrow(chatId);
   const resign = useResignRockPaperScissors(chatId);
   const [castClash, setCastClash] = useState<CastClash | null>(null);
-  const castClearTimer = useRef<number | null>(null);
   const castRevealTimer = useRef<number | null>(null);
   const lastAnimatedRound = useRef<number | null>(null);
 
@@ -57,7 +56,6 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
 
   useEffect(() => {
     return () => {
-      if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
       if (castRevealTimer.current != null) window.clearTimeout(castRevealTimer.current);
     };
   }, []);
@@ -77,8 +75,6 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
     };
     if (castRevealTimer.current != null) window.clearTimeout(castRevealTimer.current);
     castRevealTimer.current = window.setTimeout(() => setCastClash(nextClash), 650);
-    if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
-    castClearTimer.current = window.setTimeout(() => setCastClash(null), 2400);
   }, [castClash?.yourChoice, latestRound, opponent, view]);
 
   if (!view) return null;
@@ -89,7 +85,6 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
   const onThrow = (choice: RpsChoice) => {
     if (!isMyTurn || disabled) return;
     if (castRevealTimer.current != null) window.clearTimeout(castRevealTimer.current);
-    if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
     setCastClash({ yourChoice: choice, opponentChoice: null, outcome: null, phase: "casting" });
     rpsThrow.mutate({ move: { type: "throw", choice } });
   };
@@ -115,6 +110,18 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
         <span className="text-[0.65rem] font-semibold text-[var(--muted-foreground)]">{seat.score}</span>
       </div>
     );
+
+  const castSideClass = (side: "you" | "opponent") => {
+    if (!castClash) return "";
+    if (castClash.phase === "casting") {
+      return side === "you"
+        ? "animate-[rps-clank-left_650ms_cubic-bezier(0.22,1,0.36,1)_both]"
+        : "animate-[rps-clank-right_650ms_cubic-bezier(0.22,1,0.36,1)_both]";
+    }
+    if (castClash.outcome === "tie") return "translate-y-0 opacity-100";
+    const won = side === "you" ? castClash.outcome === "win" : castClash.outcome === "loss";
+    return won ? "-translate-y-1 opacity-100" : "translate-y-4 opacity-60 grayscale";
+  };
 
   return (
     <div className="mx-2 mb-1 rounded-xl border border-[var(--border)] bg-[var(--card)] p-2 shadow-sm">
@@ -174,15 +181,15 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
 
       {castClash && view.status !== "finished" && (
         <div
-          className="relative mb-2 overflow-hidden rounded-lg bg-[var(--muted)]/30 px-3 py-2 ring-1 ring-[var(--primary)]/25 animate-[scale-in_160ms_ease-out]"
+          className="relative mb-2 overflow-hidden rounded-lg bg-[var(--muted)]/30 px-3 py-3 ring-1 ring-[var(--primary)]/25 animate-[scale-in_160ms_ease-out]"
           aria-live="polite"
         >
           {castClash.phase === "reveal" && <div className="game-combat-impact-flash pointer-events-none absolute inset-0" />}
-          <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-            <div className="min-w-0 animate-[slide-in-left_220ms_cubic-bezier(0.22,1,0.36,1)] text-left">
+          <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+            <div className={`min-w-0 text-left transition-all duration-300 ease-out ${castSideClass("you")}`}>
               <div className="truncate text-[0.65rem] font-semibold text-[var(--muted-foreground)]">You</div>
-              <div className="mt-0.5 flex items-center gap-1.5 rounded-lg bg-[var(--background)]/80 px-2 py-1 ring-1 ring-[var(--border)]">
-                <span className="text-2xl leading-none">
+              <div className="mt-1 flex min-h-14 items-center gap-2 rounded-lg bg-[var(--background)]/85 px-3 py-2 ring-1 ring-[var(--border)]">
+                <span className="text-3xl leading-none">
                   {castClash.phase === "reveal" ? CHOICE_EMOJI[castClash.yourChoice] : "?"}
                 </span>
                 <span className="truncate text-xs font-semibold text-[var(--foreground)]">
@@ -190,18 +197,18 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
                 </span>
               </div>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--primary)] text-[0.65rem] font-black text-[var(--primary-foreground)] shadow-[0_0_18px_color-mix(in_oklch,var(--primary)_35%,transparent)] animate-[combat-shake_220ms_ease-out]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--primary)] text-[0.65rem] font-black text-[var(--primary-foreground)] shadow-[0_0_18px_color-mix(in_oklch,var(--primary)_35%,transparent)] animate-[rps-vs-pulse_650ms_cubic-bezier(0.22,1,0.36,1)_both]">
               VS
             </div>
-            <div className="min-w-0 animate-[slide-in-right_220ms_cubic-bezier(0.22,1,0.36,1)] text-right">
+            <div className={`min-w-0 text-right transition-all duration-300 ease-out ${castSideClass("opponent")}`}>
               <div className="truncate text-[0.65rem] font-semibold text-[var(--muted-foreground)]">
                 {opponent?.displayName ?? "Opponent"}
               </div>
-              <div className="mt-0.5 ml-auto flex w-fit max-w-full items-center gap-1.5 rounded-lg bg-[var(--background)]/80 px-2 py-1 ring-1 ring-[var(--border)]">
+              <div className="mt-1 ml-auto flex min-h-14 w-fit max-w-full items-center gap-2 rounded-lg bg-[var(--background)]/85 px-3 py-2 ring-1 ring-[var(--border)]">
                 <span className="truncate text-xs font-semibold text-[var(--foreground)]">
                   {castClash.phase === "reveal" && castClash.opponentChoice ? CHOICE_LABEL[castClash.opponentChoice] : "Casting"}
                 </span>
-                <span className="text-2xl leading-none">
+                <span className="text-3xl leading-none">
                   {castClash.phase === "reveal" && castClash.opponentChoice ? CHOICE_EMOJI[castClash.opponentChoice] : "?"}
                 </span>
               </div>
