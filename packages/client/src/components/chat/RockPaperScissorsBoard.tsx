@@ -7,6 +7,7 @@
 // when it's your turn, a "waiting" state once you've thrown, and a strip of
 // resolved rounds. Your own pending throw is safe to show (only the
 // opponent's is ever hidden — see the engine's hidden-information contract).
+import { useEffect, useRef, useState } from "react";
 import { MessageCircle, RotateCcw, X } from "lucide-react";
 import type { RpsChoice } from "@marinara-engine/shared";
 import { useChatStore } from "../../stores/chat.store";
@@ -24,6 +25,12 @@ interface Props {
 const CHOICE_EMOJI: Record<RpsChoice, string> = { rock: "🪨", paper: "📄", scissors: "✂️" };
 const CHOICE_LABEL: Record<RpsChoice, string> = { rock: "Rock", paper: "Paper", scissors: "Scissors" };
 
+type CastClash = {
+  yourChoice: RpsChoice;
+  opponentChoice: RpsChoice | null;
+  outcome: "win" | "loss" | "tie" | null;
+};
+
 export function RockPaperScissorsBoard({ chatId }: Props) {
   const current = useRockPaperScissorsGameStore((s) => s.current);
   const openSetup = useRockPaperScissorsGameStore((s) => s.openSetup);
@@ -32,23 +39,50 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
   const isStreaming = streaming && streamingChatId === chatId;
   const rpsThrow = useRockPaperScissorsThrow(chatId);
   const resign = useResignRockPaperScissors(chatId);
+  const [castClash, setCastClash] = useState<CastClash | null>(null);
+  const castClearTimer = useRef<number | null>(null);
+  const lastAnimatedRound = useRef<number | null>(null);
 
   // Hydrate the match on mount / chat switch (no-op if no active game).
   const active = !!current && current.chatId === chatId;
   useRockPaperScissorsState(active ? null : chatId);
 
   const view = active ? current : null;
+  const latestRound = view?.rounds[view.rounds.length - 1] ?? null;
+  const you = view?.seats.find((s) => s.seatId === view.yourSeatId) ?? null;
+  const opponent = view?.seats.find((s) => s.seatId !== view.yourSeatId) ?? null;
+  const winner = view?.winnerSeatId ? view.seats.find((s) => s.seatId === view.winnerSeatId) : null;
+
+  useEffect(() => {
+    return () => {
+      if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!view || !castClash?.yourChoice || !latestRound || latestRound.round === lastAnimatedRound.current) return;
+    const yourThrow = view.yourSeatId ? latestRound.throws[view.yourSeatId] : null;
+    const opponentThrow = opponent ? latestRound.throws[opponent.seatId] : null;
+    if (!yourThrow || !opponentThrow) return;
+
+    lastAnimatedRound.current = latestRound.round;
+    setCastClash({
+      yourChoice: yourThrow,
+      opponentChoice: opponentThrow,
+      outcome: !latestRound.winnerSeatId ? "tie" : latestRound.winnerSeatId === view.yourSeatId ? "win" : "loss",
+    });
+    if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
+    castClearTimer.current = window.setTimeout(() => setCastClash(null), 1100);
+  }, [castClash?.yourChoice, latestRound, opponent, view]);
+
   if (!view) return null;
 
   const disabled = isStreaming || rpsThrow.isPending || resign.isPending;
   const isMyTurn = view.status !== "finished" && view.currentSeatId === view.yourSeatId;
 
-  const you = view.seats.find((s) => s.seatId === view.yourSeatId) ?? null;
-  const opponent = view.seats.find((s) => s.seatId !== view.yourSeatId) ?? null;
-  const winner = view.winnerSeatId ? view.seats.find((s) => s.seatId === view.winnerSeatId) : null;
-
   const onThrow = (choice: RpsChoice) => {
     if (!isMyTurn || disabled) return;
+    setCastClash({ yourChoice: choice, opponentChoice: null, outcome: null });
     rpsThrow.mutate({ move: { type: "throw", choice } });
   };
 
@@ -126,6 +160,51 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
               <MessageCircle className="h-3.5 w-3.5" />
               Continue chat
             </button>
+          </div>
+        </div>
+      )}
+
+      {castClash && view.status !== "finished" && (
+        <div
+          className="relative mb-2 overflow-hidden rounded-lg bg-[var(--muted)]/30 px-3 py-2 ring-1 ring-[var(--primary)]/25 animate-[scale-in_160ms_ease-out]"
+          aria-live="polite"
+        >
+          {castClash.opponentChoice && <div className="game-combat-impact-flash pointer-events-none absolute inset-0" />}
+          <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <div className="min-w-0 animate-[slide-in-left_220ms_cubic-bezier(0.22,1,0.36,1)] text-left">
+              <div className="truncate text-[0.65rem] font-semibold text-[var(--muted-foreground)]">You</div>
+              <div className="mt-0.5 flex items-center gap-1.5 rounded-lg bg-[var(--background)]/80 px-2 py-1 ring-1 ring-[var(--border)]">
+                <span className="text-2xl leading-none">{CHOICE_EMOJI[castClash.yourChoice]}</span>
+                <span className="truncate text-xs font-semibold text-[var(--foreground)]">
+                  {CHOICE_LABEL[castClash.yourChoice]}
+                </span>
+              </div>
+            </div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--primary)] text-[0.65rem] font-black text-[var(--primary-foreground)] shadow-[0_0_18px_color-mix(in_oklch,var(--primary)_35%,transparent)] animate-[combat-shake_220ms_ease-out]">
+              VS
+            </div>
+            <div className="min-w-0 animate-[slide-in-right_220ms_cubic-bezier(0.22,1,0.36,1)] text-right">
+              <div className="truncate text-[0.65rem] font-semibold text-[var(--muted-foreground)]">
+                {opponent?.displayName ?? "Opponent"}
+              </div>
+              <div className="mt-0.5 ml-auto flex w-fit max-w-full items-center gap-1.5 rounded-lg bg-[var(--background)]/80 px-2 py-1 ring-1 ring-[var(--border)]">
+                <span className="truncate text-xs font-semibold text-[var(--foreground)]">
+                  {castClash.opponentChoice ? CHOICE_LABEL[castClash.opponentChoice] : "Casting"}
+                </span>
+                <span className="text-2xl leading-none">
+                  {castClash.opponentChoice ? CHOICE_EMOJI[castClash.opponentChoice] : "?"}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="relative mt-1 text-center text-[0.68rem] font-semibold text-[var(--muted-foreground)]">
+            {castClash.outcome === "win"
+              ? "Round won"
+              : castClash.outcome === "loss"
+                ? "Round lost"
+                : castClash.outcome === "tie"
+                  ? "Tie, replaying"
+                  : "Throws locked"}
           </div>
         </div>
       )}
