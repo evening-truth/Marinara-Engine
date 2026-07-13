@@ -487,6 +487,10 @@ function getCallConversationCommandKey(command: CharacterCommand): ConversationC
       return "poker";
     case "eightball":
       return "eightball";
+    case "tic_tac_toe":
+      return "tic_tac_toe";
+    case "rock_paper_scissors":
+      return "rock_paper_scissors";
     case "spotify":
     case "youtube":
       return "music";

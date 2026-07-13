@@ -4,6 +4,10 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ## [Unreleased]
 
+### Added
+
+- Added Tic-Tac-Toe and Rock-Paper-Scissors as one-on-one Conversation-mode table games. Tic-Tac-Toe seats you against a character on a 3×3 board with a choice of X, O, or a random mark, and detects wins and draws. Rock-Paper-Scissors plays a best-of-3/5/7 match where each round's throw stays hidden from your opponent until both of you have thrown, then reveals the result. Both join the `[tic_tac_toe]`/`[rock_paper_scissors]` Conversation command family alongside `[chess]` and `[eightball]`, with `/tictactoe` (alias `/ttt`) and `/rps` slash commands, natural-language launchers, per-chat command toggles, and setup modals for opponent and game length.
+
 ## [2.2.1]
 
 ### Changed
