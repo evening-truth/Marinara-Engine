@@ -29,6 +29,7 @@ type CastClash = {
   yourChoice: RpsChoice;
   opponentChoice: RpsChoice | null;
   outcome: "win" | "loss" | "tie" | null;
+  phase: "casting" | "reveal";
 };
 
 export function RockPaperScissorsBoard({ chatId }: Props) {
@@ -41,6 +42,7 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
   const resign = useResignRockPaperScissors(chatId);
   const [castClash, setCastClash] = useState<CastClash | null>(null);
   const castClearTimer = useRef<number | null>(null);
+  const castRevealTimer = useRef<number | null>(null);
   const lastAnimatedRound = useRef<number | null>(null);
 
   // Hydrate the match on mount / chat switch (no-op if no active game).
@@ -56,6 +58,7 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
   useEffect(() => {
     return () => {
       if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
+      if (castRevealTimer.current != null) window.clearTimeout(castRevealTimer.current);
     };
   }, []);
 
@@ -66,13 +69,16 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
     if (!yourThrow || !opponentThrow) return;
 
     lastAnimatedRound.current = latestRound.round;
-    setCastClash({
+    const nextClash: CastClash = {
       yourChoice: yourThrow,
       opponentChoice: opponentThrow,
       outcome: !latestRound.winnerSeatId ? "tie" : latestRound.winnerSeatId === view.yourSeatId ? "win" : "loss",
-    });
+      phase: "reveal",
+    };
+    if (castRevealTimer.current != null) window.clearTimeout(castRevealTimer.current);
+    castRevealTimer.current = window.setTimeout(() => setCastClash(nextClash), 650);
     if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
-    castClearTimer.current = window.setTimeout(() => setCastClash(null), 1100);
+    castClearTimer.current = window.setTimeout(() => setCastClash(null), 2400);
   }, [castClash?.yourChoice, latestRound, opponent, view]);
 
   if (!view) return null;
@@ -82,7 +88,9 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
 
   const onThrow = (choice: RpsChoice) => {
     if (!isMyTurn || disabled) return;
-    setCastClash({ yourChoice: choice, opponentChoice: null, outcome: null });
+    if (castRevealTimer.current != null) window.clearTimeout(castRevealTimer.current);
+    if (castClearTimer.current != null) window.clearTimeout(castClearTimer.current);
+    setCastClash({ yourChoice: choice, opponentChoice: null, outcome: null, phase: "casting" });
     rpsThrow.mutate({ move: { type: "throw", choice } });
   };
 
@@ -169,14 +177,16 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
           className="relative mb-2 overflow-hidden rounded-lg bg-[var(--muted)]/30 px-3 py-2 ring-1 ring-[var(--primary)]/25 animate-[scale-in_160ms_ease-out]"
           aria-live="polite"
         >
-          {castClash.opponentChoice && <div className="game-combat-impact-flash pointer-events-none absolute inset-0" />}
+          {castClash.phase === "reveal" && <div className="game-combat-impact-flash pointer-events-none absolute inset-0" />}
           <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2">
             <div className="min-w-0 animate-[slide-in-left_220ms_cubic-bezier(0.22,1,0.36,1)] text-left">
               <div className="truncate text-[0.65rem] font-semibold text-[var(--muted-foreground)]">You</div>
               <div className="mt-0.5 flex items-center gap-1.5 rounded-lg bg-[var(--background)]/80 px-2 py-1 ring-1 ring-[var(--border)]">
-                <span className="text-2xl leading-none">{CHOICE_EMOJI[castClash.yourChoice]}</span>
+                <span className="text-2xl leading-none">
+                  {castClash.phase === "reveal" ? CHOICE_EMOJI[castClash.yourChoice] : "?"}
+                </span>
                 <span className="truncate text-xs font-semibold text-[var(--foreground)]">
-                  {CHOICE_LABEL[castClash.yourChoice]}
+                  {castClash.phase === "reveal" ? CHOICE_LABEL[castClash.yourChoice] : "Casting"}
                 </span>
               </div>
             </div>
@@ -189,16 +199,18 @@ export function RockPaperScissorsBoard({ chatId }: Props) {
               </div>
               <div className="mt-0.5 ml-auto flex w-fit max-w-full items-center gap-1.5 rounded-lg bg-[var(--background)]/80 px-2 py-1 ring-1 ring-[var(--border)]">
                 <span className="truncate text-xs font-semibold text-[var(--foreground)]">
-                  {castClash.opponentChoice ? CHOICE_LABEL[castClash.opponentChoice] : "Casting"}
+                  {castClash.phase === "reveal" && castClash.opponentChoice ? CHOICE_LABEL[castClash.opponentChoice] : "Casting"}
                 </span>
                 <span className="text-2xl leading-none">
-                  {castClash.opponentChoice ? CHOICE_EMOJI[castClash.opponentChoice] : "?"}
+                  {castClash.phase === "reveal" && castClash.opponentChoice ? CHOICE_EMOJI[castClash.opponentChoice] : "?"}
                 </span>
               </div>
             </div>
           </div>
           <div className="relative mt-1 text-center text-[0.68rem] font-semibold text-[var(--muted-foreground)]">
-            {castClash.outcome === "win"
+            {castClash.phase === "casting"
+              ? "Casting..."
+              : castClash.outcome === "win"
               ? "Round won"
               : castClash.outcome === "loss"
                 ? "Round lost"
