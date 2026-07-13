@@ -62,6 +62,8 @@ import {
 } from "../../packages/server/src/services/video/prompt-context.js";
 import { resolveGameGmPromptTemplate } from "../../packages/server/src/services/generation/game-gm-prompt-runtime.js";
 import { countUserMessagesAfterSummaryAnchor } from "../../packages/server/src/services/conversation/auto-summary.service.js";
+import { buildNpcPortraitProviderPrompt } from "../../packages/server/src/services/game/game-asset-generation.js";
+import { resolveNpcPortraitAppearance } from "../../packages/server/src/routes/game.routes.js";
 import { buildLegacyDefaultAgentConfigUpdate } from "../../packages/server/src/services/agents/default-prompt-migration.js";
 import { buildMemoryRecallBlock } from "../../packages/server/src/services/generation/memory-recall-context.js";
 import { mergeConversationCharacterMemories } from "../../packages/server/src/services/generation/conversation-memory-context.js";
@@ -1748,6 +1750,84 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       assert.match(last.content, /"character-tracker": null/);
       assert.doesNotMatch(last.content, /"quest": null/);
       assert.equal(last.content.trim().endsWith("</output_format>"), true);
+    },
+  },
+  {
+    name: "game portrait appearance aggregation deduplicates raw values before labels",
+    run() {
+      const description = "A silver-furred fox-woman in a persimmon kimono.";
+      const appearance = resolveNpcPortraitAppearance(
+        { description: `  ${description.toUpperCase()}  ` },
+        {
+          description,
+          descriptionSource: "model",
+          notes: ["Carries a debt-scroll."],
+        } as any,
+        {
+          appearance: description,
+          outfit: "Persimmon kimono",
+          mood: "Warm smile",
+        },
+      );
+
+      assert.equal(appearance.toLowerCase().split(description.toLowerCase()).length - 1, 1);
+      assert.match(appearance, /^Canonical NPC profile:/);
+      assert.match(appearance, /Current outfit: Persimmon kimono/);
+      assert.match(appearance, /Current expression or mood: Warm smile/);
+      assert.match(appearance, /Notable details: Carries a debt-scroll/);
+    },
+  },
+  {
+    name: "game portrait prompts preserve one canonical description across compilation paths",
+    async run() {
+      const appearance = "silver-furred fox-woman, persimmon kimono, debt-scroll tucked in her sleeve";
+      const request = {
+        chatId: "prompt-regression",
+        npcName: "Lyra",
+        appearance,
+        imgModel: "unused",
+        imgBaseUrl: "",
+        imgApiKey: "",
+      };
+      const countAppearance = (prompt: string) => prompt.toLowerCase().split(appearance.toLowerCase()).length - 1;
+
+      const unstyled = await buildNpcPortraitProviderPrompt(request);
+      assert.equal(countAppearance(unstyled.prompt), 1);
+
+      const zImage = await buildNpcPortraitProviderPrompt({
+        ...request,
+        styleProfiles: createDefaultImageStyleProfileSettings(),
+        styleProfileId: "z-image-turbo",
+      });
+      assert.equal(countAppearance(zImage.prompt), 1);
+
+      const tagged = await buildNpcPortraitProviderPrompt({
+        ...request,
+        styleProfiles: createDefaultImageStyleProfileSettings(),
+        styleProfileId: "danbooru",
+      });
+      assert.equal(countAppearance(tagged.prompt), 1);
+      assert.match(tagged.prompt, /silver-furred fox-woman/);
+
+      const dynamicPreserved = await buildNpcPortraitProviderPrompt({
+        ...request,
+        dynamicPromptGenerator: async () =>
+          `Centered portrait of Lyra, ${appearance}, readable expression, single subject.`,
+      });
+      assert.equal(countAppearance(dynamicPreserved.prompt), 1);
+
+      const dynamicOmitted = await buildNpcPortraitProviderPrompt({
+        ...request,
+        dynamicPromptGenerator: async () => "Centered portrait of Lyra with a readable expression and clean lighting.",
+      });
+      assert.equal(countAppearance(dynamicOmitted.prompt), 1);
+
+      const shortDescription = await buildNpcPortraitProviderPrompt({
+        ...request,
+        appearance: "man",
+        dynamicPromptGenerator: async () => "Centered portrait of a woman with clean lighting and a readable expression.",
+      });
+      assert.match(shortDescription.prompt, /^Required canonical NPC visual profile: man\./);
     },
   },
   {
