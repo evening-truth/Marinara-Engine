@@ -34,6 +34,7 @@ import { PokerBoard } from "./PokerBoard";
 import { PokerSetup } from "./PokerSetup";
 import { EightBallBoard } from "./EightBallBoard";
 import { EightBallSetup } from "./EightBallSetup";
+import { ConversationGamesPicker } from "./ConversationGamesPicker";
 import { TicTacToeBoard } from "./TicTacToeBoard";
 import { TicTacToeSetup } from "./TicTacToeSetup";
 import { RockPaperScissorsBoard } from "./RockPaperScissorsBoard";
@@ -52,6 +53,7 @@ import { useUnoGameStore } from "../../stores/uno-game.store";
 import { useChessGameStore } from "../../stores/chess-game.store";
 import { usePokerGameStore } from "../../stores/poker-game.store";
 import { useEightBallGameStore } from "../../stores/eightball-game.store";
+import { useConversationGamesStore } from "../../stores/conversation-games.store";
 import { useTicTacToeGameStore } from "../../stores/tic-tac-toe-game.store";
 import { useRockPaperScissorsGameStore } from "../../stores/rock-paper-scissors-game.store";
 import { useUIStore } from "../../stores/ui.store";
@@ -344,6 +346,8 @@ export function ConversationView({
   );
   const eightBallSetupOpen = useEightBallGameStore((s) => s.setupChatId === chatId);
   const closeEightBallSetup = useEightBallGameStore((s) => s.closeSetup);
+  const gamesPickerOpen = useConversationGamesStore((s) => s.pickerChatId === chatId);
+  const closeGamesPicker = useConversationGamesStore((s) => s.closePicker);
   const ticTacToeGameActive = useTicTacToeGameStore(
     (s) => s.current?.chatId === chatId && s.current?.status !== "finished",
   );
@@ -442,8 +446,7 @@ export function ConversationView({
   const theme = useUIStore((s) => s.theme);
   const gradientStyle = useMemo(() => {
     const g = convoGradient[theme];
-    const defaults =
-      theme === "dark" ? { from: "#0a0a0e", to: "#1c2133" } : { from: "#f2eff7", to: "#eae6f0" };
+    const defaults = theme === "dark" ? { from: "#0a0a0e", to: "#1c2133" } : { from: "#f2eff7", to: "#eae6f0" };
     if (g.from === defaults.from && g.to === defaults.to) {
       return {
         background: `linear-gradient(135deg, var(--marinara-conversation-gradient-from, ${g.from}), var(--marinara-conversation-gradient-to, ${g.to}))`,
@@ -513,16 +516,7 @@ export function ConversationView({
     if (callStatus && useChatStore.getState().activeConversationCall?.session.chatId === chatId) {
       setActiveConversationCall(null);
     }
-  }, [
-    activeCall,
-    callStatus,
-    characterMap,
-    chatCharIds,
-    chatId,
-    chatName,
-    personaInfo,
-    setActiveConversationCall,
-  ]);
+  }, [activeCall, callStatus, characterMap, chatCharIds, chatId, chatName, personaInfo, setActiveConversationCall]);
   const renderToolbarActions = (compact = false) => (
     <>
       <ChatBranchSelector
@@ -1523,8 +1517,8 @@ export function ConversationView({
           !eightBallGameActive &&
           !ticTacToeGameActive &&
           !rpsGameActive && (
-          <SceneBanner variant="origin" sceneChatId={sceneInfo.sceneChatId} sceneChatName={sceneInfo.sceneChatName} />
-        )}
+            <SceneBanner variant="origin" sceneChatId={sceneInfo.sceneChatId} sceneChatName={sceneInfo.sceneChatName} />
+          )}
 
         <div ref={messagesEndRef} className="h-1" />
       </div>
@@ -1571,8 +1565,24 @@ export function ConversationView({
       <UnoSetup key={`uno-${chatId}`} chatId={chatId} open={unoSetupOpen} onClose={closeUnoSetup} />
       <ChessSetup key={`chess-${chatId}`} chatId={chatId} open={chessSetupOpen} onClose={closeChessSetup} />
       <PokerSetup key={`poker-${chatId}`} chatId={chatId} open={pokerSetupOpen} onClose={closePokerSetup} />
-      <EightBallSetup key={`eightball-${chatId}`} chatId={chatId} open={eightBallSetupOpen} onClose={closeEightBallSetup} />
-      <TicTacToeSetup key={`tic-tac-toe-${chatId}`} chatId={chatId} open={ticTacToeSetupOpen} onClose={closeTicTacToeSetup} />
+      <EightBallSetup
+        key={`eightball-${chatId}`}
+        chatId={chatId}
+        open={eightBallSetupOpen}
+        onClose={closeEightBallSetup}
+      />
+      <ConversationGamesPicker
+        key={`games-${chatId}`}
+        chatId={chatId}
+        open={gamesPickerOpen}
+        onClose={closeGamesPicker}
+      />
+      <TicTacToeSetup
+        key={`tic-tac-toe-${chatId}`}
+        chatId={chatId}
+        open={ticTacToeSetupOpen}
+        onClose={closeTicTacToeSetup}
+      />
       <RockPaperScissorsSetup key={`rps-${chatId}`} chatId={chatId} open={rpsSetupOpen} onClose={closeRpsSetup} />
 
       {/* ── Input area ── */}

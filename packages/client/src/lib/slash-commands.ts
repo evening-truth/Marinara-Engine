@@ -4,15 +4,11 @@
 import { api } from "./api-client";
 import { useChatStore } from "../stores/chat.store";
 import { useUIStore } from "../stores/ui.store";
-import { useUnoGameStore } from "../stores/uno-game.store";
-import { useChessGameStore } from "../stores/chess-game.store";
-import { usePokerGameStore } from "../stores/poker-game.store";
-import { useEightBallGameStore } from "../stores/eightball-game.store";
-import { useTicTacToeGameStore } from "../stores/tic-tac-toe-game.store";
-import { useRockPaperScissorsGameStore } from "../stores/rock-paper-scissors-game.store";
+import { useConversationGamesStore } from "../stores/conversation-games.store";
 import { useGalleryStore } from "../stores/gallery.store";
 import { toast } from "sonner";
 import { startSceneWithPromptPreferences } from "./scene-generation";
+import { findConversationGame } from "./conversation-games";
 import {
   SUPPORTED_MACROS,
   buildGuidedGenerationInstructionMessage,
@@ -556,6 +552,30 @@ const COMMANDS: SlashCommand[] = [
     },
   },
   {
+    name: "games",
+    aliases: ["game", "play"],
+    description: "Choose a conversation game to start",
+    usage: "/games [game]",
+    local: true,
+    async execute(args, ctx) {
+      if (ctx.mode === "roleplay") {
+        return { handled: true, feedback: "Conversation games can only be played in conversation chats." };
+      }
+
+      const requestedGame = findConversationGame(args);
+      if (requestedGame) {
+        requestedGame.openSetup(ctx.chatId);
+        return { handled: true };
+      }
+      if (args.trim()) {
+        return { handled: true, feedback: `Game "${args.trim()}" is not available. Use /games to choose one.` };
+      }
+
+      useConversationGamesStore.getState().openPicker(ctx.chatId);
+      return { handled: true };
+    },
+  },
+  {
     name: "uno",
     description: "Start a game of UNO with the characters in this chat",
     usage: "/uno",
@@ -564,7 +584,8 @@ const COMMANDS: SlashCommand[] = [
       if (ctx.mode === "roleplay") {
         return { handled: true, feedback: "UNO can only be played in conversation chats." };
       }
-      useUnoGameStore.getState().openSetup(ctx.chatId);
+      const game = findConversationGame("uno");
+      game?.openSetup(ctx.chatId);
       return { handled: true };
     },
   },
@@ -577,7 +598,8 @@ const COMMANDS: SlashCommand[] = [
       if (ctx.mode === "roleplay") {
         return { handled: true, feedback: "Chess can only be played in conversation chats." };
       }
-      useChessGameStore.getState().openSetup(ctx.chatId);
+      const game = findConversationGame("chess");
+      game?.openSetup(ctx.chatId);
       return { handled: true };
     },
   },
@@ -590,7 +612,8 @@ const COMMANDS: SlashCommand[] = [
       if (ctx.mode === "roleplay") {
         return { handled: true, feedback: "Poker can only be played in conversation chats." };
       }
-      usePokerGameStore.getState().openSetup(ctx.chatId);
+      const game = findConversationGame("poker");
+      game?.openSetup(ctx.chatId);
       return { handled: true };
     },
   },
@@ -604,7 +627,8 @@ const COMMANDS: SlashCommand[] = [
       if (ctx.mode === "roleplay") {
         return { handled: true, feedback: "8-ball pool can only be played in conversation chats." };
       }
-      useEightBallGameStore.getState().openSetup(ctx.chatId);
+      const game = findConversationGame("8ball");
+      game?.openSetup(ctx.chatId);
       return { handled: true };
     },
   },
@@ -618,7 +642,7 @@ const COMMANDS: SlashCommand[] = [
       if (ctx.mode === "roleplay") {
         return { handled: true, feedback: "Tic-tac-toe can only be played in conversation chats." };
       }
-      useTicTacToeGameStore.getState().openSetup(ctx.chatId);
+      findConversationGame("tictactoe")?.openSetup(ctx.chatId);
       return { handled: true };
     },
   },
@@ -632,7 +656,7 @@ const COMMANDS: SlashCommand[] = [
       if (ctx.mode === "roleplay") {
         return { handled: true, feedback: "Rock-paper-scissors can only be played in conversation chats." };
       }
-      useRockPaperScissorsGameStore.getState().openSetup(ctx.chatId);
+      findConversationGame("rps")?.openSetup(ctx.chatId);
       return { handled: true };
     },
   },
