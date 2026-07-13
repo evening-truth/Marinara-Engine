@@ -19,6 +19,7 @@ import {
   normalizeChatSummaryEntries,
   normalizeWorldCustomFields,
   resolveRegexPatternLiteralMacros,
+  resolveGameSetupArtStylePrompt,
   resolveMacros,
   resolveAgentPromptTemplate,
   resolveDefaultAgentPromptTemplateId,
@@ -979,6 +980,46 @@ const cases: RegressionCase[] = [
       assert.doesNotMatch(illustrationPrompt, /"transitionHint"/);
       assert.equal(promptKeys.includes("game.storyboardIllustrationDirector"), true);
       assert.equal(promptKeys.includes("game.storyboardDirector"), false);
+    },
+  },
+  {
+    name: "campaign art style controls and manual storyboard review remain wired end to end",
+    run() {
+      assert.equal(resolveGameSetupArtStylePrompt({ artStylePrompt: "  painterly fantasy  " }), "painterly fantasy");
+      assert.equal(
+        resolveGameSetupArtStylePrompt({ artStylePrompt: "painterly fantasy", useCampaignArtStyle: false }),
+        "",
+      );
+      assert.equal(resolveGameSetupArtStylePrompt({ useCampaignArtStyle: true }), "");
+
+      const drawerSource = readFileSync(
+        new URL("../../packages/client/src/components/chat/ChatSettingsDrawer.tsx", import.meta.url),
+        "utf8",
+      );
+      const gameSurfaceSource = readFileSync(
+        new URL("../../packages/client/src/components/game/GameSurface.tsx", import.meta.url),
+        "utf8",
+      );
+      const storyboardHookSource = readFileSync(
+        new URL("../../packages/client/src/hooks/use-game-storyboards.ts", import.meta.url),
+        "utf8",
+      );
+      const gameRouteSource = readFileSync(
+        new URL("../../packages/server/src/routes/game.routes.ts", import.meta.url),
+        "utf8",
+      );
+
+      assert.match(drawerSource, /label="Use Campaign Art Style"/);
+      assert.match(drawerSource, /generatedArtStylePrompt: generatedCampaignArtStyle \|\| campaignArtStyle/);
+      assert.match(gameSurfaceSource, /reviewImagePromptsBeforeSend/);
+      assert.match(gameSurfaceSource, /previewTurnStoryboardPrompts\.mutateAsync\(payload\)/);
+      assert.match(gameSurfaceSource, /plannedStoryboard = preview\.plannedStoryboard/);
+      assert.match(gameSurfaceSource, /promptOverrides/);
+      assert.match(storyboardHookSource, /previewOnly: true/);
+      assert.match(gameRouteSource, /if \(input\.previewOnly\)/);
+      assert.match(gameRouteSource, /return \{ items, plannedStoryboard: plan \}/);
+      assert.match(gameRouteSource, /storyboardPromptOverrideById\.get\(`storyboard:\$\{frame\.index\}`\)/);
+      assert.match(gameRouteSource, /\[debug\/game\/storyboard-image-preview\]/);
     },
   },
   {

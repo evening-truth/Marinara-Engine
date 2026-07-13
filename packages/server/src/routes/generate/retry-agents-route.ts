@@ -17,6 +17,7 @@ import {
   normalizeWorldCustomFields,
   normalizeAgentPhaseValue,
   normalizeAgentPromptTemplateSelectionMap,
+  resolveGameSetupArtStylePrompt,
   resolveAgentPromptTemplate,
   stripMacroComments,
   findKnownModel,
@@ -442,7 +443,7 @@ function getRetryAgentFallbackPrompt(agentType: string, settings: Record<string,
 function getGameImageStylePrompt(chat: any, chatMeta: Record<string, unknown>): string {
   if (((chat as any).mode ?? "conversation") !== "game") return "";
   const setupConfig = parseSettingsRecord(chatMeta.gameSetupConfig);
-  return typeof setupConfig.artStylePrompt === "string" ? setupConfig.artStylePrompt.trim() : "";
+  return resolveGameSetupArtStylePrompt(setupConfig);
 }
 
 function buildIllustratorImagePrompt(args: {
