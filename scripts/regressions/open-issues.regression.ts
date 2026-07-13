@@ -63,6 +63,36 @@ import {
 } from "../../packages/server/src/services/image/illustrator-prompt-review.js";
 import { resolveReviewedImagePromptSubmission } from "../../packages/server/src/services/image/image-prompt-review.js";
 import { resolveSceneVideoPrompt } from "../../packages/server/src/services/video/scene-video-prompt-review.js";
+import { buildPersonaCreateRow } from "../../packages/server/src/services/mari-db/mari-db.service.js";
+
+const minimalProfessorMariPersona = buildPersonaCreateRow(
+  { name: "Minimal helper persona" },
+  "persona-minimal",
+  "2026-07-13T00:00:00.000Z",
+);
+assert.equal(minimalProfessorMariPersona.phoneticName, "");
+assert.equal(minimalProfessorMariPersona.convoDisplayName, "");
+assert.equal(minimalProfessorMariPersona.aboutMe, "");
+assert.equal(minimalProfessorMariPersona.convoBehavior, "");
+
+const completeProfessorMariPersona = buildPersonaCreateRow(
+  {
+    name: "Complete helper persona",
+    phoneticName: "Professor Mah-ree",
+    convoDisplayName: "Prof. Mari",
+    aboutMe: "I help people build worlds.",
+    convoBehavior: "Speak warmly and precisely.",
+  },
+  "persona-complete",
+  "2026-07-13T00:00:00.000Z",
+);
+assert.equal(completeProfessorMariPersona.phoneticName, "Professor Mah-ree");
+assert.equal(completeProfessorMariPersona.convoDisplayName, "Prof. Mari");
+assert.equal(completeProfessorMariPersona.aboutMe, "I help people build worlds.");
+assert.deepEqual(completeProfessorMariPersona.convoBehavior, {
+  instruction: "Speak warmly and precisely.",
+  insertionStrategy: "constant_after",
+});
 
 assert.equal(resolveInitialGameGmConnectionId(undefined, "chat-connection"), "chat-connection");
 assert.equal(resolveInitialGameGmConnectionId("explicit-connection", "chat-connection"), "explicit-connection");
