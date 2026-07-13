@@ -2,21 +2,40 @@ import assert from "node:assert/strict";
 import { DEFAULT_NOODLE_SETTINGS, noodleRefreshSchema } from "../../packages/shared/src/schemas/noodle.schema.js";
 import { canManageNoodleReply } from "../../packages/shared/src/utils/noodle-interactions.js";
 import type { NoodleAccount, NoodleInteraction, NoodlePost } from "../../packages/shared/src/types/noodle.js";
+import { LIMITS } from "../../packages/shared/src/constants/defaults.js";
 import {
   canGenerateNoodleActivityForAccountKind,
   formatNoodleTimelineForPrompt,
+  noodleLorebookTokenBudget,
   noodlePastMemoryCutoff,
   noodlePastMemorySampleSize,
   noodlePersonaCommentPostIds,
+  noodleTimelineVoiceDefaultText,
+  NOODLE_CONGRUENCY_INSTRUCTION,
   NOODLE_CREATIVE_FORMAT_INSTRUCTIONS,
+  NOODLE_LEGACY_PAST_MEMORY_INCLUSION_CHANCE,
+  NOODLE_LEGACY_PAST_MEMORY_MAX_ITEMS,
+  NOODLE_LEGACY_RECALLED_MEMORY_INSTRUCTION,
+  NOODLE_LEGACY_TONE_INSTRUCTION,
   NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
+  NOODLE_RANDOM_USER_TREATMENT_INSTRUCTION,
+  NOODLE_RECALLED_MEMORY_INSTRUCTION,
+  NOODLE_TONE_INSTRUCTIONS,
   noodleTimelineFeatureInstructions,
   sampleNoodlePastMemories,
+  sampleNoodlePastMemoriesWeighted,
 } from "../../packages/server/src/services/noodle/noodle-prompt.js";
 import { chooseNoodleParticipantAccounts } from "../../packages/server/src/services/noodle/noodle-participant-selection.js";
 import { canCreateGeneratedNoodleInteraction } from "../../packages/server/src/services/noodle/noodle-interaction-policy.js";
 import { parseNoodleGeneratedProfiles } from "../../packages/server/src/services/noodle/noodle-generated-profiles.js";
+import {
+  parseNoodleGeneratedRefresh,
+  validateNoodleGeneratedRefresh,
+} from "../../packages/server/src/services/noodle/noodle-generated-refresh.js";
+import { normalizeNoodleImagePrompt } from "../../packages/server/src/services/noodle/noodle-image-prompt.js";
+import { NOODLE_IMAGE_POST } from "../../packages/server/src/services/prompt-overrides/registry/noodle.js";
 import { collectNoodlePriorityAccountIds } from "../../packages/server/src/routes/noodle.routes.js";
+import { NOODLE_TIMELINE_VOICE } from "../../packages/server/src/services/prompt-overrides/registry/noodle.js";
 
 const makeAccount = (id: string): NoodleAccount => ({
   id,
@@ -120,6 +139,31 @@ assert.deepEqual(
   ["alpha", "gamma"],
 );
 
+const randomParticipant = { ...makeAccount("ambient"), kind: "random_user" as const };
+const characterFirstSelection = chooseNoodleParticipantAccounts({
+  accounts: [...participantAccounts, randomParticipant],
+  settings: { ...participantSettings, allowRandomUsers: true },
+  selectedGroupCharacterIds: new Set(),
+  random: () => 0,
+});
+assert.equal(characterFirstSelection.filter((account) => account.kind === "character").length, 1);
+assert.equal(characterFirstSelection.filter((account) => account.kind === "random_user").length, 1);
+const charactersOnlySelection = chooseNoodleParticipantAccounts({
+  accounts: [...participantAccounts, randomParticipant],
+  settings: { ...participantSettings, allowRandomUsers: true },
+  selectedGroupCharacterIds: new Set(),
+  random: () => 0.9,
+});
+assert.equal(charactersOnlySelection.every((account) => account.kind === "character"), true);
+const sparseCharacterSelection = chooseNoodleParticipantAccounts({
+  accounts: [participantAccounts[0]!, randomParticipant, { ...randomParticipant, id: "ambient-two", entityId: "ambient-two" }],
+  settings: { ...participantSettings, allowRandomUsers: true, participantMin: 3, participantMax: 3 },
+  selectedGroupCharacterIds: new Set(),
+  random: () => 0.9,
+});
+assert.equal(sparseCharacterSelection.length, 3);
+assert.equal(sparseCharacterSelection[0]?.kind, "character");
+
 const repeatActor = makeAccount("repeat_actor");
 const repeatPost: NoodlePost = {
   id: "repeat-post",
@@ -208,6 +252,15 @@ assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[1], /not every post or reply ne
 assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[2], /allowed to be assholes to each other/u);
 assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[2], /revive old grievances, form rivalries/u);
 assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[2], /permission, not a quota/u);
+
+assert.equal(NOODLE_TONE_INSTRUCTIONS.length, 2);
+assert.match(NOODLE_TONE_INSTRUCTIONS[0], /must come from each character's own Personality\/Description\/Backstory/u);
+assert.match(NOODLE_TONE_INSTRUCTIONS[0], /Do not make every account sound equally enthusiastic/u);
+assert.match(NOODLE_TONE_INSTRUCTIONS[1], /ground yourself in that account's stated personality traits/u);
+assert.match(NOODLE_TONE_INSTRUCTIONS[1], /should not sound like an enthusiastic extrovert/u);
+assert.match(NOODLE_CONGRUENCY_INSTRUCTION, /react to, quote, subtweet, or argue with each other's posts/u);
+assert.match(NOODLE_RECALLED_MEMORY_INSTRUCTION, /feel free to revisit, reply to, repost, or build on it/u);
+assert.match(NOODLE_RECALLED_MEMORY_INSTRUCTION, /do not force a reference to every recalled post/u);
 
 assert.equal(
   canManageNoodleReply({
@@ -299,10 +352,12 @@ assert.deepEqual(
 );
 
 const activeAccountsInstruction = "- Use only the active accounts listed by entityId. Do not invent accounts.";
+const randomUserSupportingInstruction =
+  "- Character accounts are the primary cast. Random-user activity should be occasional supporting texture and must never dominate the generated posts or interactions.";
 const randomUserParodyInstruction =
   "- A small minority of posts from random_user accounts may be obvious parody advertisements or absurd fake crypto scams. Usually generate none and never more than one per refresh. Keep every company, product, coin, ticker, price, and financial claim invented, visibly ridiculous, and non-actionable. Never imitate a real company or include real or usable links, wallet addresses, financial advice, or scam instructions.";
 const imageGenerationInstruction =
-  "- When image generation is enabled, imagePrompt should be a concrete visual idea for the attached image: either a character-focused image of the author/their scene/selfie, or an in-character meme they would plausibly post.";
+  "- When image generation is enabled, imagePrompt must contain only the final concrete visual description for the attached image: either a character-focused image of the author/their scene/selfie, or an in-character meme they would plausibly post. Do not put the post JSON, field names, meta-commentary, instructions to another model, or the full post text inside imagePrompt.";
 const galleryAttachmentInstruction =
   "- When gallery attachments are enabled, set attachGalleryImage to true only when the post naturally fits an existing gallery or chat image.";
 
@@ -318,28 +373,127 @@ const instructions = (input: {
   });
 
 assert.deepEqual(instructions({}), []);
-assert.deepEqual(instructions({ allowRandomUsers: true }), [activeAccountsInstruction, randomUserParodyInstruction]);
+assert.deepEqual(instructions({ allowRandomUsers: true }), [
+  activeAccountsInstruction,
+  randomUserSupportingInstruction,
+  randomUserParodyInstruction,
+]);
 assert.deepEqual(instructions({ enableImagePrompts: true }), [imageGenerationInstruction]);
 assert.deepEqual(instructions({ allowGalleryImageAttachments: true }), [galleryAttachmentInstruction]);
 assert.deepEqual(
   instructions({ allowRandomUsers: true, enableImagePrompts: true, allowGalleryImageAttachments: true }),
-  [activeAccountsInstruction, randomUserParodyInstruction, imageGenerationInstruction, galleryAttachmentInstruction],
+  [
+    activeAccountsInstruction,
+    randomUserSupportingInstruction,
+    randomUserParodyInstruction,
+    imageGenerationInstruction,
+    galleryAttachmentInstruction,
+  ],
 );
+
+const resilientRefresh = parseNoodleGeneratedRefresh({
+  posts: [{ authorEntityId: "entity-alpha", content: "A valid post." }],
+  interactions: [
+    {
+      actorEntityId: "entity-beta",
+      targetPostId: "post-1",
+      type: "like",
+      parentInteractionId: "comment-that-must-not-be-here",
+    },
+  ],
+  follows: [],
+  digests: [],
+});
+assert.equal(resilientRefresh.refresh.posts.length, 1);
+assert.equal(resilientRefresh.refresh.interactions.length, 0);
+assert.deepEqual(resilientRefresh.rejected, [{ collection: "interactions", index: 0, issueCount: 1 }]);
+assert.equal(
+  validateNoodleGeneratedRefresh(
+    { posts: [], interactions: [], follows: [], digests: [] },
+    new Set(["entity-alpha"]),
+    new Set(["entity-alpha", "persona"]),
+  ),
+  "the response contained no timeline activity",
+);
+assert.equal(
+  validateNoodleGeneratedRefresh(
+    {
+      posts: [{ authorEntityId: "persona", content: "The model must not post as the user.", attachGalleryImage: false }],
+      interactions: [],
+      follows: [],
+      digests: [],
+    },
+    new Set(["entity-alpha"]),
+    new Set(["entity-alpha", "persona"]),
+  ),
+  "the response used no selected participant entityId",
+);
+assert.equal(
+  validateNoodleGeneratedRefresh(
+    {
+      posts: [{ authorEntityId: "entity-alpha", content: "A valid cast post.", attachGalleryImage: false }],
+      interactions: [],
+      follows: [],
+      digests: [],
+    },
+    new Set(["entity-alpha"]),
+    new Set(["entity-alpha", "persona"]),
+  ),
+  null,
+);
+
+assert.equal(
+  normalizeNoodleImagePrompt(
+    'Post text: a long social post\nDraft image idea: cel-shaded scientist holding a test tube\nUser instructions: vivid color',
+  ),
+  "cel-shaded scientist holding a test tube",
+);
+assert.equal(
+  normalizeNoodleImagePrompt('{"imagePrompt":"moonlit laboratory portrait","content":"do not send me"}'),
+  "moonlit laboratory portrait",
+);
+assert.equal(normalizeNoodleImagePrompt('{"content":"do not send this JSON to an image model"}'), null);
+const defaultNoodleImagePrompt = NOODLE_IMAGE_POST.defaultBuilder({
+  authorName: "Dottore",
+  postContent: "This entire post must not be sent to ComfyUI.",
+  draftPrompt: "cel-shaded laboratory selfie",
+  userInstructions: "dramatic blue lighting",
+  characterDescription: "Dottore has blue hair and a white mask.",
+});
+assert.match(defaultNoodleImagePrompt, /^cel-shaded laboratory selfie/u);
+assert.match(defaultNoodleImagePrompt, /Dottore has blue hair/u);
+assert.doesNotMatch(defaultNoodleImagePrompt, /This entire post/u);
+assert.doesNotMatch(defaultNoodleImagePrompt, /Output only|Draft image idea|Post text/u);
 
 const cutoffAnchor = new Date("2026-07-10T12:00:00.000Z");
 assert.equal(noodlePastMemoryCutoff(cutoffAnchor), "2026-07-08T12:00:00.000Z");
 assert.equal(
-  noodlePastMemorySampleSize(() => 0.5),
+  noodlePastMemorySampleSize(() => 0.9),
   0,
 );
-const oneItemRolls = [0.49, 0];
+const oneItemRolls = [0.5, 0];
 assert.equal(
   noodlePastMemorySampleSize(() => oneItemRolls.shift() ?? 0),
   1,
 );
-const threeItemRolls = [0, 0.999];
+const fiveItemRolls = [0, 0.999];
 assert.equal(
-  noodlePastMemorySampleSize(() => threeItemRolls.shift() ?? 0),
+  noodlePastMemorySampleSize(() => fiveItemRolls.shift() ?? 0),
+  5,
+);
+
+// Explicit legacy chance/maxItems params reproduce pre-toggle behavior (enableEnhancedTimelineWriting off).
+assert.equal(
+  noodlePastMemorySampleSize(() => 0.5, NOODLE_LEGACY_PAST_MEMORY_INCLUSION_CHANCE, NOODLE_LEGACY_PAST_MEMORY_MAX_ITEMS),
+  0,
+);
+const legacyThreeItemRolls = [0, 0.999];
+assert.equal(
+  noodlePastMemorySampleSize(
+    () => legacyThreeItemRolls.shift() ?? 0,
+    NOODLE_LEGACY_PAST_MEMORY_INCLUSION_CHANCE,
+    NOODLE_LEGACY_PAST_MEMORY_MAX_ITEMS,
+  ),
   3,
 );
 
@@ -347,17 +501,17 @@ assert.deepEqual(
   sampleNoodlePastMemories(["a", "b", "c"], 1, () => 0.99),
   ["c"],
 );
-const threeMemories = sampleNoodlePastMemories(["a", "b", "c", "d"], 3, () => 0);
-assert.equal(threeMemories.length, 3);
-assert.equal(new Set(threeMemories).size, 3);
-assert.ok(threeMemories.every((item) => ["a", "b", "c", "d"].includes(item)));
+const fiveMemories = sampleNoodlePastMemories(["a", "b", "c", "d", "e", "f"], 5, () => 0);
+assert.equal(fiveMemories.length, 5);
+assert.equal(new Set(fiveMemories).size, 5);
+assert.ok(fiveMemories.every((item) => ["a", "b", "c", "d", "e", "f"].includes(item)));
 assert.deepEqual(
-  sampleNoodlePastMemories(["only"], 3, () => 0),
+  sampleNoodlePastMemories(["only"], 5, () => 0),
   ["only"],
 );
 assert.deepEqual(
-  sampleNoodlePastMemories(["a", "b", "c", "d"], 99, () => 0),
-  ["a", "b", "c"],
+  sampleNoodlePastMemories(["a", "b", "c", "d", "e", "f"], 99, () => 0),
+  ["a", "b", "c", "d", "e"],
 );
 
 const boundedGeneratedProfiles = parseNoodleGeneratedProfiles({
@@ -386,5 +540,62 @@ const partiallyInvalidGeneratedProfiles = parseNoodleGeneratedProfiles({
 });
 assert.deepEqual(partiallyInvalidGeneratedProfiles.profiles.map((profile) => profile.entityId), ["valid"]);
 assert.deepEqual(partiallyInvalidGeneratedProfiles.rejected, [{ index: 0, issueCount: 1 }]);
+
+// sampleNoodlePastMemoriesWeighted should reliably favor a much higher-weighted item over
+// several trials, while still keeping baseline-weighted items reachable (not filtered out).
+let highWeightPicks = 0;
+const trials = 200;
+for (let trial = 0; trial < trials; trial += 1) {
+  const rolls = [Math.random(), Math.random(), Math.random()];
+  const [top] = sampleNoodlePastMemoriesWeighted(
+    ["low-a", "low-b", "high"],
+    1,
+    (item) => (item === "high" ? 10 : 0.25),
+    () => rolls.shift() ?? Math.random(),
+  );
+  if (top === "high") highWeightPicks += 1;
+}
+assert.ok(highWeightPicks > trials * 0.8, `expected high-weight item to dominate, got ${highWeightPicks}/${trials}`);
+assert.deepEqual(
+  sampleNoodlePastMemoriesWeighted(["only"], 5, () => 1, () => 0.5),
+  ["only"],
+);
+assert.equal(sampleNoodlePastMemoriesWeighted(["a", "b"], 0, () => 1, () => 0.5).length, 0);
+
+// noodleLorebookTokenBudget scales with active character count but is floored and capped so a
+// single-character Noodle refresh never dips below the floor, and a large roster never exceeds
+// the same global default a normal chat turn would get.
+assert.equal(noodleLorebookTokenBudget(0), LIMITS.NOODLE_LOREBOOK_TOKEN_BUDGET_FLOOR);
+assert.equal(noodleLorebookTokenBudget(1), LIMITS.NOODLE_LOREBOOK_TOKEN_BUDGET_FLOOR);
+assert.equal(
+  noodleLorebookTokenBudget(10),
+  Math.min(LIMITS.DEFAULT_LOREBOOK_TOKEN_BUDGET, 10 * LIMITS.NOODLE_LOREBOOK_TOKEN_BUDGET_PER_ACCOUNT),
+);
+assert.equal(noodleLorebookTokenBudget(100), LIMITS.DEFAULT_LOREBOOK_TOKEN_BUDGET);
+
+// noodleTimelineVoiceDefaultText(enhanced) feeds the "Noodle Timeline Voice & Tone" prompt
+// override default (NOODLE_TIMELINE_VOICE.defaultBuilder). `enhanced=false` (the setting's
+// default, enableEnhancedTimelineWriting off) must reproduce the exact pre-toggle text so
+// existing users see no change until they opt in; `enhanced=true` is the new tone/congruency text.
+assert.match(NOODLE_RANDOM_USER_TREATMENT_INSTRUCTION, /Random user accounts are not characters/u);
+const expectedLegacyVoiceText = [
+  NOODLE_LEGACY_TONE_INSTRUCTION,
+  NOODLE_RANDOM_USER_TREATMENT_INSTRUCTION,
+  ...NOODLE_CREATIVE_FORMAT_INSTRUCTIONS,
+].join("\n");
+const expectedEnhancedVoiceText = [
+  ...NOODLE_TONE_INSTRUCTIONS,
+  NOODLE_RANDOM_USER_TREATMENT_INSTRUCTION,
+  ...NOODLE_CREATIVE_FORMAT_INSTRUCTIONS,
+  NOODLE_CONGRUENCY_INSTRUCTION,
+].join("\n");
+assert.equal(noodleTimelineVoiceDefaultText(false), expectedLegacyVoiceText);
+assert.equal(noodleTimelineVoiceDefaultText(true), expectedEnhancedVoiceText);
+assert.equal(NOODLE_TIMELINE_VOICE.key, "noodle.timelineVoice");
+assert.equal(NOODLE_TIMELINE_VOICE.defaultBuilder({ enhanced: "false" }), expectedLegacyVoiceText);
+assert.equal(NOODLE_TIMELINE_VOICE.defaultBuilder({ enhanced: "true" }), expectedEnhancedVoiceText);
+assert.equal(NOODLE_TIMELINE_VOICE.defaultBuilder({ enhanced: "garbage" }), expectedLegacyVoiceText);
+assert.match(NOODLE_LEGACY_RECALLED_MEMORY_INSTRUCTION, /optional long-term memories/u);
+assert.match(NOODLE_LEGACY_RECALLED_MEMORY_INSTRUCTION, /do not force a reference/u);
 
 console.info("Noodle prompt and memory regression passed.");

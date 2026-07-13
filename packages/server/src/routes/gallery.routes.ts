@@ -34,8 +34,15 @@ import { generateImage, saveImageToDisk } from "../services/image/image-generati
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
 import { loadImageGenerationUserSettings } from "../services/image/image-generation-settings.js";
 import { compileImagePrompt } from "../services/image/image-prompt-compiler.js";
+import { resolveReviewedImagePromptSubmission } from "../services/image/image-prompt-review.js";
+import { runImageGenerationRequest } from "../services/image/image-generation-queue.js";
 import { persistGeneratedImageToEntityGalleries } from "../services/image/generated-image-entity-gallery.js";
+import {
+  resolveImageConnectionFallback,
+  resolveVideoConnectionFallback,
+} from "../services/generation/media-connection-fallback.js";
 import { createLLMProvider } from "../services/llm/provider-registry.js";
+import { withConnectionFallbackProvider } from "../services/llm/connection-fallback-provider.js";
 import { getLocalSidecarProvider, LOCAL_SIDECAR_MODEL } from "../services/llm/local-sidecar.js";
 import { resolveConversationSelfieSystemPrompt } from "../services/conversation/selfie-prompt.js";
 import { isNovelAiImageConnection, resolveIllustratorCharacterReferences } from "./generate/illustrator-references.js";
@@ -43,9 +50,9 @@ import { resolveBaseUrl } from "./generate/generate-route-utils.js";
 import {
   compactVideoPromptText,
   excerptIllustrationPromptForVideo,
-  limitSceneVideoPromptForProvider,
   summarizeVideoNarration,
 } from "../services/video/prompt-context.js";
+import { resolveSceneVideoPrompt, SceneVideoPromptReviewError } from "../services/video/scene-video-prompt-review.js";
 import { isDebugAgentsEnabled } from "../config/runtime-config.js";
 import { newId } from "../utils/id-generator.js";
 import { DATA_DIR } from "../utils/data-dir.js";
@@ -85,12 +92,29 @@ const generateSceneVideoSchema = z.object({
   galleryImageId: z.string().max(200).optional(),
   durationSeconds: z.number().int().min(1).max(60).optional(),
   aspectRatio: z.enum(["16:9", "9:16"]).optional(),
+  promptOverride: z.string().trim().min(1).max(20_000).optional(),
   debugMode: z.boolean().optional().default(false),
 });
+
+type GenerateSceneVideoInput = z.infer<typeof generateSceneVideoSchema>;
+
+class GallerySceneVideoRequestError extends Error {
+  constructor(
+    readonly statusCode: 400 | 404,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GallerySceneVideoRequestError";
+  }
+}
 
 const generateConversationSelfieSchema = z.object({
   characterId: z.string().min(1),
   context: z.string().max(2000).optional(),
+  promptOverride: z.string().trim().min(1).max(200_000).optional(),
+  negativePromptOverride: z.string().max(200_000).optional(),
+  previewOnly: z.boolean().optional().default(false),
+  queueImageGenerationRequests: z.boolean().optional().default(true),
   debugMode: z.boolean().optional().default(false),
 });
 
@@ -461,6 +485,94 @@ export async function galleryRoutes(app: FastifyInstance) {
     return Array.from(names).slice(0, 10);
   }
 
+  async function prepareGallerySceneVideoRequest(input: GenerateSceneVideoInput) {
+    if (!isValidChatId(input.chatId)) {
+      throw new GallerySceneVideoRequestError(400, "Invalid chatId");
+    }
+
+    const connections = createConnectionsStorage(app.db);
+    const promptOverridesStorage = createPromptOverridesStorage(app.db);
+    const chat = await chats.getById(input.chatId);
+    if (!chat) throw new GallerySceneVideoRequestError(404, "Chat not found");
+
+    const meta = parseChatMetadata(chat.metadata);
+    const videoConnectionId = await resolveSceneVideoConnectionId(meta, connections);
+    if (!videoConnectionId) {
+      throw new GallerySceneVideoRequestError(400, "No video generation connection is configured for this chat.");
+    }
+
+    const videoConn = await connections.getWithKey(videoConnectionId);
+    if (!videoConn) throw new GallerySceneVideoRequestError(404, "Video generation connection not found");
+    if (videoConn.provider !== "video_generation") {
+      throw new GallerySceneVideoRequestError(400, "The selected connection is not a video generation connection.");
+    }
+
+    const requestedGalleryImageId = input.galleryImageId?.trim();
+    const galleryImages = requestedGalleryImageId ? [] : await storage.listByChatId(input.chatId);
+    const galleryImage = requestedGalleryImageId
+      ? await storage.getById(requestedGalleryImageId)
+      : (galleryImages[0] ?? null);
+    if (!galleryImage || galleryImage.chatId !== input.chatId) {
+      throw new GallerySceneVideoRequestError(
+        404,
+        requestedGalleryImageId
+          ? "Gallery illustration not found"
+          : "Add or generate a gallery image before generating a scene video.",
+      );
+    }
+
+    const videoRuntime = resolveGameVideoRuntime(videoConn);
+    const videoSettings = normalizeVideoGenerationUserSettings(
+      await createAppSettingsStorage(app.db).get(VIDEO_GENERATION_SETTINGS_KEY),
+    );
+    const fallbackDurationSeconds = videoRuntime.hasStoredDefaults
+      ? videoRuntime.activeDefaults.durationSeconds
+      : videoSettings.sceneVideoDurationSeconds;
+    const durationSeconds = Math.min(
+      videoRuntime.maxDurationSeconds,
+      Math.max(videoRuntime.minDurationSeconds, Math.trunc(input.durationSeconds ?? fallbackDurationSeconds)),
+    );
+    const aspectRatio = input.aspectRatio ?? videoRuntime.activeDefaults.aspectRatio;
+    const messages = await chats.listMessages(input.chatId);
+    const characterNames = await collectChatSceneCharacterNames(chat);
+    const promptDraft = await loadGameVideoPrompt({
+      promptOverridesStorage,
+      meta,
+      debugMode: input.debugMode,
+      ctx: {
+        sceneTitle: compactVideoPromptText(sceneTitleFromGalleryImage(galleryImage), videoRuntime.promptLimits.title),
+        narrationSummary: latestNarrationSummary(messages, videoRuntime.promptLimits.narrationSummary),
+        illustrationPrompt:
+          excerptIllustrationPromptForVideo(galleryImage.prompt, videoRuntime.promptLimits.illustrationPrompt) ||
+          "Use the supplied first-frame gallery image as the visual source.",
+        charactersLine: characterNames.length
+          ? characterNames.join(", ")
+          : "preserve any visible characters from the supplied image",
+        settingLine: buildRoleplayVideoSettingLine(chat, meta, videoRuntime.promptLimits.artStyle),
+        artStyleLine: "match the supplied gallery image",
+        durationSeconds,
+        aspectRatio,
+        sourceIllustrationLine: `Use the selected gallery image (${galleryImage.id}) as the first frame/reference image.`,
+      },
+    });
+    const prompt = resolveSceneVideoPrompt({
+      generatedPrompt: promptDraft,
+      promptOverride: input.promptOverride,
+      maxPromptLength: videoRuntime.promptLimits.finalPrompt,
+    });
+    const videoFallback = await resolveVideoConnectionFallback(connections, videoConnectionId);
+
+    return {
+      videoConnectionId,
+      galleryImage,
+      videoRuntime,
+      durationSeconds,
+      aspectRatio,
+      prompt,
+      videoFallback,
+    };
+  }
+
   async function findContextualSprite(
     chat: { id: string; characterIds?: unknown; personaId?: string | null },
     category: "facial" | "fullbody",
@@ -634,9 +746,38 @@ export async function galleryRoutes(app: FastifyInstance) {
     },
   );
 
+  app.post("/generate-scene-video/preview", async (req, reply) => {
+    const input = generateSceneVideoSchema.parse(req.body);
+    try {
+      const prepared = await prepareGallerySceneVideoRequest(input);
+      return {
+        prompt: prepared.prompt,
+        galleryImageId: prepared.galleryImage.id,
+        durationSeconds: prepared.durationSeconds,
+        aspectRatio: prepared.aspectRatio,
+        resolution: prepared.videoRuntime.resolution ?? null,
+        maxPromptLength: prepared.videoRuntime.promptLimits.finalPrompt,
+      };
+    } catch (err) {
+      if (err instanceof GallerySceneVideoRequestError || err instanceof SceneVideoPromptReviewError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
+      logger.warn(err, "[gallery/generate-scene-video/preview] Failed to prepare scene video prompt");
+      return reply.status(500).send({ error: "Scene video prompt preview failed" });
+    }
+  });
+
   app.post("/generate-scene-video", async (req, reply) => {
     const input = generateSceneVideoSchema.parse(req.body);
-    if (!isValidChatId(input.chatId)) return reply.status(400).send({ error: "Invalid chatId" });
+    let prepared: Awaited<ReturnType<typeof prepareGallerySceneVideoRequest>>;
+    try {
+      prepared = await prepareGallerySceneVideoRequest(input);
+    } catch (err) {
+      if (err instanceof GallerySceneVideoRequestError || err instanceof SceneVideoPromptReviewError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
+      throw err;
+    }
 
     const sceneVideoAbortSignal = createResponseAbortSignal(
       reply,
@@ -649,38 +790,10 @@ export async function galleryRoutes(app: FastifyInstance) {
     const debugLog = (message: string, ...args: unknown[]) => {
       logDebugOverride(debugOverrideEnabled, message, ...args);
     };
-
-    const connections = createConnectionsStorage(app.db);
     const sceneVideos = createGameSceneVideosStorage(app.db);
-    const promptOverridesStorage = createPromptOverridesStorage(app.db);
-
-    const chat = await chats.getById(input.chatId);
-    if (!chat) return reply.status(404).send({ error: "Chat not found" });
-
-    const meta = parseChatMetadata(chat.metadata);
-    const videoConnectionId = await resolveSceneVideoConnectionId(meta, connections);
-    if (!videoConnectionId) {
-      return reply.status(400).send({ error: "No video generation connection is configured for this chat." });
-    }
-
-    const videoConn = await connections.getWithKey(videoConnectionId);
-    if (!videoConn) return reply.status(404).send({ error: "Video generation connection not found" });
-    if (videoConn.provider !== "video_generation") {
-      return reply.status(400).send({ error: "The selected connection is not a video generation connection." });
-    }
-
-    const requestedGalleryImageId = input.galleryImageId?.trim();
-    const galleryImages = requestedGalleryImageId ? [] : await storage.listByChatId(input.chatId);
-    const galleryImage = requestedGalleryImageId
-      ? await storage.getById(requestedGalleryImageId)
-      : (galleryImages[0] ?? null);
-    if (!galleryImage || galleryImage.chatId !== input.chatId) {
-      return reply.status(404).send({
-        error: requestedGalleryImageId
-          ? "Gallery illustration not found"
-          : "Add or generate a gallery image before generating a scene video.",
-      });
-    }
+    const { videoConnectionId, galleryImage, videoRuntime, durationSeconds, aspectRatio, prompt, videoFallback } =
+      prepared;
+    const { source, serviceHint, baseUrl, apiKey, model, resolution, publicReferenceUpload } = videoRuntime;
 
     const galleryImagePath = resolveGalleryImagePath(galleryImage);
     if (!galleryImagePath) {
@@ -694,56 +807,6 @@ export async function galleryRoutes(app: FastifyInstance) {
       const message = err instanceof Error ? err.message : "The selected gallery image cannot be used.";
       return reply.status(400).send({ error: message });
     }
-
-    const videoRuntime = resolveGameVideoRuntime(videoConn);
-    const {
-      source,
-      serviceHint,
-      baseUrl,
-      model,
-      resolution,
-      promptLimits,
-      minDurationSeconds,
-      maxDurationSeconds,
-      publicReferenceUpload,
-      activeDefaults: activeVideoDefaults,
-      hasStoredDefaults,
-    } = videoRuntime;
-    const videoSettings = normalizeVideoGenerationUserSettings(
-      await createAppSettingsStorage(app.db).get(VIDEO_GENERATION_SETTINGS_KEY),
-    );
-    const fallbackDurationSeconds = hasStoredDefaults
-      ? activeVideoDefaults.durationSeconds
-      : videoSettings.sceneVideoDurationSeconds;
-    const durationSeconds = Math.min(
-      maxDurationSeconds,
-      Math.max(minDurationSeconds, Math.trunc(input.durationSeconds ?? fallbackDurationSeconds)),
-    );
-    const aspectRatio = input.aspectRatio ?? activeVideoDefaults.aspectRatio;
-
-    const messages = await chats.listMessages(input.chatId);
-    const characterNames = await collectChatSceneCharacterNames(chat);
-    const promptDraft = await loadGameVideoPrompt({
-      promptOverridesStorage,
-      meta,
-      debugMode: requestDebug,
-      ctx: {
-        sceneTitle: compactVideoPromptText(sceneTitleFromGalleryImage(galleryImage), promptLimits.title),
-        narrationSummary: latestNarrationSummary(messages, promptLimits.narrationSummary),
-        illustrationPrompt:
-          excerptIllustrationPromptForVideo(galleryImage.prompt, promptLimits.illustrationPrompt) ||
-          "Use the supplied first-frame gallery image as the visual source.",
-        charactersLine: characterNames.length
-          ? characterNames.join(", ")
-          : "preserve any visible characters from the supplied image",
-        settingLine: buildRoleplayVideoSettingLine(chat, meta, promptLimits.artStyle),
-        artStyleLine: "match the supplied gallery image",
-        durationSeconds,
-        aspectRatio,
-        sourceIllustrationLine: `Use the selected gallery image (${galleryImage.id}) as the first frame/reference image.`,
-      },
-    });
-    const prompt = limitSceneVideoPromptForProvider(promptDraft, promptLimits.finalPrompt);
 
     logger.info(
       "[gallery/generate-scene-video] request: chatId=%s connection=%s source=%s model=%s duration=%d aspect=%s image=%s",
@@ -762,7 +825,7 @@ export async function galleryRoutes(app: FastifyInstance) {
     let savedFilePath: string | null = null;
     let metadataSaved = false;
     try {
-      const generated = await generateVideo(source, baseUrl, videoConn.apiKey || "", serviceHint, {
+      const generated = await generateVideo(source, baseUrl, apiKey, serviceHint, {
         prompt,
         model,
         durationSeconds,
@@ -771,6 +834,7 @@ export async function galleryRoutes(app: FastifyInstance) {
         referenceImage,
         publicReferenceUpload,
         signal: sceneVideoAbortSignal,
+        fallback: videoFallback,
       });
       const filePath = await saveVideoToDisk(input.chatId, generated.base64);
       savedFilePath = filePath;
@@ -873,7 +937,8 @@ export async function galleryRoutes(app: FastifyInstance) {
     });
 
     const selfieAbortSignal = createResponseAbortSignal(reply, SCENE_VIDEO_GENERATION_TIMEOUT_MS, "Selfie generation");
-    const promptBuilder = useLocalSidecar
+    const promptFallbackConnection = await connections.getFallbackForAgents();
+    const primaryPromptBuilder = useLocalSidecar
       ? getLocalSidecarProvider()
       : createLLMProvider(
           chatConn!.provider,
@@ -885,6 +950,13 @@ export async function galleryRoutes(app: FastifyInstance) {
           chatConn!.claudeFastMode === "true",
           chatConn!.treatAsLocalEndpoint === "true",
         );
+    const promptBuilder = withConnectionFallbackProvider({
+      primary: primaryPromptBuilder,
+      primaryConnectionId: useLocalSidecar ? LOCAL_SIDECAR_CONNECTION_ID : chatConn!.id,
+      fallbackConnection: promptFallbackConnection,
+      fallbackBaseUrl: promptFallbackConnection ? resolveBaseUrl(promptFallbackConnection) : "",
+      category: "agents",
+    });
     const promptContext = input.context?.trim()
       ? `Context for the selfie: ${input.context.trim()}`
       : `Generate a casual selfie of ${characterName} based on the current conversation context.`;
@@ -894,27 +966,29 @@ export async function galleryRoutes(app: FastifyInstance) {
       debugLog("[debug/gallery/selfie] prompt-builder user:\n%s", promptContext);
     }
 
-    let imagePrompt: string;
-    try {
-      const promptResult = await promptBuilder.chatComplete(
-        [
-          { role: "system", content: selfieSystemPrompt },
-          { role: "user", content: promptContext },
-        ],
-        {
-          model: useLocalSidecar ? LOCAL_SIDECAR_MODEL : chatConn!.model,
-          temperature: 0.7,
-          maxTokens: 8196,
-          signal: selfieAbortSignal,
-          enableCaching: !useLocalSidecar && chatConn!.enableCaching === "true",
-          anthropicExtendedCacheTtl: !useLocalSidecar && chatConn!.anthropicExtendedCacheTtl === "true",
-        },
-      );
-      imagePrompt = (promptResult.content ?? "").trim();
-    } catch (err) {
-      logger.warn(err, "[gallery/selfie] Failed to build selfie image prompt for chat %s", chatId);
-      const message = err instanceof Error ? err.message : "Failed to build selfie prompt";
-      return reply.status(502).send({ error: message });
+    let imagePrompt = input.promptOverride?.trim() ?? "";
+    if (!imagePrompt) {
+      try {
+        const promptResult = await promptBuilder.chatComplete(
+          [
+            { role: "system", content: selfieSystemPrompt },
+            { role: "user", content: promptContext },
+          ],
+          {
+            model: useLocalSidecar ? LOCAL_SIDECAR_MODEL : chatConn!.model,
+            temperature: 0.7,
+            maxTokens: 8196,
+            signal: selfieAbortSignal,
+            enableCaching: !useLocalSidecar && chatConn!.enableCaching === "true",
+            anthropicExtendedCacheTtl: !useLocalSidecar && chatConn!.anthropicExtendedCacheTtl === "true",
+          },
+        );
+        imagePrompt = (promptResult.content ?? "").trim();
+      } catch (err) {
+        logger.warn(err, "[gallery/selfie] Failed to build selfie image prompt for chat %s", chatId);
+        const message = err instanceof Error ? err.message : "Failed to build selfie prompt";
+        return reply.status(502).send({ error: message });
+      }
     }
 
     if (!imagePrompt) {
@@ -993,32 +1067,65 @@ export async function galleryRoutes(app: FastifyInstance) {
     const imageBaseUrl = imageConn.baseUrl || "https://image.pollinations.ai";
     const imageSource = imageConn.imageGenerationSource || imageModel;
     const imageServiceHint = imageConn.imageService || imageSource;
+    const promptSubmission = resolveReviewedImagePromptSubmission({
+      generatedPrompt: compiledPrompt.prompt,
+      generatedNegativePrompt: compiledPrompt.negativePrompt ?? "",
+      promptOverride: input.promptOverride,
+      negativePromptOverride: input.negativePromptOverride,
+    });
+    const providerPrompt = promptSubmission.prompt;
+    const providerNegativePrompt = promptSubmission.negativePrompt;
+
+    if (input.previewOnly) {
+      return {
+        items: [
+          {
+            id: "conversation-selfie",
+            kind: "selfie",
+            title: `${characterName} selfie`,
+            prompt: providerPrompt,
+            ...(providerNegativePrompt ? { negativePrompt: providerNegativePrompt } : {}),
+            width,
+            height,
+          },
+        ],
+      };
+    }
 
     if (debugLogsEnabled) {
-      debugLog("[debug/gallery/selfie] final image prompt:\n%s", compiledPrompt.prompt);
-      if (compiledPrompt.negativePrompt) {
-        debugLog("[debug/gallery/selfie] negative prompt:\n%s", compiledPrompt.negativePrompt);
+      debugLog("[debug/gallery/selfie] final image prompt:\n%s", providerPrompt);
+      if (providerNegativePrompt) {
+        debugLog("[debug/gallery/selfie] negative prompt:\n%s", providerNegativePrompt);
       }
     }
 
     try {
-      const imageResult = await generateImage(imageSource, imageBaseUrl, imageConn.apiKey || "", imageServiceHint, {
-        prompt: compiledPrompt.prompt,
-        negativePrompt: compiledPrompt.negativePrompt || undefined,
-        model: imageModel,
-        width,
-        height,
-        imageEndpointId: imageConn.imageEndpointId || undefined,
-        comfyWorkflow: imageConn.comfyuiWorkflow || undefined,
-        imageDefaults,
-        referenceImages,
+      const imageFallback = await resolveImageConnectionFallback(connections, imageConn.id);
+      const imageConnectionQueueKey = imageConn.id?.trim() || `${imageServiceHint}:${imageBaseUrl}:${imageModel}`;
+      const imageResult = await runImageGenerationRequest({
+        connectionKey: imageConnectionQueueKey,
+        queue: input.queueImageGenerationRequests,
         signal: selfieAbortSignal,
+        task: () =>
+          generateImage(imageSource, imageBaseUrl, imageConn.apiKey || "", imageServiceHint, {
+            prompt: providerPrompt,
+            negativePrompt: providerNegativePrompt || undefined,
+            model: imageModel,
+            width,
+            height,
+            imageEndpointId: imageConn.imageEndpointId || undefined,
+            comfyWorkflow: imageConn.comfyuiWorkflow || undefined,
+            imageDefaults,
+            referenceImages,
+            signal: selfieAbortSignal,
+            fallback: imageFallback,
+          }),
       });
       const filePath = saveImageToDisk(chatId, imageResult.base64, imageResult.ext);
       const image = await storage.create({
         chatId,
         filePath,
-        prompt: compiledPrompt.prompt,
+        prompt: providerPrompt,
         provider: imageConn.provider ?? "image_generation",
         model: imageModel || "unknown",
         width,
@@ -1030,7 +1137,7 @@ export async function galleryRoutes(app: FastifyInstance) {
         characterIds: [character.id],
         characterGallery,
         personaGallery,
-        prompt: compiledPrompt.prompt,
+        prompt: providerPrompt,
         provider: imageConn.provider ?? "image_generation",
         model: imageModel || "unknown",
         width,

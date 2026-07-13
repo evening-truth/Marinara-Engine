@@ -7,6 +7,25 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 ### Added
 
 - Added Tic-Tac-Toe and Rock-Paper-Scissors as one-on-one Conversation-mode table games. Tic-Tac-Toe seats you against a character on a 3×3 board with a choice of X, O, or a random mark, and detects wins and draws. Rock-Paper-Scissors plays a best-of-3/5/7 match where each round's throw stays hidden from your opponent until both of you have thrown, then reveals the result. Both join the `[tic_tac_toe]`/`[rock_paper_scissors]` Conversation command family alongside `[chess]` and `[eightball]`, with `/tictactoe` (alias `/ttt`) and `/rps` slash commands, natural-language launchers, per-chat command toggles, and setup modals for opponent and game length.
+- Added a compact, expandable **Defaults** section to Connections for Main, Agents, Illustrator, and Videos. Each category now supports an optional fallback connection; failed generations retry once through that category's fallback while user cancellations and already-visible partial text streams remain protected from duplicate output. A toast identifies the fallback connection and model whenever the engine switches over.
+
+### Changed
+
+- Moved **Title / comment** into the primary identity fields directly below **Name** in both Character and Persona Metadata, while keeping it synchronized with the matching editor-header field.
+- Changed Noodle participant selection so invited characters remain the primary cast while random-user accounts appear only occasionally as supporting activity.
+
+### Fixed
+
+- Hardened generation fallbacks so output already emitted through streaming callbacks is never replaced, failed toast delivery cannot cancel a working fallback, Roleplay background generation participates in Illustrator fallback routing, and Conversation selfie galleries record the connection and model that actually produced the image.
+- Fixed image and video connections retaining or claiming the language-only **Fallback for Main** role after creation or provider changes.
+- Fixed corrected Noodle refreshes bypassing the same activity and authorship validation as the first attempt, empty refreshes being accepted without retry, persona IDs being offered as generated authors, and JSON-shaped image prompts without a usable prompt field being sent verbatim to image providers.
+- Fixed Android/Termux updates repeatedly forcing the entire dependency store to reinstall for the same stale build. The launcher now performs one rebuild, prunes unreferenced packages left by older releases, avoids irrelevant cross-platform binary downloads, and accepts the current Node 26 Termux runtime (#3540).
+- Fixed one malformed generated Noodle post, interaction, follow, or digest rejecting an otherwise valid refresh. Rows are now validated independently, while wholly malformed JSON or batches containing only invented account IDs receive one constrained retry with the exact active IDs (#3547, #3553).
+- Fixed XML agent prompt-template overrides escaping literal contract tags such as `<chat_summary>` and `<existing_entries>` while continuing to escape values inserted through macros (#3548).
+- Fixed Conversation group messages ignoring character-specific Convo display names in generation instructions, speaker parsing, sender labels, typing events, and historical base-name matching (#3550).
+- Added profile editing for directly invited Noodle characters, including display name, handle, bio, location, avatar, and banner; manual profile identity changes are preserved when the underlying character card is refreshed (#3551).
+- Fixed add-character searches in Conversation and Roleplay setup and Chat Settings ignoring card tags, descriptions, creator metadata, and title aliases (#3555).
+- Fixed Noodle's default generated-image path sending the post text and prompt-building meta-instructions directly to image providers. It now sends only the model's visual idea, character appearance, Noodle image direction, and selected image-generation style settings, with recovery for legacy or JSON-wrapped image prompts (#3554).
 
 ## [2.2.1]
 
@@ -63,6 +82,10 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Added 8-Ball Pool as a one-on-one Conversation-mode table game with a real 2D physics simulation: you aim and shoot for real — drag to aim with a guide line and ghost-ball preview, set power on a slider, and watch every shot play out with animated ball motion, collisions, cushion bounces, and pocket drops. Characters pick from an engine-computed shot menu (direct pots, bank shots, and safeties) in personality — daredevils take the showoff bank, tacticians play safe — and their choice is executed through the same physics with skill-based aim accuracy. Fouls (scratches and wrong-ball-first contact) give ball-in-hand with tap-to-place cue placement, slop counts, alternate breaks, and race-to-N matches with player-paced racks.
 - Added a selectable 8-ball announcer: seat any chat character as the pool-hall commentator, who calls the break, group assignment, fouls, great shots, and rack wins in their own voice — narration only, never affecting the rules.
 - 8-ball joins the `[eightball]` Conversation command family, with a `/8ball` slash command (alias `/pool`), natural-language launcher, per-chat command toggle, and a setup modal for the opponent, announcer, match length, and who breaks.
+- Added an opt-in **Lorebook context** setting to Noodle (off by default): when enabled, timeline refreshes scan recent post/reply text and active character profiles for lorebook keyword matches and include activated entries as world/lore context, reusing the same multi-character lorebook system group chats already use, with a Noodle-specific token budget that scales with the active character count.
+- Registered a **Noodle Timeline Voice & Tone** prompt override (Settings -> Generations -> Image Generation Prompt Overrides) so the tone and creative-freedom portion of Noodle's refresh prompt can be rewritten without code changes, while structured-action and output-format rules stay hardcoded outside the override so a rewrite cannot break refresh generation.
+- Noodle's opted-in chat context now includes a character's current Conversation-schedule status and activity (for example, "currently dnd (At the office)") alongside that chat's recent messages, when the chat both has **Allow Noodle references** on and a running character schedule. Scoped per chat, with no new schedule computation or cross-chat reconciliation.
+- Added an opt-in **Enhanced tone & continuity** setting to Noodle (off by default, Settings -> Timeline Writing): when enabled, each account's tone is grounded more strongly in its own Personality/Description/Backstory instead of a default upbeat voice, accounts are encouraged to react to, quote, or argue with each other's posts within the same refresh, older-post recall happens more often and favors posts relevant to currently active accounts, and the recall instruction is reworded to allow rather than discourage references. Off (the default) reproduces the prior tone and recall behavior exactly.
 
 ### Changed
 
