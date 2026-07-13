@@ -254,15 +254,17 @@ export function injectIdentityFallbackMessages(args: {
         ? `Conversation display name: ${sanitizePromptLeaf(convoName, args.wrapFormat)}\n`
         : "";
 
-    const fieldsToInject = namedProfilePresent
-      ? []
-      : CHARACTER_FALLBACK_FIELDS.flatMap((field) => {
-          const value = resolvedFields[field.key];
-          if (!value.trim()) return [];
-          if (sourceReferencesAnyMacro(promptTemplateSources, field.macroAliases)) return [];
-          if (contentIncludesResolvedField(allContent, value)) return [];
-          return [{ label: field.label, value }];
-        });
+    const fieldsToInject = CHARACTER_FALLBACK_FIELDS.flatMap((field) => {
+      // A custom Conversation prompt may already provide a named profile while
+      // omitting the card's Advanced System Prompt. Preserve the custom profile,
+      // but never let its presence suppress character-authored instructions.
+      if (namedProfilePresent && field.key !== "systemPrompt") return [];
+      const value = resolvedFields[field.key];
+      if (!value.trim()) return [];
+      if (sourceReferencesAnyMacro(promptTemplateSources, field.macroAliases)) return [];
+      if (contentIncludesResolvedField(allContent, value)) return [];
+      return [{ label: field.label, value }];
+    });
     const fieldParts = wrapFieldEntries(fieldsToInject, args.wrapFormat);
     if (fieldParts.length === 0 && !convoNameLine) continue;
 

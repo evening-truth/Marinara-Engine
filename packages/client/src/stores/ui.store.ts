@@ -477,6 +477,8 @@ interface UIState {
   gameAssetsBrowserOpen: boolean;
   /** When true, the main area shows the Noodle social timeline */
   noodleOpen: boolean;
+  /** Last persona selected inside Noodle, persisted per browser. */
+  noodleSelectedPersonaId: string | null;
   /** When true, the main area shows the full-page character library */
   characterLibraryOpen: boolean;
   /** Last selected character card inside the full-page character library */
@@ -827,6 +829,7 @@ interface UIState {
   closeGameAssetsBrowser: () => void;
   openNoodle: () => void;
   closeNoodle: () => void;
+  setNoodleSelectedPersonaId: (id: string | null) => void;
 
   /** Returns true if any full-page detail editor is currently open */
   hasAnyDetailOpen: () => boolean;
@@ -1191,6 +1194,7 @@ export const useUIStore = create<UIState>()(
       botBrowserOpen: false,
       gameAssetsBrowserOpen: false,
       noodleOpen: false,
+      noodleSelectedPersonaId: null,
       characterLibraryOpen: false,
       characterLibrarySelectedId: null,
       characterLibrarySort: "name-asc" as CharacterLibrarySort,
@@ -1727,6 +1731,7 @@ export const useUIStore = create<UIState>()(
           ...(window.innerWidth < 768 && { rightPanelOpen: false }),
         }),
       closeNoodle: () => set({ noodleOpen: false }),
+      setNoodleSelectedPersonaId: (id) => set({ noodleSelectedPersonaId: id }),
 
       hasAnyDetailOpen: () => {
         const s = get();
@@ -2587,6 +2592,7 @@ export const useUIStore = create<UIState>()(
         botBrowserOpen: state.botBrowserOpen,
         gameAssetsBrowserOpen: state.gameAssetsBrowserOpen,
         noodleOpen: state.noodleOpen,
+        noodleSelectedPersonaId: state.noodleSelectedPersonaId,
         characterLibraryOpen: state.characterLibraryOpen,
         characterLibrarySelectedId: state.characterLibrarySelectedId,
         characterLibrarySort: state.characterLibrarySort,

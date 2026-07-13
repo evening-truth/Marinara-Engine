@@ -20,6 +20,33 @@ try {
   assert.equal(updated.maxImagesPerRefresh, 9);
   assert.equal(updated.allowRandomUsers, true);
   assert.equal(updated.maxGeneratedPostsPerRefresh, 11);
+  const characterAccount = await firstNoodle.upsertAccountFromProfile({
+    kind: "character",
+    entityId: "renamed-character",
+    displayName: "Old Card Name",
+    avatarUrl: "/old-avatar.png",
+    bio: "Generated Noodle biography",
+    invited: true,
+    syncIdentity: true,
+  });
+  await firstNoodle.updateAccount(characterAccount.id, {
+    displayName: "Generated Social Name",
+    handle: "custom_handle",
+    bio: "Keep this generated biography",
+    settings: { profileGenerated: true, location: "Snezhnaya" },
+  });
+  const renamedCharacterAccount = await firstNoodle.upsertAccountFromProfile({
+    kind: "character",
+    entityId: "renamed-character",
+    displayName: "New Card Name",
+    avatarUrl: "/new-avatar.png",
+    syncIdentity: true,
+  });
+  assert.equal(renamedCharacterAccount.displayName, "New Card Name");
+  assert.equal(renamedCharacterAccount.avatarUrl, "/new-avatar.png");
+  assert.equal(renamedCharacterAccount.handle, "custom_handle");
+  assert.equal(renamedCharacterAccount.bio, "Keep this generated biography");
+  assert.deepEqual(renamedCharacterAccount.settings, { profileGenerated: true, location: "Snezhnaya" });
   await firstDb._fileStore.close();
 
   const reopenedDb = await createFileNativeDB();

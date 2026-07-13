@@ -5,6 +5,7 @@ import {
   resolveIllustratorCharacterReferences,
 } from "../../routes/generate/illustrator-references.js";
 import { compileImagePrompt } from "../image/image-prompt-compiler.js";
+import { persistGeneratedImageToEntityGalleries } from "../image/generated-image-entity-gallery.js";
 import { resolveConnectionImageDefaults } from "../image/image-generation-defaults.js";
 import { generateImage, saveImageToDisk } from "../image/image-generation.js";
 import { loadImageGenerationUserSettings } from "../image/image-generation-settings.js";
@@ -12,6 +13,8 @@ import { createLLMProvider } from "../llm/provider-registry.js";
 import { resolveConversationSelfieSystemPrompt } from "../conversation/selfie-prompt.js";
 import type { CharacterCommand, SelfieCommand } from "../conversation/character-commands.js";
 import { createGalleryStorage } from "../storage/gallery.storage.js";
+import { createCharacterGalleryStorage } from "../storage/character-gallery.storage.js";
+import { createPersonaGalleryStorage } from "../storage/persona-gallery.storage.js";
 import { createPromptOverridesStorage } from "../storage/prompt-overrides.storage.js";
 
 type CharactersStore = {
@@ -249,6 +252,17 @@ async function generateSelfie(args: Parameters<typeof handleConversationSelfieCo
   const galleryEntry = await galleryStore.create({
     chatId: args.chatId,
     filePath,
+    prompt: compiledSelfiePrompt.prompt,
+    provider: imgConnFull.provider ?? "image_generation",
+    model: imgModel || "unknown",
+    width: selfieW || imageSettings.selfie.width,
+    height: selfieH || imageSettings.selfie.height,
+  });
+  await persistGeneratedImageToEntityGalleries({
+    sourceFilePath: filePath,
+    characterIds: args.characterId ? [args.characterId] : [],
+    characterGallery: createCharacterGalleryStorage(args.db),
+    personaGallery: createPersonaGalleryStorage(args.db),
     prompt: compiledSelfiePrompt.prompt,
     provider: imgConnFull.provider ?? "image_generation",
     model: imgModel || "unknown",

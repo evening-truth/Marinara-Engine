@@ -57,12 +57,15 @@ import { createAgentsStorage } from "../../services/storage/agents.storage.js";
 import { createCharactersStorage } from "../../services/storage/characters.storage.js";
 import { createChatsStorage } from "../../services/storage/chats.storage.js";
 import { createConnectionsStorage } from "../../services/storage/connections.storage.js";
+import { createCharacterGalleryStorage } from "../../services/storage/character-gallery.storage.js";
+import { createPersonaGalleryStorage } from "../../services/storage/persona-gallery.storage.js";
 import { createPromptsStorage } from "../../services/storage/prompts.storage.js";
 import { findLastUserMessageIdBefore } from "../../services/generation/message-history.js";
 import { textRewriteDropsProtectedMarkup } from "../../services/generation/text-rewrite-safety.js";
 import { resolveConnectionImageDefaults } from "../../services/image/image-generation-defaults.js";
 import { loadImageGenerationUserSettings } from "../../services/image/image-generation-settings.js";
 import { compileImagePrompt } from "../../services/image/image-prompt-compiler.js";
+import { persistGeneratedImageToEntityGalleries } from "../../services/image/generated-image-entity-gallery.js";
 import { createGameStateStorage } from "../../services/storage/game-state.storage.js";
 import { createLorebooksStorage } from "../../services/storage/lorebooks.storage.js";
 import { syncGameMapMetaPartyPosition } from "../../services/game/map-position.service.js";
@@ -2960,51 +2963,50 @@ async function applyRetryResultEffects(args: {
                 ? chatMeta.illustratorIncludeCharacterAppearance
                 : illustratorAgent?.resolved.settings?.includeCharacterAppearance === true;
             let referenceImages: string[] | undefined;
-            if (useAvatarRefs || includeCharacterAppearance) {
-              const referenceResolution = await resolveIllustratorCharacterReferences({
-                charactersStore: chars,
-                chatCharacters: agentContext.characters.map((character) => ({
-                  id: character.id,
-                  name: character.name,
-                  appearance: character.appearance,
-                })),
-                persona: agentContext.persona
-                  ? {
-                      id: typeof agentContext.memory._personaId === "string" ? agentContext.memory._personaId : null,
-                      name: agentContext.persona.name,
-                      avatarPath:
-                        typeof agentContext.memory._personaAvatarPath === "string"
-                          ? agentContext.memory._personaAvatarPath
-                          : null,
-                      appearance: agentContext.persona.appearance,
-                    }
-                  : null,
-                requestedNames: illCharacters.filter((name): name is string => typeof name === "string"),
-                promptText: [
-                  imagePrompt,
-                  style,
-                  typeof illData.reason === "string" ? illData.reason : "",
-                  agentContext.mainResponse ?? "",
-                ].join("\n"),
-                fallbackToChatCharacters: false,
-              });
-              if (includeCharacterAppearance && referenceResolution.appearanceBlock) {
-                fullPrompt += `\n\n${referenceResolution.appearanceBlock}`;
-                logger.debug(
-                  "[retry-agents] Illustrator added character appearance notes for: %s",
-                  referenceResolution.appearanceNames.join(", "),
-                );
-              }
-              if (useAvatarRefs && referenceResolution.referenceImages.length > 0) {
-                referenceImages = referenceResolution.referenceImages;
-                if (referenceResolution.referenceLine && !suppressReferencePromptLine)
-                  fullPrompt += `\n\n${referenceResolution.referenceLine}`;
-                logger.debug(
-                  "[retry-agents] Illustrator sending %d character reference(s) for: %s",
-                  referenceResolution.referenceImages.length,
-                  referenceResolution.referenceNames.join(", "),
-                );
-              }
+            const referenceResolution = await resolveIllustratorCharacterReferences({
+              charactersStore: chars,
+              chatCharacters: agentContext.characters.map((character) => ({
+                id: character.id,
+                name: character.name,
+                appearance: character.appearance,
+              })),
+              persona: agentContext.persona
+                ? {
+                    id: typeof agentContext.memory._personaId === "string" ? agentContext.memory._personaId : null,
+                    name: agentContext.persona.name,
+                    avatarPath:
+                      typeof agentContext.memory._personaAvatarPath === "string"
+                        ? agentContext.memory._personaAvatarPath
+                        : null,
+                    appearance: agentContext.persona.appearance,
+                  }
+                : null,
+              requestedNames: illCharacters.filter((name): name is string => typeof name === "string"),
+              promptText: [
+                imagePrompt,
+                style,
+                typeof illData.reason === "string" ? illData.reason : "",
+                agentContext.mainResponse ?? "",
+              ].join("\n"),
+              fallbackToChatCharacters: false,
+              includeReferenceImages: useAvatarRefs,
+            });
+            if (includeCharacterAppearance && referenceResolution.appearanceBlock) {
+              fullPrompt += `\n\n${referenceResolution.appearanceBlock}`;
+              logger.debug(
+                "[retry-agents] Illustrator added character appearance notes for: %s",
+                referenceResolution.appearanceNames.join(", "),
+              );
+            }
+            if (useAvatarRefs && referenceResolution.referenceImages.length > 0) {
+              referenceImages = referenceResolution.referenceImages;
+              if (referenceResolution.referenceLine && !suppressReferencePromptLine)
+                fullPrompt += `\n\n${referenceResolution.referenceLine}`;
+              logger.debug(
+                "[retry-agents] Illustrator sending %d character reference(s) for: %s",
+                referenceResolution.referenceImages.length,
+                referenceResolution.referenceNames.join(", "),
+              );
             }
 
             const compiledPrompt = compileImagePrompt({
@@ -3039,6 +3041,18 @@ async function applyRetryResultEffects(args: {
               filePath,
               prompt: compiledPrompt.prompt,
               provider: "image_generation",
+              model: imgModel || "unknown",
+              width: imgWidth,
+              height: imgHeight,
+            });
+            await persistGeneratedImageToEntityGalleries({
+              sourceFilePath: filePath,
+              characterIds: referenceResolution.characterIds,
+              personaIds: referenceResolution.personaId ? [referenceResolution.personaId] : [],
+              characterGallery: createCharacterGalleryStorage(app.db),
+              personaGallery: createPersonaGalleryStorage(app.db),
+              prompt: compiledPrompt.prompt,
+              provider: imgConnFull.provider ?? "image_generation",
               model: imgModel || "unknown",
               width: imgWidth,
               height: imgHeight,

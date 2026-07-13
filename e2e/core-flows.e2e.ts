@@ -14,6 +14,7 @@ function collectUnexpectedErrors(page: Page) {
 
 async function prepareFreshClient(page: Page) {
   await page.addInitScript(() => {
+    if (localStorage.getItem("marinara-engine-ui")) return;
     localStorage.setItem(
       "marinara-engine-ui",
       JSON.stringify({
@@ -1049,6 +1050,50 @@ test("Noodle settings persist through refetch and reload", async ({ page }, test
         refreshesPerDay: initial.settings.refreshesPerDay,
       },
     });
+  }
+});
+
+test("Noodle restores the last selected persona after reload", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Noodle persona persistence is covered on desktop.");
+
+  const createdPersonaIds: string[] = [];
+  try {
+    for (const name of ["Noodle Persona One", "Noodle Persona Two"]) {
+      const response = await page.request.post("/api/characters/personas", {
+        data: { name, description: "Temporary Noodle account persistence regression persona." },
+      });
+      expect(response.ok()).toBe(true);
+      createdPersonaIds.push(((await response.json()) as { id: string }).id);
+    }
+    const selectedPersonaId = createdPersonaIds[1]!;
+    expect((await page.request.get("/api/noodle")).ok()).toBe(true);
+
+    await page.goto("/");
+    await page.locator('[data-tour="noodle-tab"]').click();
+    const noodle = page.locator('[data-component="NoodleView"]');
+    const accountSwitcher = noodle.locator('[data-component="NoodleView.AccountSwitcher"]');
+    await accountSwitcher.click();
+    await noodle.locator(`[data-noodle-persona-id="${selectedPersonaId}"]`).click();
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = localStorage.getItem("marinara-engine-ui");
+          if (!raw) return null;
+          return (JSON.parse(raw) as { state?: { noodleSelectedPersonaId?: string | null } }).state
+            ?.noodleSelectedPersonaId ?? null;
+        }),
+      )
+      .toBe(selectedPersonaId);
+
+    await page.reload();
+    await page.locator('[data-tour="noodle-tab"]').click();
+    await expect(noodle).toBeVisible();
+    await expect(accountSwitcher).toContainText("Noodle Persona Two");
+  } finally {
+    for (const personaId of createdPersonaIds) {
+      await page.request.delete(`/api/characters/personas/${personaId}`, { timeout: 5_000 }).catch(() => undefined);
+    }
   }
 });
 

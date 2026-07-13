@@ -86,12 +86,14 @@ import { resolveConnectionImageDefaults } from "../services/image/image-generati
 import { loadImageGenerationUserSettings } from "../services/image/image-generation-settings.js";
 import { textRewriteDropsProtectedMarkup } from "../services/generation/text-rewrite-safety.js";
 import { compileImagePrompt } from "../services/image/image-prompt-compiler.js";
+import { persistGeneratedImageToEntityGalleries } from "../services/image/generated-image-entity-gallery.js";
 import { extractLeadingThinkingBlocks } from "../services/llm/inline-thinking.js";
 import { buildSpotifyDjConstraints } from "../services/spotify/spotify-dj-constraints.js";
 import {
   assemblePrompt,
   buildPromptMacroContext,
-  collectCharacterDepthPromptEntries,
+  collectCharacterAdvancedPromptEntries,
+  resolveCharacterAdvancedPromptIds,
   resolveCharacterMacroData,
   resolveMacrosWithVariableSnapshot,
   resolvePromptIdleDuration,
@@ -1419,6 +1421,7 @@ export async function generateRoutes(app: FastifyInstance) {
         const lorebookScopeExclusions = resolveLorebookScopeExclusions(chatMode, chatMeta);
         let lorebookScanSnapshot: LorebookScanSnapshot = emptyLorebookScanSnapshot();
         let presetHandledLorebooks = false;
+        let characterAdvancedPromptsInjected = false;
         const presetHasLorebookMarker = (sections: Array<{ isMarker: string; markerConfig: string | null }>) =>
           sections.some((section) => {
             if (section.isMarker !== "true" || !section.markerConfig) return false;
@@ -1443,6 +1446,11 @@ export async function generateRoutes(app: FastifyInstance) {
             ? input.forCharacterId
             : null;
         const promptCharacterIds = resolvePromptCharacterIdsForTarget(characterIds, promptTargetCharacterId);
+        const characterAdvancedPromptIds = resolveCharacterAdvancedPromptIds(
+          promptCharacterIds,
+          chatMode,
+          chatMeta,
+        );
         const deferCharacterMacros =
           characterIds.length > 1 &&
           promptGroupChatMode === "individual" &&
@@ -1569,6 +1577,19 @@ export async function generateRoutes(app: FastifyInstance) {
             })),
             input,
           );
+        const injectCharacterAdvancedPrompts = async () => {
+          if (characterAdvancedPromptsInjected) return;
+          const entries = await collectCharacterAdvancedPromptEntries(
+            app.db,
+            characterAdvancedPromptIds,
+            promptMacroContext,
+            wrapFormat,
+          );
+          if (entries.length > 0) {
+            finalMessages = injectAtDepth(finalMessages, entries);
+          }
+          characterAdvancedPromptsInjected = true;
+        };
         let promptScopedLorebookIdSetPromise: Promise<Set<string>> | null = null;
         const getPromptScopedLorebookIdSet = () => {
           promptScopedLorebookIdSetPromise ??= (async () => {
@@ -1758,6 +1779,7 @@ export async function generateRoutes(app: FastifyInstance) {
             knowledgeRouterActivationPassCompleted = true;
           }
           finalMessages = assembled.messages;
+          characterAdvancedPromptsInjected = true;
           temperature = assembled.parameters.temperature;
           maxTokens = assembled.parameters.maxTokens;
           topP = assembled.parameters.topP ?? 1;
@@ -2257,15 +2279,8 @@ export async function generateRoutes(app: FastifyInstance) {
           }
         }
 
-        if (!presetId && chatMode !== "game") {
-          const characterDepthEntries = await collectCharacterDepthPromptEntries(
-            app.db,
-            promptCharacterIds,
-            promptMacroContext,
-          );
-          if (characterDepthEntries.length > 0) {
-            finalMessages = injectAtDepth(finalMessages, characterDepthEntries);
-          }
+        if (chatMode !== "game") {
+          await injectCharacterAdvancedPrompts();
         }
 
         // ── Author's Notes injection ──
@@ -2620,6 +2635,11 @@ export async function generateRoutes(app: FastifyInstance) {
               finalMessages = injectAtDepth(finalMessages, lorebookResult.depthEntries);
             }
           }
+
+          // Game bypasses the preset assembler, so card-authored depth and
+          // post-history instructions must be injected explicitly before the
+          // final GM format reminder claims the generation tail.
+          await injectCharacterAdvancedPrompts();
 
           // LOG_LEVEL=debug or Settings -> Advanced -> Debug mode: log game-mode prompt details.
           if (isDebug || requestDebug) {
@@ -7649,49 +7669,48 @@ export async function generateRoutes(app: FastifyInstance) {
                           ? chatMeta.illustratorIncludeCharacterAppearance
                           : illustratorAgent?.settings?.includeCharacterAppearance === true;
                       let illustratorRefImages: string[] | undefined;
-                      if (useAvatarRefs || includeCharacterAppearance) {
-                        const referenceResolution = await resolveIllustratorCharacterReferences({
-                          charactersStore: chars,
-                          chatCharacters: charInfo.map((character) => ({
-                            id: character.id,
-                            name: character.name,
-                            avatarPath: character.avatarPath,
-                            appearance: character.appearance,
-                          })),
-                          persona: persona
-                            ? {
-                                id: personaId,
-                                name: personaName,
-                                avatarPath: persona.avatarPath as string | null,
-                                appearance: personaFields.appearance,
-                              }
-                            : null,
-                          requestedNames: illCharacters.filter((name): name is string => typeof name === "string"),
-                          promptText: [
-                            imagePrompt,
-                            style,
-                            typeof illData.reason === "string" ? illData.reason : "",
-                            combinedResponse,
-                          ].join("\n"),
-                          fallbackToChatCharacters: false,
-                        });
-                        if (includeCharacterAppearance && referenceResolution.appearanceBlock) {
-                          fullPrompt += `\n\n${referenceResolution.appearanceBlock}`;
-                          logger.debug(
-                            "[illustrator] Added character appearance notes for: %s",
-                            referenceResolution.appearanceNames.join(", "),
-                          );
-                        }
-                        if (useAvatarRefs && referenceResolution.referenceImages.length > 0) {
-                          illustratorRefImages = referenceResolution.referenceImages;
-                          if (referenceResolution.referenceLine && !suppressReferencePromptLine)
-                            fullPrompt += `\n\n${referenceResolution.referenceLine}`;
-                          logger.debug(
-                            "[illustrator] Sending %d character reference(s) for: %s",
-                            referenceResolution.referenceImages.length,
-                            referenceResolution.referenceNames.join(", "),
-                          );
-                        }
+                      const referenceResolution = await resolveIllustratorCharacterReferences({
+                        charactersStore: chars,
+                        chatCharacters: charInfo.map((character) => ({
+                          id: character.id,
+                          name: character.name,
+                          avatarPath: character.avatarPath,
+                          appearance: character.appearance,
+                        })),
+                        persona: persona
+                          ? {
+                              id: personaId,
+                              name: personaName,
+                              avatarPath: persona.avatarPath as string | null,
+                              appearance: personaFields.appearance,
+                            }
+                          : null,
+                        requestedNames: illCharacters.filter((name): name is string => typeof name === "string"),
+                        promptText: [
+                          imagePrompt,
+                          style,
+                          typeof illData.reason === "string" ? illData.reason : "",
+                          combinedResponse,
+                        ].join("\n"),
+                        fallbackToChatCharacters: false,
+                        includeReferenceImages: useAvatarRefs,
+                      });
+                      if (includeCharacterAppearance && referenceResolution.appearanceBlock) {
+                        fullPrompt += `\n\n${referenceResolution.appearanceBlock}`;
+                        logger.debug(
+                          "[illustrator] Added character appearance notes for: %s",
+                          referenceResolution.appearanceNames.join(", "),
+                        );
+                      }
+                      if (useAvatarRefs && referenceResolution.referenceImages.length > 0) {
+                        illustratorRefImages = referenceResolution.referenceImages;
+                        if (referenceResolution.referenceLine && !suppressReferencePromptLine)
+                          fullPrompt += `\n\n${referenceResolution.referenceLine}`;
+                        logger.debug(
+                          "[illustrator] Sending %d character reference(s) for: %s",
+                          referenceResolution.referenceImages.length,
+                          referenceResolution.referenceNames.join(", "),
+                        );
                       }
 
                       const compiledPrompt = compileImagePrompt({
@@ -7730,6 +7749,18 @@ export async function generateRoutes(app: FastifyInstance) {
                         filePath,
                         prompt: fullPrompt,
                         provider: "image_generation",
+                        model: imgModel || "unknown",
+                        width: imgWidth,
+                        height: imgHeight,
+                      });
+                      await persistGeneratedImageToEntityGalleries({
+                        sourceFilePath: filePath,
+                        characterIds: referenceResolution.characterIds,
+                        personaIds: referenceResolution.personaId ? [referenceResolution.personaId] : [],
+                        characterGallery,
+                        personaGallery,
+                        prompt: fullPrompt,
+                        provider: imgConnFull.provider ?? "image_generation",
                         model: imgModel || "unknown",
                         width: imgWidth,
                         height: imgHeight,

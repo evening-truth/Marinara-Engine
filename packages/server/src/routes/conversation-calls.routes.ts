@@ -33,6 +33,8 @@ import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js
 import { createAgentsStorage } from "../services/storage/agents.storage.js";
 import { createCustomEmojisStorage } from "../services/storage/custom-emojis.storage.js";
 import { createGalleryStorage } from "../services/storage/gallery.storage.js";
+import { createCharacterGalleryStorage } from "../services/storage/character-gallery.storage.js";
+import { createPersonaGalleryStorage } from "../services/storage/persona-gallery.storage.js";
 import { createPromptOverridesStorage } from "../services/storage/prompt-overrides.storage.js";
 import { createLLMProvider } from "../services/llm/provider-registry.js";
 import { sidecarSpeechService } from "../services/sidecar/sidecar-speech.service.js";
@@ -66,6 +68,7 @@ import { resolveConnectionImageDefaults } from "../services/image/image-generati
 import { loadImageGenerationUserSettings } from "../services/image/image-generation-settings.js";
 import { compileImagePrompt } from "../services/image/image-prompt-compiler.js";
 import { generateImage, saveImageToDisk } from "../services/image/image-generation.js";
+import { persistGeneratedImageToEntityGalleries } from "../services/image/generated-image-entity-gallery.js";
 import { isNovelAiImageConnection, resolveIllustratorCharacterReferences } from "./generate/illustrator-references.js";
 import { getChatHapticIntifaceUrl } from "../services/generation/haptic-runtime.js";
 import { resolveSpotifyCredentials, spotifyHasScope } from "../services/spotify/spotify.service.js";
@@ -1793,6 +1796,17 @@ async function applyCallSelfieCommand(input: {
   const galleryEntry = await createGalleryStorage(input.app.db).create({
     chatId: input.chat.id,
     filePath,
+    prompt: compiledPrompt.prompt,
+    provider: imageConn.provider ?? "image_generation",
+    model: imageConn.model || "unknown",
+    width: selfieW || imageSettings.selfie.width,
+    height: selfieH || imageSettings.selfie.height,
+  });
+  await persistGeneratedImageToEntityGalleries({
+    sourceFilePath: filePath,
+    characterIds: [input.characterId],
+    characterGallery: createCharacterGalleryStorage(input.app.db),
+    personaGallery: createPersonaGalleryStorage(input.app.db),
     prompt: compiledPrompt.prompt,
     provider: imageConn.provider ?? "image_generation",
     model: imageConn.model || "unknown",

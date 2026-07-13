@@ -14,6 +14,11 @@ import { getAgentBatchLane, type ResolvedAgent } from "../../packages/server/src
 import { mergePairedBuiltInRewriteAgents } from "../../packages/server/src/services/generation/prose-guardian-settings.js";
 import { aboutMeKeeperAgentManifest } from "../../packages/shared/src/features/agents/about-me-keeper/manifest.js";
 import { estimateAgentLoadCost } from "../../packages/shared/src/utils/agent-cost.js";
+import {
+  ECHO_CHAMBER_MESSAGE_INTERVAL_MS,
+  enqueueEchoChamberMessages,
+  resolveEchoChamberPersistedBaseline,
+} from "../../packages/client/src/lib/echo-chamber-queue.js";
 
 assert.equal(
   shouldKeepStreamLiveThroughPostProcessing({
@@ -149,6 +154,43 @@ assert.equal(
   "rewrite editors should count as one call separate from the tracker call",
 );
 assert.equal(aboutMeKeeperAgentManifest.libraryHidden, true);
+
+const queuedEchoBatch = enqueueEchoChamberMessages(
+  {
+    messages: [{ characterName: "Watcher", reaction: "The old reaction.", timestamp: 1 }],
+    visibleCount: 1,
+    baseline: 1,
+  },
+  [
+    { characterName: "Watcher A", reaction: "First new reaction." },
+    { characterName: "Watcher B", reaction: "Second new reaction." },
+    { characterName: "Watcher C", reaction: "Third new reaction." },
+  ],
+  100,
+);
+assert.equal(queuedEchoBatch.messages.length, 4);
+assert.equal(queuedEchoBatch.visibleCount, 1, "a fresh Echo result must remain behind the reveal cursor");
+assert.equal(queuedEchoBatch.baseline, 1);
+assert.ok(ECHO_CHAMBER_MESSAGE_INTERVAL_MS >= 1_000 && ECHO_CHAMBER_MESSAGE_INTERVAL_MS <= 3_000);
+
+const staleEchoCursor = enqueueEchoChamberMessages(
+  { messages: [], visibleCount: 99, baseline: 99 },
+  [{ characterName: "Watcher", reaction: "Do not dump me." }],
+  200,
+);
+assert.equal(staleEchoCursor.visibleCount, 0, "stale reveal counters must clamp before a new batch is queued");
+assert.equal(
+  resolveEchoChamberPersistedBaseline(
+    [
+      { characterName: "Old", reaction: "Persisted history.", timestamp: 50 },
+      { characterName: "New A", reaction: "Generated during load.", timestamp: 101 },
+      { characterName: "New B", reaction: "Also generated during load.", timestamp: 101 },
+    ],
+    100,
+  ),
+  1,
+  "an Echo result persisted during the initial load must stay queued instead of appearing all at once",
+);
 
 const legacyRewrite = resolveMessageRewriteVersions(
   "The polished rewritten reply.",

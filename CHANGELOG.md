@@ -15,6 +15,12 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Fixed Noodle profile setup failing an entire refresh when one model-generated profile contains an overlong or malformed field. Generated profile text is safely bounded, invalid rows are skipped independently, and valid accounts from the same batch still apply (#3533).
+- Fixed Noodle forgetting the last selected persona after a browser refresh or app restart; the account choice now persists per browser and falls back safely when that persona no longer exists (#3535).
+- Fixed renamed character cards retaining their former Noodle display name. Bootstrap now refreshes entity-owned character names and avatars while preserving generated handles, bios, locations, and other Noodle profile data (#3537).
+- Fixed generated chat images being saved only to the chat gallery. Illustrator generations and retries across Roleplay/Game, Conversation command and Gallery selfies, and Conversation Call selfies now also create independent copies in every depicted character or persona gallery (#3538).
+- Restored Echo Chamber's queued Roleplay delivery: newly generated reactions now arrive one at a time with short delays, persistence races cannot reveal a whole batch, stale reveal counters are clamped, and inactive-chat retries cannot write into the visible chat's Echo panel.
+- Fixed character Advanced prompt controls being dropped from live Conversation and Game requests. System Prompts, Post-History Instructions, and Depth Prompts now cover Conversation participants plus Game party/character-GM cards, using the same shared injection path in preset assembly, direct mode assembly, and Prompt Preview.
 - Fixed Roleplay Illustrator comic and manga prompts being contradicted by an unconditional negative prompt that banned speech bubbles, captions, readable lettering, and SFX. Text suppression now remains enabled for ordinary illustrations but yields to explicit lettering requests in the final compiled prompt.
 - Fixed Roleplay Text to Speech replaying the previous assistant message whenever a new output generation failed. Autoplay now requires a successful generation with a genuinely new assistant-message revision, and failed partial outputs are never queued for automatic playback.
 

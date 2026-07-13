@@ -14,7 +14,6 @@ import {
   noodleBulkInviteSchema,
   noodleCreateInteractionSchema,
   noodleCreatePostSchema,
-  noodleGeneratedProfilesSchema,
   noodleGeneratedRefreshSchema,
   noodleInviteSchema,
   noodleInteractionOwnerSchema,
@@ -84,6 +83,7 @@ import {
 } from "../services/noodle/noodle-vision.js";
 import { chooseNoodleParticipantAccounts } from "../services/noodle/noodle-participant-selection.js";
 import { canCreateGeneratedNoodleInteraction } from "../services/noodle/noodle-interaction-policy.js";
+import { parseNoodleGeneratedProfiles } from "../services/noodle/noodle-generated-profiles.js";
 
 const NOODLE_ROUTE_DIR = dirname(fileURLToPath(import.meta.url));
 const CLIENT_PUBLIC_DIR = resolve(NOODLE_ROUTE_DIR, "../../../client/public");
@@ -412,6 +412,7 @@ async function ensureProfessorMariAccount(
     avatarCrop: row ? characterAvatarCrop(row) : null,
     bio: PROFESSOR_MARI_NOODLE_BIO,
     invited: true,
+    syncIdentity: true,
   });
   if (account.bio !== PROFESSOR_MARI_NOODLE_BIO || !isProfileGenerated(account) || !account.settings.location) {
     await noodle.updateAccount(account.id, {
@@ -448,6 +449,7 @@ async function ensureSelectedGroupCharacterAccounts(
       avatarUrl: row.avatarPath ?? null,
       avatarCrop: characterAvatarCrop(row),
       bio: String(parseRecord(row.data).description ?? ""),
+      syncIdentity: true,
     });
   }
   return selectedCharacterIds;
@@ -489,6 +491,22 @@ async function bootstrapVisibleNoodle(
 ) {
   const livePersonaIds = await ensurePersonaAccounts(noodle, characters);
   await ensureProfessorMariAccount(noodle, characters);
+  const existingCharacterAccounts = (await noodle.listAccounts()).filter(
+    (account) => account.kind === "character" && account.entityId !== PROFESSOR_MARI_ID,
+  );
+  const characterRowsById = new Map((await characters.list()).map((row) => [row.id, row]));
+  for (const account of existingCharacterAccounts) {
+    const row = characterRowsById.get(account.entityId);
+    if (!row) continue;
+    await noodle.upsertAccountFromProfile({
+      kind: "character",
+      entityId: row.id,
+      displayName: characterNameFromRow(row),
+      avatarUrl: row.avatarPath ?? null,
+      avatarCrop: characterAvatarCrop(row),
+      syncIdentity: true,
+    });
+  }
   return filterStalePersonaAccounts(await noodle.bootstrap(), livePersonaIds);
 }
 
@@ -941,7 +959,13 @@ async function generateMissingNoodleProfiles(input: {
     debugMode: input.debugMode,
     responseFormat: noodleResponseFormat(input.connection.model, "profiles"),
   });
-  const generated = noodleGeneratedProfilesSchema.parse(parseGameJsonish(result.content ?? ""));
+  const generated = parseNoodleGeneratedProfiles(parseGameJsonish(result.content ?? ""));
+  if (generated.rejected.length > 0) {
+    logger.warn(
+      "[noodle] Skipped %d invalid generated profile row(s); valid profiles will still be applied",
+      generated.rejected.length,
+    );
+  }
   const profileByEntityId = new Map(generated.profiles.map((profile) => [profile.entityId, profile]));
 
   for (const target of targets) {
@@ -1209,6 +1233,7 @@ export async function noodleRoutes(app: FastifyInstance) {
       avatarCrop: characterAvatarCrop(row),
       bio: String(parseRecord(row.data).description ?? ""),
       invited: true,
+      syncIdentity: true,
     });
   });
 
@@ -1229,6 +1254,7 @@ export async function noodleRoutes(app: FastifyInstance) {
           avatarCrop: characterAvatarCrop(row),
           bio: String(parseRecord(row.data).description ?? ""),
           invited: true,
+          syncIdentity: true,
         }),
       );
     }

@@ -101,6 +101,7 @@ import {
   useUpdateNoodlePost,
   useUpdateNoodleSettings,
 } from "../../hooks/use-noodle";
+import { useUIStore } from "../../stores/ui.store";
 
 type RawCharacter = { id?: unknown; data?: unknown; avatarPath?: unknown };
 type RawCharacterGroup = { id?: unknown; name?: unknown; description?: unknown; characterIds?: unknown };
@@ -846,6 +847,8 @@ function NoodleToolPopover({
 }
 
 export function NoodleView() {
+  const selectedPersonaId = useUIStore((state) => state.noodleSelectedPersonaId) ?? "";
+  const setSelectedPersonaId = useUIStore((state) => state.setNoodleSelectedPersonaId);
   const { data, isLoading } = useNoodle();
   const { data: activePersona } = useActivePersona();
   const { data: personasRaw } = usePersonas();
@@ -917,7 +920,6 @@ export function NoodleView() {
     [allConnections],
   );
 
-  const [selectedPersonaId, setSelectedPersonaId] = useState("");
   const [composer, setComposer] = useState("");
   const [composerHasText, setComposerHasText] = useState(false);
   const [activeMention, setActiveMention] = useState<ActiveComposerMention | null>(null);
@@ -1046,12 +1048,15 @@ export function NoodleView() {
   const viewingOwnProfile = Boolean(personaAccount && viewedProfileAccount?.id === personaAccount.id);
 
   useEffect(() => {
+    // Do not erase the persisted choice while the account/persona queries are
+    // still empty during initial hydration.
+    if (!data || personas === null) return;
     if (selectedPersonaId && personaAccounts.some((account) => account.entityId === selectedPersonaId)) return;
     const activeId = readString((activePersona as RawPersona | null)?.id);
     const activeAccount = personaAccounts.find((account) => account.entityId === activeId);
     const nextPersonaId = activeAccount?.entityId ?? sortedPersonaAccounts[0]?.entityId ?? "";
     if (selectedPersonaId !== nextPersonaId) setSelectedPersonaId(nextPersonaId);
-  }, [activePersona, personaAccounts, selectedPersonaId, sortedPersonaAccounts]);
+  }, [activePersona, data, personaAccounts, personas, selectedPersonaId, setSelectedPersonaId, sortedPersonaAccounts]);
 
   useEffect(() => {
     if (accountSwitcherOpen) setPersonaAccountLimit(NOODLE_PERSONA_SWITCHER_PAGE_SIZE);
@@ -4232,6 +4237,7 @@ export function NoodleView() {
                           return (
                             <button
                               key={account.id}
+                              data-noodle-persona-id={account.entityId}
                               type="button"
                               onClick={() => {
                                 setSelectedPersonaId(account.entityId);
@@ -4265,6 +4271,7 @@ export function NoodleView() {
                   </div>
                 )}
                 <button
+                  data-component="NoodleView.MobileAccountSwitcher"
                   type="button"
                   onClick={() => setMobileAccountSwitcherOpen((current) => !current)}
                   aria-expanded={mobileAccountSwitcherOpen}
@@ -4375,6 +4382,7 @@ export function NoodleView() {
                           return (
                             <button
                               key={account.id}
+                              data-noodle-persona-id={account.entityId}
                               type="button"
                               onClick={() => {
                                 setSelectedPersonaId(account.entityId);
@@ -4418,6 +4426,7 @@ export function NoodleView() {
                   </div>
                 )}
                 <button
+                  data-component="NoodleView.AccountSwitcher"
                   type="button"
                   onClick={() => setAccountSwitcherOpen((current) => !current)}
                   className="flex min-h-16 w-full items-center gap-3 rounded-full px-3 text-left transition-colors hover:bg-[var(--accent)]"

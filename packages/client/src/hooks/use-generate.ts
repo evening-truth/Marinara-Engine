@@ -981,7 +981,7 @@ export function useGenerate() {
   const addDebugEntry = useAgentStore((s) => s.addDebugEntry);
   const addThoughtBubble = useAgentStore((s) => s.addThoughtBubble);
   const clearThoughtBubbles = useAgentStore((s) => s.clearThoughtBubbles);
-  const addEchoMessage = useAgentStore((s) => s.addEchoMessage);
+  const enqueueEchoMessages = useAgentStore((s) => s.enqueueEchoMessages);
   const setCyoaChoices = useAgentStore((s) => s.setCyoaChoices);
   const clearCyoaChoices = useAgentStore((s) => s.clearCyoaChoices);
   const setMariChips = useAgentStore((s) => s.setMariChips);
@@ -1586,9 +1586,7 @@ export function useGenerate() {
                 if (result.agentType === "echo-chamber") {
                   const d = result.data as Record<string, unknown>;
                   const reactions = (d.reactions as Array<{ characterName: string; reaction: string }>) ?? [];
-                  for (const r of reactions) {
-                    addEchoMessage(r.characterName, r.reaction);
-                  }
+                  enqueueEchoMessages(reactions);
                 }
 
                 // Push CYOA choices to the dedicated store
@@ -2777,7 +2775,7 @@ export function useGenerate() {
       addDebugEntry,
       addThoughtBubble,
       clearThoughtBubbles,
-      addEchoMessage,
+      enqueueEchoMessages,
       setCyoaChoices,
       clearCyoaChoices,
       setMariChips,
@@ -2931,7 +2929,7 @@ export function useGenerate() {
                 if (result.agentType === "echo-chamber") {
                   const d = result.data as Record<string, unknown>;
                   const reactions = (d.reactions as Array<{ characterName: string; reaction: string }>) ?? [];
-                  for (const r of reactions) addEchoMessage(r.characterName, r.reaction);
+                  if (isActiveChat()) enqueueEchoMessages(reactions);
                 }
                 // CYOA re-roll: push the freshly generated choices into the store
                 // so the buttons in CyoaChoices.tsx swap in immediately.
@@ -3159,7 +3157,7 @@ export function useGenerate() {
       addResult,
       addDebugEntry,
       addThoughtBubble,
-      addEchoMessage,
+      enqueueEchoMessages,
       enqueuePendingCardUpdate,
       enqueuePendingAgentWriteApproval,
       clearFailedAgentTypes,

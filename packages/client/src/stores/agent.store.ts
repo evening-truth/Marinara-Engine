@@ -2,6 +2,11 @@
 // Zustand Store: Agent Slice
 // ──────────────────────────────────────────────
 import { create } from "zustand";
+import {
+  ECHO_CHAMBER_MESSAGE_LIMIT,
+  enqueueEchoChamberMessages,
+  type EchoChamberMessage,
+} from "../lib/echo-chamber-queue";
 import type {
   AgentCallDebugEvent,
   AgentResult,
@@ -109,11 +114,7 @@ interface AgentState {
     content: string;
     timestamp: number;
   }>;
-  echoMessages: Array<{
-    characterName: string;
-    reaction: string;
-    timestamp: number;
-  }>;
+  echoMessages: EchoChamberMessage[];
   /** How many echo messages are currently revealed (stagger counter) */
   echoVisibleCount: number;
   /** Baseline: messages at or below this count are shown without stagger */
@@ -160,6 +161,7 @@ interface AgentState {
   dismissThoughtBubble: (index: number) => void;
   clearThoughtBubbles: () => void;
   addEchoMessage: (characterName: string, reaction: string) => void;
+  enqueueEchoMessages: (reactions: Array<{ characterName: string; reaction: string }>) => void;
   setEchoMessages: (messages: Array<{ characterName: string; reaction: string; timestamp: number }>) => void;
   clearEchoMessages: () => void;
   setEchoVisibleCount: (count: number) => void;
@@ -334,11 +336,48 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   clearThoughtBubbles: () => set({ thoughtBubbles: [] }),
 
   addEchoMessage: (characterName, reaction) =>
-    set((s) => ({
-      echoMessages: [...s.echoMessages, { characterName, reaction, timestamp: Date.now() }].slice(-500),
-    })),
+    set((s) => {
+      const queued = enqueueEchoChamberMessages(
+        {
+          messages: s.echoMessages,
+          visibleCount: s.echoVisibleCount,
+          baseline: s.echoBaseline,
+        },
+        [{ characterName, reaction }],
+      );
+      return {
+        echoMessages: queued.messages,
+        echoVisibleCount: queued.visibleCount,
+        echoBaseline: queued.baseline,
+      };
+    }),
 
-  setEchoMessages: (messages) => set({ echoMessages: messages.slice(-500) }),
+  enqueueEchoMessages: (reactions) =>
+    set((s) => {
+      const queued = enqueueEchoChamberMessages(
+        {
+          messages: s.echoMessages,
+          visibleCount: s.echoVisibleCount,
+          baseline: s.echoBaseline,
+        },
+        reactions,
+      );
+      return {
+        echoMessages: queued.messages,
+        echoVisibleCount: queued.visibleCount,
+        echoBaseline: queued.baseline,
+      };
+    }),
+
+  setEchoMessages: (messages) =>
+    set((state) => {
+      const nextMessages = messages.slice(-ECHO_CHAMBER_MESSAGE_LIMIT);
+      return {
+        echoMessages: nextMessages,
+        echoVisibleCount: Math.min(state.echoVisibleCount, nextMessages.length),
+        echoBaseline: Math.min(state.echoBaseline, nextMessages.length),
+      };
+    }),
 
   clearEchoMessages: () => set({ echoMessages: [], echoVisibleCount: 0, echoBaseline: 0, echoLoadedChatId: null }),
 

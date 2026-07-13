@@ -120,9 +120,11 @@ import {
   extractDialogueUtterances,
   resolveTTSVoiceForSpeaker,
 } from "../../packages/client/src/lib/tts-dialogue.js";
+import { resolveCharacterAdvancedPromptIds } from "../../packages/server/src/services/prompt/macro-context.js";
 import {
   illustratorPromptRequestsRenderedText,
   mergeIllustratorNegativePrompt,
+  resolveIllustratorCharacterReferences,
 } from "../../packages/server/src/routes/generate/illustrator-references.js";
 
 type RegressionCase = {
@@ -282,6 +284,50 @@ const cases: RegressionCase[] = [
       assert.equal(
         normalized.some((message, index) => index > 0 && message.role === "system"),
         false,
+      );
+    },
+  },
+  {
+    name: "character advanced prompts stay wired into Conversation and Game runtime assembly",
+    run() {
+      const generateRouteSource = readFileSync(
+        new URL("../../packages/server/src/routes/generate.routes.ts", import.meta.url),
+        "utf8",
+      );
+      const dryRunRouteSource = readFileSync(
+        new URL("../../packages/server/src/routes/generate/dry-run-route.ts", import.meta.url),
+        "utf8",
+      );
+      const assemblerSource = readFileSync(
+        new URL("../../packages/server/src/services/prompt/assembler.ts", import.meta.url),
+        "utf8",
+      );
+      const gamePromptRuntimeSource = readFileSync(
+        new URL(
+          "../../packages/server/src/services/generation/game-gm-prompt-runtime.ts",
+          import.meta.url,
+        ),
+        "utf8",
+      );
+
+      assert.match(generateRouteSource, /collectCharacterAdvancedPromptEntries/);
+      assert.match(generateRouteSource, /if \(chatMode !== "game"\) \{\s*await injectCharacterAdvancedPrompts\(\)/);
+      const gameInjectionIndex = generateRouteSource.indexOf("Game bypasses the preset assembler");
+      const gameFormatReminderIndex = generateRouteSource.indexOf(
+        "const formatReminder = resolvePromptMacros",
+        gameInjectionIndex,
+      );
+      assert.ok(gameInjectionIndex >= 0 && gameFormatReminderIndex > gameInjectionIndex);
+      assert.doesNotMatch(generateRouteSource, /if \(!presetId && chatMode !== "game"\)/);
+      assert.match(dryRunRouteSource, /collectCharacterAdvancedPromptEntries/);
+      assert.match(assemblerSource, /collectCharacterAdvancedPromptEntries/);
+      assert.match(gamePromptRuntimeSource, /Character System Instructions/);
+      assert.deepEqual(
+        resolveCharacterAdvancedPromptIds(["chat-character"], "game", {
+          gamePartyCharacterIds: ["party-character", "npc:temporary-companion"],
+          gameGmCharacterId: "gm-character",
+        }),
+        ["chat-character", "party-character", "gm-character"],
       );
     },
   },
@@ -1082,6 +1128,39 @@ const cases: RegressionCase[] = [
     },
   },
   {
+    name: "Illustrator resolves depicted character and persona gallery targets without loading references",
+    async run() {
+      const resolution = await resolveIllustratorCharacterReferences({
+        charactersStore: {
+          list: async () => [
+            {
+              id: "character-maukie",
+              data: { name: "Maukie", extensions: { appearance: "Wet brown hair." } },
+              avatarPath: null,
+            },
+            {
+              id: "character-dottore",
+              data: { name: "Dottore", extensions: { appearance: "A masked scientist." } },
+              avatarPath: null,
+            },
+          ],
+        },
+        chatCharacters: [
+          { id: "character-maukie", name: "Maukie", avatarPath: null, appearance: "Wet brown hair." },
+          { id: "character-dottore", name: "Dottore", avatarPath: null, appearance: "A masked scientist." },
+        ],
+        persona: { id: "persona-mari", name: "Mari", avatarPath: null, appearance: "Chubby woman." },
+        requestedNames: ["Maukie", "Dottore", "Mari"],
+        promptText: "Maukie and Dottore carry Mari through the reeds.",
+        includeReferenceImages: false,
+        maxReferences: 1,
+      });
+      assert.deepEqual(resolution.characterIds, ["character-maukie", "character-dottore"]);
+      assert.equal(resolution.personaId, "persona-mari");
+      assert.deepEqual(resolution.referenceImages, []);
+    },
+  },
+  {
     name: "Gemini Omni video prompts preserve complete storyboard direction",
     run() {
       const direction = [
@@ -1762,6 +1841,59 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       assert.equal(promptText.includes("&lt;START>"), false);
       assert.equal(promptText.includes("<system>bad example</system>"), false);
       assert.match(promptText, /&lt;system>bad example&lt;\/system>/);
+    },
+  },
+  {
+    name: "Conversation named profiles cannot suppress character System Prompts",
+    run() {
+      const messages: ChatMLMessage[] = [
+        {
+          role: "system",
+          content: "<injected_character><description>Custom profile.</description></injected_character>",
+        },
+        { role: "user", content: "Hello." },
+      ];
+
+      injectIdentityFallbackMessages({
+        messages,
+        charInfo: [
+          {
+            id: "char-injected",
+            name: "Injected Character",
+            description: "Original profile that should remain omitted.",
+            personality: "",
+            scenario: "",
+            creatorNotes: "",
+            systemPrompt: "Always preserve this character-authored instruction.",
+            backstory: "",
+            appearance: "",
+            mesExample: "",
+            firstMes: "",
+            postHistoryInstructions: "",
+            tags: [],
+            talkativeness: 0.5,
+            avatarPath: null,
+            avatarCrop: null,
+          },
+        ],
+        promptTargetCharacterId: null,
+        promptMacroContext: {
+          user: "Mari",
+          char: "Injected Character",
+          characters: ["Injected Character"],
+          variables: {},
+        },
+        wrapFormat: "xml",
+        personaName: "Mari",
+        personaDescription: "",
+        personaFields: {},
+        persona: null,
+        resolvePromptMacros: (value) => value,
+      });
+
+      const promptText = messages.map((message) => message.content).join("\n");
+      assert.match(promptText, /Always preserve this character-authored instruction\./);
+      assert.equal(promptText.includes("Original profile that should remain omitted."), false);
     },
   },
   {

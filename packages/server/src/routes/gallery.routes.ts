@@ -34,6 +34,7 @@ import { generateImage, saveImageToDisk } from "../services/image/image-generati
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
 import { loadImageGenerationUserSettings } from "../services/image/image-generation-settings.js";
 import { compileImagePrompt } from "../services/image/image-prompt-compiler.js";
+import { persistGeneratedImageToEntityGalleries } from "../services/image/generated-image-entity-gallery.js";
 import { createLLMProvider } from "../services/llm/provider-registry.js";
 import { getLocalSidecarProvider, LOCAL_SIDECAR_MODEL } from "../services/llm/local-sidecar.js";
 import { resolveConversationSelfieSystemPrompt } from "../services/conversation/selfie-prompt.js";
@@ -1024,6 +1025,17 @@ export async function galleryRoutes(app: FastifyInstance) {
         height,
       });
       if (!image) throw new Error("Generated selfie metadata could not be saved");
+      await persistGeneratedImageToEntityGalleries({
+        sourceFilePath: filePath,
+        characterIds: [character.id],
+        characterGallery,
+        personaGallery,
+        prompt: compiledPrompt.prompt,
+        provider: imageConn.provider ?? "image_generation",
+        model: imageModel || "unknown",
+        width,
+        height,
+      });
       logger.info("[gallery/selfie] Generated selfie for %s in chat %s", characterName, chatId);
       return {
         ...image,

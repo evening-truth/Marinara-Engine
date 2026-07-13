@@ -15,6 +15,7 @@ import {
 } from "../../packages/server/src/services/noodle/noodle-prompt.js";
 import { chooseNoodleParticipantAccounts } from "../../packages/server/src/services/noodle/noodle-participant-selection.js";
 import { canCreateGeneratedNoodleInteraction } from "../../packages/server/src/services/noodle/noodle-interaction-policy.js";
+import { parseNoodleGeneratedProfiles } from "../../packages/server/src/services/noodle/noodle-generated-profiles.js";
 import { collectNoodlePriorityAccountIds } from "../../packages/server/src/routes/noodle.routes.js";
 
 const makeAccount = (id: string): NoodleAccount => ({
@@ -358,5 +359,32 @@ assert.deepEqual(
   sampleNoodlePastMemories(["a", "b", "c", "d"], 99, () => 0),
   ["a", "b", "c"],
 );
+
+const boundedGeneratedProfiles = parseNoodleGeneratedProfiles({
+  profiles: [
+    {
+      entityId: "formatted-character",
+      name: `Who̶̥͛ is…she…?${" very mysterious".repeat(20)}`,
+      handle: "formatted_character_handle_that_is_far_too_long_for_noodle",
+      bio: "bio ".repeat(150),
+      location: "somewhere ".repeat(30),
+    },
+  ],
+});
+assert.equal(boundedGeneratedProfiles.rejected.length, 0);
+assert.equal(boundedGeneratedProfiles.profiles.length, 1);
+assert.ok(boundedGeneratedProfiles.profiles[0]!.name.length <= 120);
+assert.ok(boundedGeneratedProfiles.profiles[0]!.handle.length <= 40);
+assert.ok(boundedGeneratedProfiles.profiles[0]!.bio.length <= 500);
+assert.ok(boundedGeneratedProfiles.profiles[0]!.location.length <= 120);
+
+const partiallyInvalidGeneratedProfiles = parseNoodleGeneratedProfiles({
+  profiles: [
+    { entityId: "invalid", name: "Missing handle" },
+    { entityId: "valid", name: "Valid Character", handle: "valid_character", bio: "", location: "" },
+  ],
+});
+assert.deepEqual(partiallyInvalidGeneratedProfiles.profiles.map((profile) => profile.entityId), ["valid"]);
+assert.deepEqual(partiallyInvalidGeneratedProfiles.rejected, [{ index: 0, issueCount: 1 }]);
 
 console.info("Noodle prompt and memory regression passed.");

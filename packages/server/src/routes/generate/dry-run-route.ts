@@ -27,7 +27,8 @@ import { getLocalSidecarProvider } from "../../services/llm/local-sidecar.js";
 import {
   assemblePrompt,
   buildPromptMacroContext,
-  collectCharacterDepthPromptEntries,
+  collectCharacterAdvancedPromptEntries,
+  resolveCharacterAdvancedPromptIds,
   resolveCharacterMacroData,
   resolveMacrosWithVariableSnapshot,
   resolvePromptIdleDuration,
@@ -1413,13 +1414,19 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     }
 
     if (usePromptParts || !effectivePresetId) {
-      const characterDepthEntries = await collectCharacterDepthPromptEntries(
-        app.db,
+      const characterAdvancedPromptIds = resolveCharacterAdvancedPromptIds(
         promptCharacterIds,
-        promptMacroContext,
+        chatMode,
+        chatMeta,
       );
-      if (characterDepthEntries.length > 0) {
-        finalMessages = injectAtDepth(finalMessages as any, characterDepthEntries) as any;
+      const characterAdvancedPromptEntries = await collectCharacterAdvancedPromptEntries(
+        app.db,
+        characterAdvancedPromptIds,
+        promptMacroContext,
+        wrapFormat,
+      );
+      if (characterAdvancedPromptEntries.length > 0) {
+        finalMessages = injectAtDepth(finalMessages as any, characterAdvancedPromptEntries) as any;
       }
     }
 

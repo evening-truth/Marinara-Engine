@@ -33,6 +33,8 @@ export type IllustratorChatCharacterReference = {
 };
 
 export type IllustratorReferenceResolution = {
+  characterIds: string[];
+  personaId: string | null;
   referenceImages: string[];
   referenceNames: string[];
   referenceLine: string | null;
@@ -182,6 +184,7 @@ export async function resolveIllustratorCharacterReferences(args: {
   promptText: string;
   fallbackToChatCharacters?: boolean;
   maxReferences?: number;
+  includeReferenceImages?: boolean;
 }): Promise<IllustratorReferenceResolution> {
   const maxReferences = Math.max(1, Math.min(args.maxReferences ?? MAX_ILLUSTRATOR_REFERENCE_IMAGES, 12));
   const allRows = await args.charactersStore.list().catch(() => []);
@@ -245,9 +248,8 @@ export async function resolveIllustratorCharacterReferences(args: {
     }
   }
 
-  const orderedSources = [...selected.values()]
-    .sort((a, b) => a.sourceOrder - b.sourceOrder)
-    .slice(0, maxReferences);
+  const orderedSelectedSources = [...selected.values()].sort((a, b) => a.sourceOrder - b.sourceOrder);
+  const orderedSources = orderedSelectedSources.slice(0, maxReferences);
   const referenceImages: string[] = [];
   const referenceNames: string[] = [];
   const appearanceLines: string[] = [];
@@ -265,13 +267,19 @@ export async function resolveIllustratorCharacterReferences(args: {
   }
 
   for (const source of orderedSources) {
+    if (args.includeReferenceImages === false) continue;
     const b64 = readBestReferenceImage(source.id, source.avatarPath);
     if (!b64) continue;
     referenceImages.push(b64);
     referenceNames.push(source.name);
   }
 
-  if (args.persona && personaRequested && referenceImages.length < maxReferences) {
+  if (
+    args.includeReferenceImages !== false &&
+    args.persona &&
+    personaRequested &&
+    referenceImages.length < maxReferences
+  ) {
     const b64 = readBestReferenceImage(args.persona.id, args.persona.avatarPath ?? null);
     if (b64) {
       referenceImages.push(b64);
@@ -283,6 +291,11 @@ export async function resolveIllustratorCharacterReferences(args: {
   }
 
   return {
+    // Gallery persistence is not constrained by the reference-image cap: every
+    // depicted character should receive the generated image even when only the
+    // first few likeness references can be sent to the provider.
+    characterIds: orderedSelectedSources.map((source) => source.id),
+    personaId: args.persona && personaRequested ? args.persona.id : null,
     referenceImages,
     referenceNames,
     referenceLine:

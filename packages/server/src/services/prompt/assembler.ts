@@ -27,8 +27,7 @@ import { injectAtDepth } from "../lorebook/prompt-injector.js";
 import type { LorebookScanResult } from "../lorebook/index.js";
 import {
   buildPromptMacroContext,
-  collectCharacterDepthPromptEntries,
-  collectCharacterPostHistoryEntries,
+  collectCharacterAdvancedPromptEntries,
   resolveMacrosWithVariableSnapshot,
 } from "./macro-context.js";
 
@@ -485,19 +484,14 @@ export async function assemblePrompt(input: AssemblerInput): Promise<AssemblerOu
     allDepthEntries.push(markerCtx.lorebookDepthEntries);
   }
 
-  const characterDepthEntries = await collectCharacterDepthPromptEntries(input.db, input.characterIds, macroCtx);
-  if (characterDepthEntries.length > 0) {
-    allDepthEntries.push(characterDepthEntries);
-  }
-
-  const characterPostHistoryEntries = await collectCharacterPostHistoryEntries(
+  const characterAdvancedPromptEntries = await collectCharacterAdvancedPromptEntries(
     input.db,
     input.characterIds,
     macroCtx,
     wrapFormat,
   );
-  if (characterPostHistoryEntries.length > 0) {
-    allDepthEntries.push(characterPostHistoryEntries);
+  if (characterAdvancedPromptEntries.length > 0) {
+    allDepthEntries.push(characterAdvancedPromptEntries);
   }
 
   const combinedDepthEntries = allDepthEntries.flat();

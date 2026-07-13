@@ -1,6 +1,6 @@
 // ──────────────────────────────────────────────
 // Echo Chamber Overlay — compact translucent stream-chat widget
-// Messages appear one-by-one every 30 s, auto-scrolling.
+// Messages appear one-by-one with a short stream-chat delay, auto-scrolling.
 // Positions itself within the chat area, respecting sidebar, right panel,
 // HUD widget position (top/left/right), and the top bar.
 // ──────────────────────────────────────────────
@@ -15,8 +15,11 @@ import { useGenerate } from "../../hooks/use-generate";
 import { api } from "../../lib/api-client";
 import { cn } from "../../lib/utils";
 import { ROLEPLAY_POPOVER_SHELL } from "./roleplay-popover-styles";
+import {
+  ECHO_CHAMBER_MESSAGE_INTERVAL_MS,
+  resolveEchoChamberPersistedBaseline,
+} from "../../lib/echo-chamber-queue";
 
-const MESSAGE_INTERVAL_MS = 30_000; // 30 s between reveals
 const NAME_COLORS = [
   "text-red-400",
   "text-blue-400",
@@ -173,7 +176,7 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
     return activeAgentIds.includes("echo-chamber");
   }, [chat]);
 
-  // ── Timed reveal: show one more message every 30 s ──
+  // ── Timed reveal: show one more message after each short chat-like delay ──
   // visibleCount and baseline live in the Zustand store so they survive
   // component remounts (e.g. when the panel is toggled or the HUD re-renders).
   const visibleCount = useAgentStore((s) => s.echoVisibleCount);
@@ -193,13 +196,15 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
     if (echoLoadedChatId === activeChatId) return;
 
     const previousChatId = echoLoadedChatId;
-    setEchoLoadedChatId(activeChatId);
 
     // Only clear + reset when switching to a *different* chat
     if (previousChatId !== null && previousChatId !== activeChatId) {
       clearEchoMessages();
     }
+    // clearEchoMessages resets the loaded ID, so claim the new chat after it.
+    setEchoLoadedChatId(activeChatId);
 
+    const loadStartedAt = Date.now();
     api
       .get<Array<{ characterName: string; reaction: string; timestamp: number }>>(
         `/agents/echo-messages/${activeChatId}`,
@@ -216,9 +221,10 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
             // Read the actual store length (may be capped) rather than the API
             // response length — a mismatch causes the stagger guard to skip,
             // making new messages dump all at once instead of one-by-one.
-            const loaded = useAgentStore.getState().echoMessages.length;
-            setEchoVisibleCount(loaded);
-            setEchoBaseline(loaded);
+            const loadedMessages = useAgentStore.getState().echoMessages;
+            const persistedBaseline = resolveEchoChamberPersistedBaseline(loadedMessages, loadStartedAt);
+            setEchoVisibleCount(persistedBaseline);
+            setEchoBaseline(persistedBaseline);
           }
         }
       })
@@ -244,7 +250,10 @@ export function EchoChamberPanel({ hiddenOnMobile = false }: EchoChamberPanelPro
       setEchoVisibleCount(baseline);
       return;
     }
-    const id = setTimeout(() => setEchoVisibleCount(visibleCount + 1), MESSAGE_INTERVAL_MS);
+    const id = setTimeout(
+      () => setEchoVisibleCount(visibleCount + 1),
+      ECHO_CHAMBER_MESSAGE_INTERVAL_MS,
+    );
     return () => clearTimeout(id);
   }, [visibleCount, echoMessages.length, baseline, setEchoVisibleCount]);
 

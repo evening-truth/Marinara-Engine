@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Chat, Message } from "../../packages/shared/src/types/chat.js";
 import {
   parseGroupedSpeakerSegments,
@@ -48,6 +51,7 @@ import {
 } from "../../packages/client/src/lib/emoji-shortcodes.js";
 import { unoEngine } from "../../packages/shared/src/features/turn-games/uno/engine.js";
 import { DEFAULT_UNO_CONFIG, type UnoState } from "../../packages/shared/src/features/turn-games/uno/types.js";
+import { persistGeneratedImageToEntityGalleries } from "../../packages/server/src/services/image/generated-image-entity-gallery.js";
 
 assert.equal(resolveInitialGameGmConnectionId(undefined, "chat-connection"), "chat-connection");
 assert.equal(resolveInitialGameGmConnectionId("explicit-connection", "chat-connection"), "explicit-connection");
@@ -453,5 +457,49 @@ assert.equal(
 assert.equal(characterAssignedDuplicate.vectorQueryDepth, characterAssignedLorebook.vectorQueryDepth);
 assert.equal(characterAssignedDuplicate.vectorScoreThreshold, characterAssignedLorebook.vectorScoreThreshold);
 assert.equal(characterAssignedDuplicate.vectorMaxResults, characterAssignedLorebook.vectorMaxResults);
+
+const entityGalleryRoot = mkdtempSync(join(tmpdir(), "marinara-generated-entity-gallery-"));
+try {
+  const sourceDir = join(entityGalleryRoot, "chat-id");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(join(sourceDir, "generated.png"), Buffer.from("generated-image"));
+  const characterRows: Array<Record<string, unknown>> = [];
+  const personaRows: Array<Record<string, unknown>> = [];
+  const persisted = await persistGeneratedImageToEntityGalleries({
+    sourceFilePath: "chat-id/generated.png",
+    characterIds: ["character-1", "character-1"],
+    personaIds: ["persona-1"],
+    characterGallery: {
+      create: async (input) => {
+        characterRows.push(input as unknown as Record<string, unknown>);
+        return input;
+      },
+    },
+    personaGallery: {
+      create: async (input) => {
+        personaRows.push(input as unknown as Record<string, unknown>);
+        return input;
+      },
+    },
+    prompt: "A generated scene with both identities.",
+    provider: "image_generation",
+    model: "regression-image-model",
+    width: 1024,
+    height: 1024,
+    galleryRoot: entityGalleryRoot,
+  });
+  assert.deepEqual(persisted, { characterCount: 1, personaCount: 1 });
+  assert.equal(characterRows.length, 1);
+  assert.equal(personaRows.length, 1);
+  const characterFile = join(entityGalleryRoot, String(characterRows[0]!.filePath));
+  const personaFile = join(entityGalleryRoot, String(personaRows[0]!.filePath));
+  assert.equal(readFileSync(characterFile, "utf8"), "generated-image");
+  assert.equal(readFileSync(personaFile, "utf8"), "generated-image");
+  unlinkSync(characterFile);
+  assert.equal(existsSync(join(sourceDir, "generated.png")), true);
+  assert.equal(existsSync(personaFile), true);
+} finally {
+  rmSync(entityGalleryRoot, { recursive: true, force: true });
+}
 
 console.info("Open-issue regressions passed.");
