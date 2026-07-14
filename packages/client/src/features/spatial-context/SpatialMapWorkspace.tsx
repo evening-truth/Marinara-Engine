@@ -77,6 +77,10 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
   const updateSpatial = useUpdateSpatialContext();
   const { data: chat } = useChat(chatId);
   const closeDetail = useUIStore((state) => state.closeSpatialMapDetail);
+  const pendingSetupReview = useUIStore((state) =>
+    state.pendingSpatialMapDraftReview?.chatId === chatId ? state.pendingSpatialMapDraftReview : null,
+  );
+  const clearPendingSetupReview = useUIStore((state) => state.clearPendingSpatialMapDraftReview);
   const setEditorDirty = useUIStore((state) => state.setEditorDirty);
   const [baseDefinition, setBaseDefinition] = useState<SpatialContextDefinition | null>(null);
   const [draft, setDraft] = useState<SpatialContextDefinition | null>(null);
@@ -115,6 +119,11 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
     setEnteredParentId(null);
     setInitialized(true);
   }, [initialized, ownerMode, spatial.data, spatial.isSuccess]);
+
+  useEffect(() => {
+    if (!initialized || !pendingSetupReview) return;
+    setAiBuilderOpen(true);
+  }, [initialized, pendingSetupReview]);
 
   const issues = useMemo(
     () => (draft ? [...spatialDefinitionIssues(draft), ...serverIssues] : []),
@@ -339,6 +348,7 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
           ? next.startingLocationId
           : null,
       );
+      clearPendingSetupReview();
       setAiBuilderOpen(false);
       toast.success(
         expandedExistingMap
@@ -346,8 +356,17 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
           : "AI map draft applied. Review it, then Save.",
       );
     },
-    [applyDraft, baseDefinition?.revision, currentLocationId, draft, ownerMode],
+    [applyDraft, baseDefinition?.revision, clearPendingSetupReview, currentLocationId, draft, ownerMode],
   );
+
+  const closeAiBuilder = useCallback(() => {
+    if (pendingSetupReview) {
+      closeDetail();
+      toast.info("Map draft skipped. You can build one later from Chat Settings.");
+      return;
+    }
+    setAiBuilderOpen(false);
+  }, [closeDetail, pendingSetupReview]);
 
   if (!spatial.isError && (spatial.isLoading || !initialized || !draft)) {
     return (
@@ -603,7 +622,9 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
         currentLocationId={currentLocationId}
         hasCommittedSpatialHistory={spatial.data?.hasCommittedSpatialHistory ?? false}
         dirty={dirty}
-        onClose={() => setAiBuilderOpen(false)}
+        initialResult={pendingSetupReview?.result}
+        setupReview={Boolean(pendingSetupReview)}
+        onClose={closeAiBuilder}
         onApply={applyGeneratedDraft}
       />
 

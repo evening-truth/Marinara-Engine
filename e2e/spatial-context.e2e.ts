@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 const generatedDefinition = {
   schemaVersion: 1,
@@ -107,6 +107,142 @@ const expandedDefinition = {
     },
   ],
 } as const;
+
+const gameGeneratedDefinition = {
+  ...generatedDefinition,
+  ownerMode: "game",
+} as const;
+
+async function openGameSetupMapDraftReview(page: Page, testInfo: TestInfo) {
+  const suffix = `${testInfo.project.name}-${Date.now()}`;
+  const chatResponse = await page.request.post("/api/chats", {
+    data: {
+      name: `E2 Setup Map ${suffix}`,
+      mode: "game",
+      characterIds: [],
+    },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as Record<string, unknown> & { id: string };
+  const connection = {
+    id: `e2-connection-${suffix}`,
+    name: `E2 Setup Connection ${suffix}`,
+    provider: "openai",
+    model: "e2-test-model",
+    isDefault: false,
+  };
+  let setupPersisted = false;
+
+  await page.route("**/api/connections", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([connection]),
+    });
+  });
+  await page.route("**/api/game/create", async (route) => {
+    const request = route.request().postDataJSON() as {
+      chatId: string;
+      connectionId?: string;
+      setupConfig: Record<string, unknown>;
+    };
+    expect(request.chatId).toBe(chat.id);
+    expect(request.connectionId).toBe(connection.id);
+    expect(request.setupConfig).not.toHaveProperty("draftSpatialMap");
+    await route.continue();
+  });
+  await page.route("**/api/game/setup", async (route) => {
+    const request = route.request().postDataJSON() as { chatId: string; connectionId?: string };
+    expect(request.chatId).toBe(chat.id);
+    expect(request.connectionId).toBe(connection.id);
+    const readyResponse = await page.request.patch(`/api/chats/${chat.id}/metadata`, {
+      data: {
+        gameSessionStatus: "ready",
+        gameWorldOverview: "A fogbound coast ruled by rival harbor guilds.",
+      },
+    });
+    expect(readyResponse.ok()).toBeTruthy();
+    setupPersisted = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        setup: { worldOverview: "A fogbound coast ruled by rival harbor guilds." },
+        worldOverview: "A fogbound coast ruled by rival harbor guilds.",
+        gameNpcs: [],
+      }),
+    });
+  });
+  await page.route(`**/api/chats/${chat.id}/spatial-context/generate`, async (route) => {
+    expect(setupPersisted).toBe(true);
+    const request = route.request().postDataJSON() as {
+      operation: string;
+      size: string;
+      connectionId?: string;
+      debugMode: boolean;
+    };
+    expect(request).toMatchObject({
+      operation: "create",
+      size: "small",
+      connectionId: connection.id,
+      debugMode: false,
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        operation: "create",
+        size: "small",
+        source: "game_setup",
+        generatedLocationCount: gameGeneratedDefinition.locations.length,
+        definition: gameGeneratedDefinition,
+      }),
+    });
+  });
+
+  await page.addInitScript(
+    ({ chatId }) => {
+      localStorage.setItem("marinara-active-chat-id", chatId);
+      localStorage.setItem(
+        "marinara-engine-ui",
+        JSON.stringify({
+          state: {
+            hasCompletedOnboarding: true,
+            rightPanelOpen: false,
+            sidebarOpen: false,
+          },
+          version: 72,
+        }),
+      );
+    },
+    { chatId: chat.id },
+  );
+  await page.route("**/api/backgrounds/file/Black.jpg", async (route) => {
+    await route.fulfill({ status: 204, body: "" });
+  });
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "New Game" })).toBeVisible();
+  const wizard = page.getByRole("dialog", { name: "New Game" });
+  await wizard.locator("select").first().selectOption(connection.id);
+  for (let step = 0; step < 5; step += 1) {
+    await wizard.getByRole("button", { name: "Next" }).click();
+  }
+  await expect(wizard.getByRole("heading", { name: "Features" })).toBeVisible();
+  await wizard.getByRole("button", { name: /Draft a Hierarchical World Map/ }).click();
+  await wizard.getByRole("button", { name: /Small About 8 places/ }).click();
+  await wizard.getByRole("button", { name: "Next" }).click();
+  await wizard.getByRole("button", { name: "Start Game" }).click();
+
+  await expect(page.getByRole("heading", { name: "Draft the map with AI" })).toBeVisible();
+  await expect(page.getByText(/Your game world is ready/)).toBeVisible();
+  await expect(page.getByText("Validated", { exact: true })).toBeVisible();
+  await expect(page.getByText("4 new locations", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Skip map" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use this draft" })).toBeVisible();
+
+  return { chat };
+}
 
 test("AI map builder previews a validated local draft before save", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
@@ -350,5 +486,60 @@ test("AI map expansion preserves a campaign map and its current location", async
     ]);
   } finally {
     if (!mobile) await page.request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
+test("Game setup hands an optional map draft into review before Save", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const { chat } = await openGameSetupMapDraftReview(page, testInfo);
+
+  try {
+    const beforeApply = await page.request.get(`/api/chats/${chat.id}/spatial-context`);
+    expect(beforeApply.ok()).toBeTruthy();
+    expect(((await beforeApply.json()) as { definition: unknown }).definition).toBeNull();
+
+    await page.getByRole("button", { name: "Use this draft" }).click();
+    await expect(page.getByText("AI map draft applied. Review it, then Save.")).toBeVisible();
+
+    const afterApply = await page.request.get(`/api/chats/${chat.id}/spatial-context`);
+    expect(((await afterApply.json()) as { definition: unknown }).definition).toBeNull();
+
+    await page.getByRole("checkbox").check();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+
+    const storedResponse = await page.request.get(`/api/chats/${chat.id}/spatial-context`);
+    const stored = (await storedResponse.json()) as {
+      currentLocationId: string;
+      definition: { ownerMode: string; enabled: boolean; locations: Array<{ id: string }> };
+    };
+    expect(stored.currentLocationId).toBe("ai_world");
+    expect(stored.definition.ownerMode).toBe("game");
+    expect(stored.definition.enabled).toBe(true);
+    expect(stored.definition.locations.map((location) => location.id)).toEqual([
+      "ai_world",
+      "ai_harbor",
+      "ai_lighthouse",
+      "ai_sewers",
+    ]);
+  } finally {
+    if (!testInfo.project.name.includes("mobile")) await page.request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
+test("Game setup can skip a generated map without persisting it", async ({ page }, testInfo) => {
+  test.setTimeout(120_000);
+  const { chat } = await openGameSetupMapDraftReview(page, testInfo);
+
+  try {
+    await page.getByRole("button", { name: "Skip map" }).click();
+    await expect(page.getByRole("heading", { name: "Draft the map with AI" })).toHaveCount(0);
+    await expect(page.getByText("Map draft skipped. You can build one later from Chat Settings.")).toBeVisible();
+
+    const storedResponse = await page.request.get(`/api/chats/${chat.id}/spatial-context`);
+    expect(storedResponse.ok()).toBeTruthy();
+    expect(((await storedResponse.json()) as { definition: unknown }).definition).toBeNull();
+  } finally {
+    if (!testInfo.project.name.includes("mobile")) await page.request.delete(`/api/chats/${chat.id}`);
   }
 });

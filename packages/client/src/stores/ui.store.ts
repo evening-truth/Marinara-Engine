@@ -8,6 +8,7 @@ import {
   normalizeImageStyleProfileSettings,
   normalizeQuoteFormat,
   type ImageStyleProfileSettings,
+  type GenerateSpatialMapDraftResponse,
   type LorebookCategory,
   type QuoteFormat,
   type ScenePromptPreferences,
@@ -87,6 +88,12 @@ export interface SummaryPopoverSettings {
 }
 export const APP_LANGUAGE_OPTIONS = [{ id: "en", label: "English" }] as const;
 export type AppLanguage = (typeof APP_LANGUAGE_OPTIONS)[number]["id"];
+
+export interface PendingSpatialMapDraftReview {
+  chatId: string;
+  result: GenerateSpatialMapDraftResponse;
+  source: "game_setup";
+}
 
 export interface GameSetupLearnedOptions {
   genres: string[];
@@ -467,6 +474,8 @@ interface UIState {
   regexDetailId: string | null;
   /** When set, the main area shows the hierarchical map editor for this chat */
   spatialMapDetailChatId: string | null;
+  /** One-shot generated map preview handed from Game setup into the spatial editor. Never persisted. */
+  pendingSpatialMapDraftReview: PendingSpatialMapDraftReview | null;
   /** Pre-selected target characters for a NEW regex script opened via openRegexDetail("__new__") */
   regexDetailDefaultCharacterIds: string[] | null;
   /** Where to return when the regex editor closes — e.g. back to a character's Advanced tab */
@@ -825,6 +834,8 @@ interface UIState {
   ) => void;
   closeRegexDetail: () => void;
   openSpatialMapDetail: (chatId: string) => void;
+  openSpatialMapDraftReview: (review: PendingSpatialMapDraftReview) => void;
+  clearPendingSpatialMapDraftReview: () => void;
   closeSpatialMapDetail: () => void;
   openCharacterLibrary: () => void;
   closeCharacterLibrary: () => void;
@@ -1196,6 +1207,7 @@ export const useUIStore = create<UIState>()(
       personaDetailId: null,
       regexDetailId: null,
       spatialMapDetailChatId: null,
+      pendingSpatialMapDraftReview: null,
       regexDetailDefaultCharacterIds: null,
       regexDetailReturn: null,
       characterDetailInitialTab: null,
@@ -1692,9 +1704,29 @@ export const useUIStore = create<UIState>()(
           noodleOpen: false,
           ...getMobileDetailReturnState(s),
         })),
+      openSpatialMapDraftReview: (review) =>
+        set((s) => ({
+          pendingSpatialMapDraftReview: review,
+          spatialMapDetailChatId: review.chatId,
+          characterDetailId: null,
+          lorebookDetailId: null,
+          presetDetailId: null,
+          connectionDetailId: null,
+          agentDetailId: null,
+          toolDetailId: null,
+          personaDetailId: null,
+          regexDetailId: null,
+          characterLibraryOpen: false,
+          botBrowserOpen: false,
+          gameAssetsBrowserOpen: false,
+          noodleOpen: false,
+          ...getMobileDetailReturnState(s),
+        })),
+      clearPendingSpatialMapDraftReview: () => set({ pendingSpatialMapDraftReview: null }),
       closeSpatialMapDetail: () =>
         set((s) => ({
           spatialMapDetailChatId: null,
+          pendingSpatialMapDraftReview: null,
           editorDirty: false,
           ...restoreMobileDetailReturnPanel(s.detailReturnRightPanel),
         })),
@@ -1710,6 +1742,7 @@ export const useUIStore = create<UIState>()(
           personaDetailId: null,
           regexDetailId: null,
           spatialMapDetailChatId: null,
+          pendingSpatialMapDraftReview: null,
           botBrowserOpen: false,
           noodleOpen: false,
           editorDirty: false,

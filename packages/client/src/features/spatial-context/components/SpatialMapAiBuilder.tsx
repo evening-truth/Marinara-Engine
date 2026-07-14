@@ -19,6 +19,8 @@ interface SpatialMapAiBuilderProps {
   currentLocationId: string | null;
   hasCommittedSpatialHistory: boolean;
   dirty: boolean;
+  initialResult?: GenerateSpatialMapDraftResponse | null;
+  setupReview?: boolean;
   onClose: () => void;
   onApply: (definition: SpatialContextDefinition) => void;
 }
@@ -53,6 +55,8 @@ export function SpatialMapAiBuilder({
   currentLocationId,
   hasCommittedSpatialHistory,
   dirty,
+  initialResult = null,
+  setupReview = false,
   onClose,
   onApply,
 }: SpatialMapAiBuilderProps) {
@@ -72,20 +76,23 @@ export function SpatialMapAiBuilder({
       : definition.startingLocationId) ??
     activeLocations[0]?.id ??
     "";
-  const [operation, setOperation] = useState<SpatialMapDraftOperation>(hasLocations ? "expand" : "create");
+  const [operation, setOperation] = useState<SpatialMapDraftOperation>(
+    initialResult?.operation ?? (hasLocations ? "expand" : "create"),
+  );
   const [targetLocationId, setTargetLocationId] = useState(defaultTargetLocationId);
-  const [size, setSize] = useState<SpatialMapDraftSize>("medium");
+  const [size, setSize] = useState<SpatialMapDraftSize>(initialResult?.size ?? "medium");
   const [instructions, setInstructions] = useState("");
-  const [result, setResult] = useState<GenerateSpatialMapDraftResponse | null>(null);
+  const [result, setResult] = useState<GenerateSpatialMapDraftResponse | null>(initialResult);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    setOperation(hasLocations ? "expand" : "create");
-    setTargetLocationId(defaultTargetLocationId);
-    setResult(null);
+    setOperation(initialResult?.operation ?? (hasLocations ? "expand" : "create"));
+    setTargetLocationId(initialResult?.targetLocationId ?? defaultTargetLocationId);
+    if (initialResult) setSize(initialResult.size);
+    setResult(initialResult);
     setError(null);
-  }, [chatId, defaultTargetLocationId, hasLocations, open]);
+  }, [chatId, defaultTargetLocationId, hasLocations, initialResult, open]);
 
   useEffect(() => {
     if (!open || !hasCommittedSpatialHistory || operation !== "replace") return;
@@ -142,12 +149,19 @@ export function SpatialMapAiBuilder({
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-[var(--marinara-editor-title)]">{operationTitle(operation)}</h2>
           <p className="mt-1 max-w-3xl text-xs leading-relaxed text-[var(--marinara-editor-muted)]">
-            {operation === "expand"
+            {setupReview
+              ? "Your game world is ready. Inspect this generated hierarchy, then apply it or skip it before play."
+              : operation === "expand"
               ? "Add new places while preserving the current map, campaign state, and every existing location ID."
               : "Describe the world in everyday language. The result stays local until you apply it, then Save confirms it."}
           </p>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close AI map builder" className="mari-editor-action">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={setupReview ? "Skip generated map" : "Close AI map builder"}
+          className="mari-editor-action"
+        >
           <X size="0.875rem" />
         </button>
       </div>
@@ -268,6 +282,11 @@ export function SpatialMapAiBuilder({
           <p className="mt-4 text-[0.625rem] leading-relaxed text-[var(--marinara-editor-muted)]">
             {sourceCopy(ownerMode)}
           </p>
+          {setupReview && (
+            <p className="mt-2 text-xs leading-relaxed text-[var(--marinara-editor-muted)]">
+              Applying changes only the working copy. Enable the map and press Save when you want it to affect turns.
+            </p>
+          )}
           {hasCommittedSpatialHistory && (
             <p className="mt-2 flex items-start gap-2 text-xs text-emerald-300">
               <ShieldCheck size="0.75rem" className="mt-0.5 shrink-0" />
@@ -368,7 +387,7 @@ export function SpatialMapAiBuilder({
                   onClick={onClose}
                   className="mari-editor-action inline-flex min-h-11 px-3 text-xs"
                 >
-                  Keep current map
+                  {setupReview ? "Skip map" : "Keep current map"}
                 </button>
                 <button
                   type="button"

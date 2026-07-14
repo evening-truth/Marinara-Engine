@@ -145,6 +145,7 @@ const aiPrompt = buildSpatialMapDraftPrompt({
   instructions: "Include a lighthouse and old sewers.",
 });
 assert.match(aiPrompt.messages[0]!.content, /never more than 12/);
+assert.match(aiPrompt.messages[0]!.content, /one relevant emoji grapheme/);
 assert.match(aiPrompt.messages[1]!.content, /lighthouse and old sewers/);
 assert.equal(aiPrompt.maxTokens, 6_000);
 
@@ -157,6 +158,7 @@ const aiDraft = normalizeSpatialMapPlan(
         parentKey: null,
         name: "The Shrouded Coast",
         kind: "region",
+        icon: "world map",
         description: "A stormy coastline of isolated settlements.",
         childPresentation: "map",
       },
@@ -165,6 +167,7 @@ const aiDraft = normalizeSpatialMapPlan(
         parentKey: "world",
         name: "Gloam Harbor",
         kind: "settlement",
+        icon: "busy port",
         description: "A crowded port beneath a permanent bank of fog.",
         modelMemory: "The harbor master hides a smuggling ledger.",
         links: [{ targetKey: "lighthouse", label: "Cliff road", bidirectional: true }],
@@ -174,6 +177,7 @@ const aiDraft = normalizeSpatialMapPlan(
         parentKey: "world",
         name: "Blackglass Lighthouse",
         kind: "building",
+        icon: "beacon 🔦 at night",
         description: "A black stone lighthouse above the cliffs.",
         links: [{ targetKey: "missing", label: "Impossible road" }],
       },
@@ -226,6 +230,9 @@ const aiLighthouse = aiDraft.locations.find((entry) => entry.name === "Blackglas
 const aiTower = aiDraft.locations.find((entry) => entry.name === "Saltwatch Tower")!;
 const aiFloors = aiDraft.locations.filter((entry) => entry.parentId === aiTower.id);
 assert.equal(aiWorld.childPresentation, "map");
+assert.equal(aiWorld.icon, "🌊");
+assert.equal(aiHarbor.icon, "⚓");
+assert.equal(aiLighthouse.icon, "🔦");
 assert.ok(aiHarbor.placement);
 assert.ok(aiLighthouse.placement);
 assert.equal(aiHarbor.links[0]?.targetId, aiLighthouse.id);
@@ -264,6 +271,7 @@ const expansionPrompt = buildSpatialMapExpansionPrompt({
   instructions: "Add a riverside district with an inn.",
 });
 assert.match(expansionPrompt.messages[0]!.content, /Return only new locations/);
+assert.match(expansionPrompt.messages[0]!.content, /one relevant emoji grapheme/);
 assert.match(expansionPrompt.messages[1]!.content, /Capital City/);
 assert.match(expansionPrompt.messages[1]!.content, /riverside district/);
 
@@ -283,6 +291,7 @@ const expandedDefinition = normalizeSpatialMapExpansionPlan(
         parentKey: "riverside",
         name: "Silver Minnow Inn",
         kind: "building",
+        icon: "beer mug",
         description: "A crowded inn for river traders.",
       },
       {
@@ -305,6 +314,12 @@ const silverInn = expandedDefinition.locations.find((entry) => entry.name === "S
 assert.equal(riverside.parentId, "capital");
 assert.ok(riverside.placement);
 assert.equal(silverInn.parentId, riverside.id);
+assert.equal(silverInn.icon, "🍺");
+assert.ok(
+  expandedDefinition.locations
+    .slice(validDefinition.locations.length)
+    .every((entry) => entry.icon && !/[A-Za-z]/u.test(entry.icon)),
+);
 assert.ok(expandedDefinition.locations.slice(validDefinition.locations.length).every((entry) => entry.id.startsWith("loc_")));
 assert.throws(
   () =>

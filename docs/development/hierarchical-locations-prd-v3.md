@@ -681,7 +681,9 @@ Gate: AI can grow an active campaign map without orphaning turn snapshots, chang
 
 - Add an optional `Draft a hierarchical world map` choice to the existing Features step, with a simple size selection.
 - Run map generation only after `/game/setup` persists the world overview and story arc. A gameplay turn is not required.
-- Open the normal review flow after generation and allow Skip, Apply, and Save before play continues.
+- Keep setup visibly busy while the follow-up draft is generated, including after a repaired setup payload is applied.
+- Open the normal AI preview and map editor after generation. Skip returns to the game, Apply changes only the working copy, and Save remains the persistence boundary.
+- If map generation fails, preserve the successfully created game, explain the failure, and let the creator build a map later from Chat Settings.
 - Do not embed the full map editor into the narrow setup wizard or silently enable and persist a generated definition.
 
 Gate: a creator can request a richer initial map during setup without generating from incomplete local wizard state or bypassing review.

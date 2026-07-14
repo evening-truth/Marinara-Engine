@@ -202,14 +202,23 @@ export function useGameSetup() {
   const store = useGameModeStore;
 
   return useMutation({
-    mutationFn: (data: { chatId: string; connectionId?: string; promptPresetId?: string | null; preferences: string }) =>
+    mutationFn: (data: {
+      chatId: string;
+      connectionId?: string;
+      promptPresetId?: string | null;
+      preferences: string;
+      keepSetupActive?: boolean;
+    }) =>
       api.post<SetupResponse>("/game/setup", {
-        ...data,
+        chatId: data.chatId,
+        connectionId: data.connectionId,
+        promptPresetId: data.promptPresetId,
+        preferences: data.preferences,
         streaming: useUIStore.getState().enableStreaming,
         debugMode: useUIStore.getState().debugMode,
       }),
-    onSuccess: (res) => {
-      store.getState().setSetupActive(false);
+    onSuccess: (res, variables) => {
+      if (!variables.keepSetupActive) store.getState().setSetupActive(false);
       if (Array.isArray(res.gameNpcs)) {
         store.getState().setNpcs(res.gameNpcs);
       }

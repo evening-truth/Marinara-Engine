@@ -134,6 +134,49 @@ function linkState(value: unknown): SpatialLinkState {
     : "available";
 }
 
+const GENERATED_ICON_NAME_RULES: Array<[RegExp, string]> = [
+  [/(?:castle|citadel|fortress|palace|keep)/u, "🏰"],
+  [/(?:harbou?r|dock|port|pier|marina)/u, "⚓"],
+  [/(?:tavern|inn|pub|alehouse|bar)/u, "🍺"],
+  [/(?:lighthouse|watchtower|tower|spire)/u, "🗼"],
+  [/(?:forest|woods|grove|woodland)/u, "🌲"],
+  [/(?:mountain|peak|summit|cliff)/u, "⛰️"],
+  [/(?:river|lake|sea|ocean|coast|beach|waterfall)/u, "🌊"],
+  [/(?:sewer|tunnel|cavern|cave|catacomb)/u, "🕳️"],
+  [/(?:mine|quarry)/u, "⛏️"],
+  [/(?:library|archive|study|scriptorium)/u, "📚"],
+  [/(?:temple|shrine|church|chapel|sanctuary)/u, "⛩️"],
+  [/(?:market|shop|store|bazaar|merchant)/u, "🏪"],
+  [/(?:house|home|cottage|manor|villa)/u, "🏠"],
+  [/(?:garden|park|meadow|orchard)/u, "🌿"],
+  [/(?:dungeon|prison|jail|gaol)/u, "⛓️"],
+  [/(?:academy|school|university|college)/u, "🏫"],
+  [/(?:hospital|clinic|infirmary|healer)/u, "🏥"],
+  [/(?:farm|field|granary|mill)/u, "🌾"],
+  [/(?:bridge|crossing)/u, "🌉"],
+  [/(?:road|trail|path|highway)/u, "🛣️"],
+];
+
+const GENERATED_ICON_KIND_DEFAULTS: Record<SpatialLocationKind, string> = {
+  region: "🗺️",
+  settlement: "🏘️",
+  place: "📍",
+  building: "🏛️",
+  floor: "🪜",
+  room: "🚪",
+};
+
+function generatedLocationIcon(value: unknown, name: string, kind: SpatialLocationKind): string {
+  const supplied = text(value, 64);
+  const emoji = supplied.match(
+    /(?:\p{Regional_Indicator}{2}|[0-9#*]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\p{Emoji_Modifier})?)*)/u,
+  )?.[0];
+  if (emoji) return emoji;
+
+  const normalizedName = name.toLocaleLowerCase();
+  return GENERATED_ICON_NAME_RULES.find(([pattern]) => pattern.test(normalizedName))?.[1] ?? GENERATED_ICON_KIND_DEFAULTS[kind];
+}
+
 function readPlacement(record: Record<string, unknown>): SpatialLocation["placement"] {
   const placement = isRecord(record.placement) ? record.placement : record;
   const x = clampCoordinate(placement.x);
@@ -272,12 +315,13 @@ export function normalizeSpatialMapPlan(
     const parentSource = sourceByAlias.get(alias(record.parentKey ?? record.parentId));
     const modelMemory = text(record.modelMemory, SPATIAL_CONTEXT_LIMITS.maxModelMemoryLength);
     const awarenessSummary = text(record.awarenessSummary, SPATIAL_CONTEXT_LIMITS.maxAwarenessSummaryLength);
-    const icon = text(record.icon, 64);
+    const kind = locationKind(record.kind, name, !parentSource);
+    const icon = generatedLocationIcon(record.icon, name, kind);
     return {
       id: source.id,
       parentId: parentSource && parentSource.id !== source.id ? parentSource.id : null,
       name,
-      kind: locationKind(record.kind, name, !parentSource),
+      kind,
       description: text(record.description, SPATIAL_CONTEXT_LIMITS.maxDescriptionLength),
       ...(modelMemory ? { modelMemory } : {}),
       ...(awarenessSummary ? { awarenessSummary } : {}),
@@ -477,6 +521,7 @@ export function buildSpatialMapExpansionPrompt(options: BuildSpatialMapExpansion
     "Return only new locations. Never repeat, rename, edit, remove, archive, or replace the selected location or any existing child.",
     "Use parentKey null for each new location that should be attached directly beneath the selected location. Other parentKey and targetKey values may refer only to new keys in this response.",
     "Descriptions are public orientation facts. modelMemory contains concise private facts the model should know only while that location is current.",
+    "Every icon must be exactly one relevant emoji grapheme, never a word, label, shortcode, or emoji name.",
     "Use childPresentation map for spatial siblings, layers for ordered floors or decks, and list for simple children.",
     "Use links only between new locations when parent and child movement cannot express the route.",
     "Coordinates use 0 to 100. Keep map siblings separated. Layer order starts at 0.",
@@ -514,6 +559,7 @@ export function buildSpatialMapDraftPrompt(options: BuildSpatialMapPromptOptions
     `Create about ${size.targetLocations} locations, never more than ${size.maxLocations}, nested no deeper than ${size.maxDepth} levels.`,
     "Use a broad root, then only useful regions, settlements, buildings, floors, rooms, or places.",
     "Descriptions are public orientation facts. modelMemory contains concise private facts the model should know only while that location is current.",
+    "Every icon must be exactly one relevant emoji grapheme, never a word, label, shortcode, or emoji name.",
     "Use childPresentation map for spatial siblings, layers for ordered floors or decks, and list for simple children.",
     "Use links only for meaningful travel that parent and child movement cannot express. Ordinary travel links should be bidirectional.",
     "Coordinates use 0 to 100. Keep map siblings separated. Layer order starts at 0.",

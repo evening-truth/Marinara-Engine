@@ -66,6 +66,7 @@ import {
 } from "../../hooks/use-chats";
 import { useConnections } from "../../hooks/use-connections";
 import { useGenerate } from "../../hooks/use-generate";
+import { useGenerateSpatialMapDraft } from "../../hooks/use-spatial-context";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { spriteKeys, type SpriteInfo } from "../../hooks/use-characters";
 import { lorebookKeys } from "../../hooks/use-lorebooks";
@@ -118,6 +119,7 @@ import type {
   HudWidget,
   SceneSpotifyTrackCandidate,
   SceneSpotifyTrackSelection,
+  SpatialMapDraftSize,
 } from "@marinara-engine/shared";
 import type { SceneSegmentEffect } from "@marinara-engine/shared";
 import {
@@ -6352,6 +6354,7 @@ function GameSurfaceComponent({
   // Game mutations
   const createGame = useCreateGame();
   const gameSetup = useGameSetup();
+  const generateSetupMapDraft = useGenerateSpatialMapDraft();
   const startGame = useStartGame();
   const rollDice = useRollDice();
   const skillCheck = useSkillCheck();
@@ -6372,6 +6375,10 @@ function GameSurfaceComponent({
   const gameSetupResetRef = useRef(gameSetup.reset);
   const startGameResetRef = useRef(startGame.reset);
   const startSessionResetRef = useRef(startSession.reset);
+  const pendingSetupMapDraftRef = useRef<{
+    size: SpatialMapDraftSize;
+    connectionId?: string;
+  } | null>(null);
   createGameResetRef.current = createGame.reset;
   gameSetupResetRef.current = gameSetup.reset;
   startGameResetRef.current = startGame.reset;
@@ -6383,6 +6390,43 @@ function GameSurfaceComponent({
     startGameResetRef.current();
     startSessionResetRef.current();
   }, [activeChatId]);
+
+  const completePostSetupMapDraft = useCallback(
+    async (chatId: string) => {
+      const request = pendingSetupMapDraftRef.current;
+      pendingSetupMapDraftRef.current = null;
+      if (!request) {
+        useGameModeStore.getState().setSetupActive(false);
+        return;
+      }
+
+      try {
+        const result = await generateSetupMapDraft.mutateAsync({
+          chatId,
+          operation: "create",
+          size: request.size,
+          connectionId: request.connectionId,
+          debugMode: useUIStore.getState().debugMode,
+        });
+        useGameModeStore.getState().setSetupActive(false);
+        useUIStore.getState().openSpatialMapDraftReview({
+          chatId,
+          result,
+          source: "game_setup",
+        });
+        toast.success("World created. Review the hierarchical map before saving it.");
+      } catch (error) {
+        useGameModeStore.getState().setSetupActive(false);
+        toast.error(
+          error instanceof Error
+            ? `The game was created, but its map draft failed: ${error.message}. You can build one later from Chat Settings.`
+            : "The game was created, but its map draft failed. You can build one later from Chat Settings.",
+          { duration: 10000 },
+        );
+      }
+    },
+    [generateSetupMapDraft],
+  );
 
   const handleStartGameNow = useCallback(() => {
     if (startGame.isPending || startGameRequested || startGameGuardRef.current) return;
@@ -6532,14 +6576,18 @@ function GameSurfaceComponent({
       }
 
       if (request.kind === "game_setup") {
-        useGameModeStore.getState().setSetupActive(false);
+        if (pendingSetupMapDraftRef.current) {
+          void completePostSetupMapDraft(targetChatId);
+        } else {
+          useGameModeStore.getState().setSetupActive(false);
+        }
       }
       if (request.kind === "session_conclusion") {
         setConfirmEndSessionOpen(false);
       }
       setJsonRepairRequest(null);
     },
-    [activeChatId, gameId, queryClient],
+    [activeChatId, completePostSetupMapDraft, gameId, queryClient],
   );
 
   const handleNpcPortraitClick = useCallback(
@@ -9527,7 +9575,30 @@ function GameSurfaceComponent({
           }
         >
           <GameSetupWizard
-            onComplete={(config, preferences, conns, wizardGameName) => {
+            onComplete={(config, preferences, conns, wizardGameName, mapDraft) => {
+              const runSetup = (chatId: string) => {
+                pendingSetupMapDraftRef.current = mapDraft
+                  ? { size: mapDraft.size, connectionId: conns.gmConnectionId }
+                  : null;
+                gameSetup.mutate(
+                  {
+                    chatId,
+                    connectionId: conns.gmConnectionId,
+                    preferences,
+                    promptPresetId: config.promptPresetId ?? null,
+                    keepSetupActive: Boolean(mapDraft),
+                  },
+                  {
+                    onSuccess: () => {
+                      if (mapDraft) void completePostSetupMapDraft(chatId);
+                    },
+                    onError: (error) => {
+                      if (!handleJsonRepairError(error)) pendingSetupMapDraftRef.current = null;
+                    },
+                  },
+                );
+              };
+
               if (needsCreation) {
                 // Create game structure first, then run setup
                 createGame.mutate(
@@ -9542,31 +9613,16 @@ function GameSurfaceComponent({
                   },
                   {
                     onSuccess: (res) => {
-                      gameSetup.mutate(
-                        {
-                          chatId: res.sessionChat.id,
-                          connectionId: conns.gmConnectionId,
-                          preferences,
-                          promptPresetId: config.promptPresetId ?? null,
-                        },
-                        { onError: handleJsonRepairError },
-                      );
+                      runSetup(res.sessionChat.id);
                     },
                   },
                 );
               } else {
-                gameSetup.mutate(
-                  {
-                    chatId: activeChatId,
-                    connectionId: conns.gmConnectionId,
-                    preferences,
-                    promptPresetId: config.promptPresetId ?? null,
-                  },
-                  { onError: handleJsonRepairError },
-                );
+                runSetup(activeChatId);
               }
             }}
             onCancel={() => {
+              if (createGame.isPending || gameSetup.isPending || generateSetupMapDraft.isPending) return;
               useGameModeStore.getState().setSetupActive(false);
               if (canAutoDeleteEmptySetupChat) {
                 deleteChat.mutate(activeChatId, {
@@ -9579,7 +9635,8 @@ function GameSurfaceComponent({
                 toast.info("Game setup dismissed. The campaign was kept.");
               }
             }}
-            isLoading={createGame.isPending || gameSetup.isPending}
+            isLoading={createGame.isPending || gameSetup.isPending || generateSetupMapDraft.isPending}
+            isDraftingMap={generateSetupMapDraft.isPending}
             characters={characters}
           />
         </Suspense>
