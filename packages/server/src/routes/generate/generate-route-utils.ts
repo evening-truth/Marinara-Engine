@@ -1374,11 +1374,78 @@ export function isManualTrackerCharacterId(value: unknown): boolean {
   return typeof value === "string" && value.trim().startsWith("manual-");
 }
 
-function canUseManualTrackerNameFallback(character: Record<string, unknown>) {
-  const id = trackerCharacterIdKey(character);
-  if (!id || isManualTrackerCharacterId(id)) return true;
-  const name = trackerCharacterNameKey(character);
-  return !!name && id === name;
+function mergeTrackerStats(previous: unknown, next: unknown) {
+  if (!Array.isArray(previous) || previous.length === 0) return next;
+  const nextStats = Array.isArray(next) ? next : [];
+  const nextNames = new Set(
+    nextStats.map((stat) => normalizeTextForMatch(isPlainRecord(stat) ? stat.name : "")).filter(Boolean),
+  );
+  return [
+    ...nextStats,
+    ...previous.filter((stat) => {
+      const name = normalizeTextForMatch(isPlainRecord(stat) ? stat.name : "");
+      return name && !nextNames.has(name);
+    }),
+  ];
+}
+
+const MAX_TRACKER_CHARACTER_HISTORY = 50;
+
+/** Collect the most recently seen distinct tracker characters within a prompt-safe bound. */
+export function collectLatestTrackerCharacterHistory(
+  snapshots: Array<{ presentCharacters?: unknown }>,
+): Array<Record<string, unknown>> {
+  const history: Array<Record<string, unknown>> = [];
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
+  for (const snapshot of snapshots) {
+    const characters = parseJsonField<unknown[]>(snapshot.presentCharacters, []);
+    for (const value of characters) {
+      if (!isPlainRecord(value)) continue;
+      const id = trackerCharacterIdKey(value);
+      const name = trackerCharacterNameKey(value);
+      if ((id && seenIds.has(id)) || (!id && name && seenNames.has(name))) continue;
+      history.push(value);
+      if (id) seenIds.add(id);
+      if (name) seenNames.add(name);
+      if (history.length >= MAX_TRACKER_CHARACTER_HISTORY) return history;
+    }
+  }
+  return history;
+}
+
+type TrackerCharacterCardIdentity = {
+  id: string;
+  name: string;
+  avatarPath?: string | null;
+  avatarCrop?: unknown;
+};
+
+export function applyTrackerCharacterCardIdentity(
+  characters: Array<Record<string, unknown>>,
+  cards: TrackerCharacterCardIdentity[],
+): Set<string> {
+  const cardsById = new Map(cards.map((card) => [card.id.trim().toLowerCase(), card]));
+  const cardsByName = new Map<string, TrackerCharacterCardIdentity>();
+  const duplicateNames = new Set<string>();
+  for (const card of cards) {
+    const name = normalizeTextForMatch(card.name);
+    if (!name) continue;
+    if (cardsByName.has(name)) duplicateNames.add(name);
+    else cardsByName.set(name, card);
+  }
+  for (const name of duplicateNames) cardsByName.delete(name);
+
+  const matchedIds = new Set<string>();
+  for (const character of characters) {
+    const card = cardsById.get(trackerCharacterIdKey(character)) ?? cardsByName.get(trackerCharacterNameKey(character));
+    if (!card) continue;
+    character.characterId = card.id;
+    character.avatarPath = card.avatarPath ?? null;
+    character.avatarCrop = card.avatarCrop ?? null;
+    matchedIds.add(card.id);
+  }
+  return matchedIds;
 }
 
 export function preserveTrackerCharacterUiFields(
@@ -1386,16 +1453,14 @@ export function preserveTrackerCharacterUiFields(
   previousCharacters: Array<Record<string, unknown>>,
 ): void {
   const previousByKey = new Map<string, Record<string, unknown>>();
-  const previousManualByName = new Map<string, Record<string, unknown>>();
+  const previousByName = new Map<string, Record<string, unknown>>();
   const previousNameCounts = new Map<string, number>();
   for (const character of previousCharacters) {
     const key = trackerCharacterKey(character);
     if (key) previousByKey.set(key, character);
     const name = trackerCharacterNameKey(character);
     if (name) previousNameCounts.set(name, (previousNameCounts.get(name) ?? 0) + 1);
-    if (name && isManualTrackerCharacterId(character.characterId)) {
-      previousManualByName.set(name, character);
-    }
+    if (name) previousByName.set(name, character);
   }
 
   for (const character of nextCharacters) {
@@ -1403,9 +1468,7 @@ export function preserveTrackerCharacterUiFields(
     const name = trackerCharacterNameKey(character);
     const previous =
       (key ? previousByKey.get(key) : null) ??
-      (name && previousNameCounts.get(name) === 1 && canUseManualTrackerNameFallback(character)
-        ? previousManualByName.get(name)
-        : null);
+      (name && previousNameCounts.get(name) === 1 ? previousByName.get(name) : null);
     const previousPortraitFocusX = previous?.portraitFocusX;
     const previousPortraitFocusY = previous?.portraitFocusY;
     const previousPortraitZoom = previous?.portraitZoom;
@@ -1418,6 +1481,7 @@ export function preserveTrackerCharacterUiFields(
       // values over it so an omitted field cannot erase the user's configuration.
       character.customFields = { ...previousCustomFields, ...(nextCustomFields ?? {}) };
     }
+    character.stats = mergeTrackerStats(previous?.stats, character.stats);
     if (
       (typeof character.avatarPath !== "string" || !character.avatarPath.trim()) &&
       isNpcTrackerAvatarPath(previousAvatarPath)

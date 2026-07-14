@@ -78,6 +78,7 @@ import {
   type IllustratorPromptReviewOverride,
 } from "../../services/image/illustrator-prompt-review.js";
 import { createGameStateStorage } from "../../services/storage/game-state.storage.js";
+import { normalizeCharacterRpgStats } from "../../services/generation/character-prompt-context.js";
 import { createLorebooksStorage } from "../../services/storage/lorebooks.storage.js";
 import { syncGameMapMetaPartyPosition } from "../../services/game/map-position.service.js";
 import {
@@ -90,6 +91,8 @@ import { gameStateSnapshots as gameStateSnapshotsTable } from "../../db/schema/i
 import {
   buildLockedPlayerStatsArrayPatch,
   buildLockedPersonaTrackerPatch,
+  applyTrackerCharacterCardIdentity,
+  collectLatestTrackerCharacterHistory,
   isMessageHiddenFromAI,
   parseExtra,
   parseStoredGenerationParameters,
@@ -607,6 +610,9 @@ async function buildRetryAgentContext(args: {
       mesExample: cardPromptText(charData.mes_example) || undefined,
       firstMes: cardPromptText(charData.first_mes) || undefined,
       postHistoryInstructions: cardPromptText(charData.post_history_instructions) || undefined,
+      avatarPath: typeof charRow.avatarPath === "string" ? charRow.avatarPath : null,
+      avatarCrop: extensions.avatarCrop ?? null,
+      rpgStats: normalizeCharacterRpgStats(extensions.rpgStats),
     });
   }
 
@@ -674,6 +680,11 @@ async function buildRetryAgentContext(args: {
   const retryVisibleHistorySnapshot = retryVisibleAnchor
     ? await gameStateStore.getByChatAndMessage(chatId, retryVisibleAnchor.messageId, retryVisibleAnchor.swipeIndex)
     : null;
+  const characterTrackerHistory = resolvedAgentTypes.has("character-tracker")
+    ? collectLatestTrackerCharacterHistory(
+        await gameStateStore.getRecent(chatId, 100, retryVisibleHistorySnapshot?.createdAt),
+      )
+    : [];
   const retryOwnerSpatialProjection = retryVisibleAnchor
     ? ((await resolveOwnerSpatialProjection(db, chatId, { exactAnchor: retryVisibleAnchor })) ??
       (await resolveOwnerSpatialProjection(db, chatId, { throughMessageId: retryVisibleAnchor.messageId })))
@@ -730,6 +741,7 @@ async function buildRetryAgentContext(args: {
     mainResponse: resolvedLastAssistantContent,
     gameState: null,
     characters: charInfo,
+    characterTrackerHistory: characterTrackerHistory as unknown as AgentContext["characterTrackerHistory"],
     persona:
       personaContext.personaName !== "User"
         ? {
@@ -2721,6 +2733,11 @@ async function applyRetryResultEffects(args: {
           }
         }
         preserveTrackerCharacterUiFields(presentCharacters, previousCharacters);
+        preserveTrackerCharacterUiFields(
+          presentCharacters,
+          (agentContext.characterTrackerHistory ?? []) as unknown as Array<Record<string, unknown>>,
+        );
+        applyTrackerCharacterCardIdentity(presentCharacters, agentContext.characters);
         const lockedCharacterPatch = applyTrackerFieldLocksToGameStatePatch(
           { presentCharacters },
           previousSnapshot ? parseGameStateRow(previousSnapshot as Record<string, unknown>) : null,

@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Storage: Game State Snapshots
 // ──────────────────────────────────────────────
-import { eq, and, ne, desc, inArray } from "drizzle-orm";
+import { eq, and, ne, desc, inArray, lte } from "drizzle-orm";
 import type { DB } from "../../db/connection.js";
 import { gameStateSnapshots } from "../../db/schema/index.js";
 import { newId, now } from "../../utils/id-generator.js";
@@ -141,6 +141,23 @@ export function createGameStateStorage(db: DB) {
         .orderBy(desc(gameStateSnapshots.createdAt))
         .limit(1);
       return rows[0] ?? null;
+    },
+
+    async getRecent(chatId: string, limit = 100, throughCreatedAt?: string | null) {
+      return db
+        .select()
+        .from(gameStateSnapshots)
+        .where(
+          throughCreatedAt
+            ? and(
+                eq(gameStateSnapshots.chatId, chatId),
+                eq(gameStateSnapshots.committed, 1),
+                lte(gameStateSnapshots.createdAt, throughCreatedAt),
+              )
+            : and(eq(gameStateSnapshots.chatId, chatId), eq(gameStateSnapshots.committed, 1)),
+        )
+        .orderBy(desc(gameStateSnapshots.createdAt))
+        .limit(Math.max(1, Math.min(500, limit)));
     },
 
     async getById(id: string) {

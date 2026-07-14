@@ -100,6 +100,8 @@ Picks the best matching background image for the current scene from your uploade
 
 Tracks the characters present, plus their mood, actions, appearance, outfit, thoughts, and per-character stats such as HP. It can also create portrait images for new characters that have none.
 
+When a recurring character returns after leaving the scene, Character Tracker reuses their latest saved stats and custom fields for continuity. Characters backed by cards also receive their configured RPG pools and attributes as grounding, and always retain the card's avatar and crop. Automatically generated portraits remain limited to NPCs without a matching character card.
+
 - **Phase**: Post-Processing.
 - **Where it works**: Roleplay.
 - **Key settings**: **Add as Prompt Section** (on by default) and an optional **Auto-Generate NPC Avatars** setting with its own image connection picker.

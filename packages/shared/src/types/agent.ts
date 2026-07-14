@@ -359,7 +359,12 @@ export interface AgentContext {
     mesExample?: string;
     firstMes?: string;
     postHistoryInstructions?: string;
+    avatarPath?: string | null;
+    avatarCrop?: unknown;
+    rpgStats?: import("./character.js").RPGStatsConfig;
   }>;
+  /** Latest known tracker entries, including recurring characters that are currently absent. */
+  characterTrackerHistory?: import("./game-state.js").PresentCharacter[];
   /** User persona info */
   persona: {
     name: string;
