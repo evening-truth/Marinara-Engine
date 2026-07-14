@@ -2711,6 +2711,8 @@ export function NoodleView() {
                 disabled={
                   !settings ||
                   updateSettings.isPending ||
+                  inviteCharacter.isPending ||
+                  inviteCharacters.isPending ||
                   removeCharacter.isPending ||
                   clearInvites.isPending ||
                   !hasActiveInvites

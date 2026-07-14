@@ -1426,8 +1426,10 @@ export async function noodleRoutes(app: FastifyInstance) {
   });
 
   app.delete("/invites", async () => {
-    await noodle.clearCharacterInvites();
-    await noodle.updateSettings({ invitedCharacterGroupIds: [], allowRandomUsers: false });
+    await Promise.all([
+      noodle.clearCharacterInvites(),
+      noodle.updateSettings({ invitedCharacterGroupIds: [], allowRandomUsers: false }),
+    ]);
     return bootstrapVisibleNoodle(noodle, characters);
   });
 
