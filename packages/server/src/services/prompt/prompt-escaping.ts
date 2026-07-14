@@ -18,5 +18,14 @@ export function sanitizePromptLeaf(value: string, wrapFormat: WrapFormat): strin
 
 export function sanitizeExampleDialoguePromptLeaf(value: string, wrapFormat: WrapFormat): string {
   if (wrapFormat !== "xml") return sanitizePromptLeaf(value, wrapFormat);
-  return value.split("<START>").map(escapeXmlText).join("<START>");
+
+  // Some import paths can hand us the standard example-dialogue separator
+  // after an HTML-entity pass. Canonicalize only that exact control marker;
+  // every other user-authored XML-looking token must remain escaped.
+  const markerPattern = /(<START>|&lt;START(?:&gt;|>))/g;
+  const exactMarkerPattern = /^(?:<START>|&lt;START(?:&gt;|>))$/;
+  return value
+    .split(markerPattern)
+    .map((chunk) => (exactMarkerPattern.test(chunk) ? "<START>" : escapeXmlText(chunk)))
+    .join("");
 }

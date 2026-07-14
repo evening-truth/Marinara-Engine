@@ -71,6 +71,7 @@ import {
   ImageIcon,
   Film,
   Mic,
+  Loader2,
   HardDriveDownload,
   MessageSquareText,
 } from "lucide-react";
@@ -223,6 +224,7 @@ function SidecarCard() {
   const [assigningTrackers, setAssigningTrackers] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [speechModelChoice, setSpeechModelChoice] = useState<SidecarSpeechModelId>("whisper_tiny");
+  const [deletingSpeechModel, setDeletingSpeechModel] = useState(false);
   const activeModelName = isDownloaded ? modelDisplayName : null;
   const callsPackageInstalled = useMemo(
     () =>
@@ -256,6 +258,19 @@ function SidecarCard() {
       setSpeechModelChoice(firstModel);
     }
   }, [speechModelChoice, speechModels]);
+
+  const handleDeleteSpeechModel = async () => {
+    if (deletingSpeechModel) return;
+    setDeletingSpeechModel(true);
+    try {
+      await deleteSpeechModel();
+      toast.success("Local Whisper model deleted.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete the Local Whisper model.");
+    } finally {
+      setDeletingSpeechModel(false);
+    }
+  };
 
   const handleAssignTrackersToLocal = async () => {
     if (!isDownloaded || assigningTrackers) return;
@@ -414,11 +429,16 @@ function SidecarCard() {
                   {speechModelDownloaded && (
                     <button
                       type="button"
-                      onClick={() => void deleteSpeechModel()}
+                      onClick={() => void handleDeleteSpeechModel()}
+                      disabled={deletingSpeechModel}
                       className="mari-chrome-control mari-chrome-control--small p-1"
                       title="Delete Local Whisper"
                     >
-                      <Trash2 size="0.75rem" />
+                      {deletingSpeechModel ? (
+                        <Loader2 size="0.75rem" className="animate-spin" />
+                      ) : (
+                        <Trash2 size="0.75rem" />
+                      )}
                     </button>
                   )}
                 </div>

@@ -53,7 +53,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "../../lib/utils";
 import { audioManager } from "../../lib/game-audio";
-import { useGameAssetStore } from "../../stores/game-asset.store";
+import { useGameAssetManifest } from "../../hooks/use-game-assets";
 import { useTacticalCombatStart, useTacticalCombatAction } from "../../hooks/use-game";
 import { useUpdateChatMetadata } from "../../hooks/use-chats";
 import {
@@ -455,7 +455,7 @@ export function TacticalCombatUI({
   playerCombatantId,
   onCombatEnd,
 }: TacticalCombatUIProps) {
-  const manifest = useGameAssetStore((s) => s.manifest);
+  const { data: manifest } = useGameAssetManifest();
   const assets = manifest?.assets ?? null;
   const startMut = useTacticalCombatStart();
   const actionMut = useTacticalCombatAction();
