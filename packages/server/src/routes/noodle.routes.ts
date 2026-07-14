@@ -1425,6 +1425,12 @@ export async function noodleRoutes(app: FastifyInstance) {
     return accounts;
   });
 
+  app.delete("/invites", async () => {
+    await noodle.clearCharacterInvites();
+    await noodle.updateSettings({ invitedCharacterGroupIds: [], allowRandomUsers: false });
+    return bootstrapVisibleNoodle(noodle, characters);
+  });
+
   app.delete("/invites/:characterId", async (req, reply) => {
     const { characterId } = req.params as { characterId: string };
     const account = await noodle.setCharacterInvited(characterId, false);

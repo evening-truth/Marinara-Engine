@@ -439,6 +439,13 @@ export function createNoodleStorage(db: DB) {
       return this.updateAccount(existing.id, { invited });
     },
 
+    async clearCharacterInvites(): Promise<void> {
+      await db
+        .update(noodleAccounts)
+        .set({ invited: "false", updatedAt: now() })
+        .where(and(eq(noodleAccounts.kind, "character"), eq(noodleAccounts.invited, "true")));
+    },
+
     async listPosts(options: { limit?: number; since?: string } = {}): Promise<NoodlePost[]> {
       const limit = Math.max(1, Math.min(300, Math.floor(options.limit ?? 120)));
       const rows = options.since
