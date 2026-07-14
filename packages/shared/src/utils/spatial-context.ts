@@ -35,9 +35,70 @@ export function buildSpatialLocationIndex(
   return byId;
 }
 
+export function getSpatialDescendantIds(
+  definition: Pick<SpatialContextDefinition, "locations">,
+  locationId: string,
+): Set<string> {
+  const descendants = new Set<string>();
+  const visit = (parentId: string) => {
+    for (const location of definition.locations) {
+      if (location.parentId !== parentId || descendants.has(location.id)) continue;
+      descendants.add(location.id);
+      visit(location.id);
+    }
+  };
+  visit(locationId);
+  return descendants;
+}
+
+export function wouldCreateSpatialCycle(
+  definition: Pick<SpatialContextDefinition, "locations">,
+  locationId: string,
+  parentId: string,
+): boolean {
+  if (parentId === locationId) return true;
+  return getSpatialDescendantIds(definition, locationId).has(parentId);
+}
+
+export function resolveSpatialLocationDepth(
+  definition: Pick<SpatialContextDefinition, "locations">,
+  location: SpatialLocation,
+): number {
+  const byId = buildSpatialLocationIndex(definition);
+  const seen = new Set<string>();
+  let depth = 1;
+  let current = location;
+  while (current.parentId) {
+    if (seen.has(current.parentId)) return SPATIAL_CONTEXT_LIMITS.maxDepth + 1;
+    seen.add(current.parentId);
+    const parent = byId.get(current.parentId);
+    if (!parent) break;
+    depth += 1;
+    current = parent;
+  }
+  return depth;
+}
+
+export function spatialRadialPlacement(
+  index: number,
+  count: number,
+  radius = count <= 6 ? 34 : 40,
+): SpatialLocation["placement"] {
+  if (count === 1) return { x: 50, y: 50 };
+  const angle = (Math.PI * 2 * index) / count - Math.PI / 2;
+  return {
+    x: Math.round(50 + Math.cos(angle) * radius),
+    y: Math.round(50 + Math.sin(angle) * radius),
+  };
+}
+
 function compareText(left: string, right: string): number {
   if (left === right) return 0;
   return left < right ? -1 : 1;
+}
+
+export function compareSpatialLocations(left: SpatialLocation, right: SpatialLocation): number {
+  return left.sortOrder - right.sortOrder || compareText(left.name, right.name) || compareText(left.id, right.id);
 }
 
 function compareDestinations(left: SpatialDestination, right: SpatialDestination): number {

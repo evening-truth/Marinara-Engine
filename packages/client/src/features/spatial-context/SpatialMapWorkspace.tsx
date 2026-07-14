@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  compareSpatialLocations,
   resolveSpatialBreadcrumb,
   validateSpatialArchive,
   type GameMap,
@@ -59,7 +60,7 @@ interface SpatialMapWorkspaceProps {
 function sortedChildren(definition: SpatialContextDefinition, parentId: string | null) {
   return definition.locations
     .filter((location) => location.parentId === parentId)
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name));
+    .sort(compareSpatialLocations);
 }
 
 function statusCopy(options: {

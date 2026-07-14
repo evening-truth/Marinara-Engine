@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronRight, Copy, CornerDownRight, MapPin, Plus, Split } from "lucide-react";
-import type { SpatialContextDefinition, SpatialLocation } from "@marinara-engine/shared";
+import { compareSpatialLocations, type SpatialContextDefinition, type SpatialLocation } from "@marinara-engine/shared";
 import { cn } from "../../../lib/utils";
 
 interface HierarchyNavigatorProps {
@@ -13,10 +13,6 @@ interface HierarchyNavigatorProps {
   onAddSibling: (locationId: string) => void;
   onDuplicate: (locationId: string) => void;
   onArchive: (locationId: string) => void;
-}
-
-function sortLocations(left: SpatialLocation, right: SpatialLocation) {
-  return left.sortOrder - right.sortOrder || left.name.localeCompare(right.name);
 }
 
 export function HierarchyNavigator({
@@ -38,7 +34,7 @@ export function HierarchyNavigator({
       children.push(location);
       result.set(location.parentId, children);
     }
-    for (const children of result.values()) children.sort(sortLocations);
+    for (const children of result.values()) children.sort(compareSpatialLocations);
     return result;
   }, [definition.locations]);
 

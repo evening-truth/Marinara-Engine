@@ -11,7 +11,7 @@ import type {
   SpatialLinkState,
 } from "@marinara-engine/shared";
 import { cn } from "../../../lib/utils";
-import { getSpatialDescendantIds } from "../editor-state";
+import { getSpatialDescendantIds } from "@marinara-engine/shared";
 import { GameMapBindingsPanel } from "./GameMapBindingsPanel";
 
 const INPUT_CLASS =

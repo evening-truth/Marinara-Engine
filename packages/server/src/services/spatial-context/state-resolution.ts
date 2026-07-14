@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import type { DB } from "../../db/connection.js";
 import { chats, messages } from "../../db/schema/index.js";
 import { createSpatialContextStorage } from "../storage/spatial-context.storage.js";
+import { parseSpatialMetadata } from "./metadata.js";
 
 type SpatialReadConnection = Pick<DB, "select" | "insert" | "delete" | "update">;
 
@@ -30,20 +31,8 @@ export interface ResolveSpatialStateOptions {
   beforeMessageId?: string;
 }
 
-function parseMetadata(raw: unknown): Record<string, unknown> {
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
-  }
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-}
-
 export function parseStoredSpatialDefinition(rawMetadata: unknown): SpatialContextDefinition | null {
-  const candidate = parseMetadata(rawMetadata).spatialContext;
+  const candidate = parseSpatialMetadata(rawMetadata).spatialContext;
   const parsed = spatialContextDefinitionSchema.safeParse(candidate);
   return parsed.success ? (parsed.data as SpatialContextDefinition) : null;
 }

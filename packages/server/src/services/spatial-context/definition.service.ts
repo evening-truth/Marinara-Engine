@@ -15,6 +15,7 @@ import { createLorebooksStorage } from "../storage/lorebooks.storage.js";
 import { withChatMetadataPatchQueue } from "../storage/chats.storage.js";
 import { createSpatialContextStorage } from "../storage/spatial-context.storage.js";
 import { resolveEffectiveSpatialState } from "./state-resolution.js";
+import { parseSpatialMetadata } from "./metadata.js";
 
 const METADATA_KEY = "spatialContext";
 
@@ -37,18 +38,6 @@ export class SpatialContextServiceError extends Error {
     super(message);
     this.name = "SpatialContextServiceError";
   }
-}
-
-function parseMetadata(raw: unknown): Record<string, unknown> {
-  if (typeof raw === "string") {
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
-  }
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 }
 
 function readDefinition(metadata: Record<string, unknown>): {
@@ -151,7 +140,7 @@ export function createSpatialContextService(db: DB) {
       assertSupportedMode(chat.mode);
 
       const hasCommittedSpatialHistory = await createSpatialContextStorage(db).hasMessageSnapshots(chatId);
-      const stored = readDefinition(parseMetadata(chat.metadata));
+      const stored = readDefinition(parseSpatialMetadata(chat.metadata));
       if (!stored.definition) return buildResponse(null, null, stored.corrupt, hasCommittedSpatialHistory);
 
       const state = await resolveEffectiveSpatialState(db, chatId);
@@ -171,7 +160,7 @@ export function createSpatialContextService(db: DB) {
         if (!chat) throw new SpatialContextServiceError("chat_not_found", "Chat not found.", 404);
         assertSupportedMode(chat.mode);
 
-        const metadata = parseMetadata(chat.metadata);
+        const metadata = parseSpatialMetadata(chat.metadata);
         const stored = readDefinition(metadata);
         if (stored.corrupt) {
           throw new SpatialContextServiceError(

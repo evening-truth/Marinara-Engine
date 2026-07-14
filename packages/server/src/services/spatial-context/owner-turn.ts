@@ -15,6 +15,7 @@ import { withChatMetadataPatchQueue } from "../storage/chats.storage.js";
 import { createSpatialContextStorage } from "../storage/spatial-context.storage.js";
 import { parseStoredSpatialDefinition, resolveEffectiveSpatialState } from "./state-resolution.js";
 import { selectBoundGameMapForLocation } from "./game-map-binding.js";
+import { parseSpatialMetadata } from "./metadata.js";
 
 export type SpatialOwnerTurnErrorCode =
   | SpatialTransitionErrorCode
@@ -71,19 +72,6 @@ function messageExtra(attachments?: MessageAttachment[]) {
     generationInfo: null,
     ...(attachments?.length ? { attachments } : {}),
   });
-}
-
-function parseMetadata(value: unknown): Record<string, unknown> {
-  if (!value) return {};
-  if (typeof value !== "string") return value as Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
 }
 
 export async function commitSpatialOwnerTurn(
@@ -156,7 +144,7 @@ export async function commitSpatialOwnerTurn(
       }
       const nextGameMetadata =
         chat.mode === "game"
-          ? selectBoundGameMapForLocation(parseMetadata(chat.metadata), definition, validation.destination.id)
+          ? selectBoundGameMapForLocation(parseSpatialMetadata(chat.metadata), definition, validation.destination.id)
           : null;
 
       const timestamp = now();

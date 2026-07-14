@@ -1,7 +1,10 @@
 import {
   buildSpatialLocationIndex,
+  compareSpatialLocations,
+  getSpatialDescendantIds,
   spatialContextDefinitionSchema,
   validateSpatialContextDefinition,
+  wouldCreateSpatialCycle,
   type SpatialChildPresentation,
   type SpatialContextDefinition,
   type SpatialDefinitionIssue,
@@ -105,7 +108,7 @@ function normalizeChildPresentation(
 ): SpatialContextDefinition {
   const orderedChildIds = definition.locations
     .filter((location) => location.parentId === parentId)
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+    .sort(compareSpatialLocations)
     .map((location) => location.id);
   const layerOrderById = new Map(orderedChildIds.map((id, index) => [id, index]));
   return {
@@ -138,25 +141,12 @@ export function updateSpatialLocation(
   return next;
 }
 
-export function getSpatialDescendantIds(definition: SpatialContextDefinition, locationId: string): Set<string> {
-  const descendants = new Set<string>();
-  const visit = (parentId: string) => {
-    for (const location of definition.locations) {
-      if (location.parentId !== parentId || descendants.has(location.id)) continue;
-      descendants.add(location.id);
-      visit(location.id);
-    }
-  };
-  visit(locationId);
-  return descendants;
-}
-
 export function reparentSpatialLocation(
   definition: SpatialContextDefinition,
   locationId: string,
   parentId: string | null,
 ): SpatialContextDefinition {
-  if (parentId === locationId || (parentId && getSpatialDescendantIds(definition, locationId).has(parentId))) {
+  if (parentId && wouldCreateSpatialCycle(definition, locationId, parentId)) {
     return definition;
   }
   const layout = childLayout(definition, parentId);

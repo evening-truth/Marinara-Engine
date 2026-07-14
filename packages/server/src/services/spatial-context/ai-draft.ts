@@ -1,7 +1,11 @@
 import {
   SPATIAL_CONTEXT_LIMITS,
+  compareSpatialLocations,
+  resolveSpatialLocationDepth,
   resolveSpatialBreadcrumb,
+  spatialRadialPlacement,
   spatialContextDefinitionSchema,
+  wouldCreateSpatialCycle,
   type SpatialChildPresentation,
   type SpatialContextDefinition,
   type SpatialLinkState,
@@ -223,44 +227,6 @@ export function readSpatialMapPlanProvenance(value: unknown): SpatialMapPlanProv
 }
 
 
-function wouldCycle(locations: SpatialLocation[], locationId: string, parentId: string): boolean {
-  const byId = new Map(locations.map((location) => [location.id, location]));
-  const seen = new Set([locationId]);
-  let currentId: string | null = parentId;
-  while (currentId) {
-    if (seen.has(currentId)) return true;
-    seen.add(currentId);
-    currentId = byId.get(currentId)?.parentId ?? null;
-  }
-  return false;
-}
-
-function locationDepth(locations: SpatialLocation[], location: SpatialLocation): number {
-  const byId = new Map(locations.map((candidate) => [candidate.id, candidate]));
-  const seen = new Set<string>();
-  let depth = 1;
-  let current = location;
-  while (current.parentId) {
-    if (seen.has(current.parentId)) return SPATIAL_CONTEXT_LIMITS.maxDepth + 1;
-    seen.add(current.parentId);
-    const parent = byId.get(current.parentId);
-    if (!parent) break;
-    depth += 1;
-    current = parent;
-  }
-  return depth;
-}
-
-function radialPlacement(index: number, count: number): SpatialLocation["placement"] {
-  if (count === 1) return { x: 50, y: 50 };
-  const angle = (Math.PI * 2 * index) / count - Math.PI / 2;
-  const radius = count <= 6 ? 34 : 40;
-  return {
-    x: Math.round(50 + Math.cos(angle) * radius),
-    y: Math.round(50 + Math.sin(angle) * radius),
-  };
-}
-
 function normalizeLayouts(locations: SpatialLocation[]): SpatialLocation[] {
   const childrenByParent = new Map<string, SpatialLocation[]>();
   for (const location of locations) {
@@ -299,7 +265,7 @@ function normalizeLayouts(locations: SpatialLocation[]): SpatialLocation[] {
     if (presentation === "map") {
       return {
         ...location,
-        placement: location.placement ?? radialPlacement(index, siblingCounts.get(location.parentId) ?? 1),
+        placement: location.placement ?? spatialRadialPlacement(index, siblingCounts.get(location.parentId) ?? 1),
         layerOrder: undefined,
       };
     }
@@ -377,7 +343,7 @@ export function normalizeSpatialMapPlan(
   });
 
   locations = locations.map((location) =>
-    location.parentId && wouldCycle(locations, location.id, location.parentId)
+    location.parentId && wouldCreateSpatialCycle({ locations }, location.id, location.parentId)
       ? { ...location, parentId: null }
       : location,
   );
@@ -386,7 +352,7 @@ export function normalizeSpatialMapPlan(
     Math.min(options.maxDepth ?? SPATIAL_DRAFT_SIZE_SPECS[options.size].maxDepth, SPATIAL_CONTEXT_LIMITS.maxDepth),
   );
   locations = locations.map((location) =>
-    locationDepth(locations, location) > maxDepth ? { ...location, parentId: null } : location,
+    resolveSpatialLocationDepth({ locations }, location) > maxDepth ? { ...location, parentId: null } : location,
   );
 
   locations = locations.map((location, index) => {
@@ -448,7 +414,7 @@ export function normalizeSpatialMapExpansionPlan(
   if (remainingLocationCapacity < 1) {
     throw new Error("This map already contains the maximum number of locations.");
   }
-  const availableDepth = SPATIAL_CONTEXT_LIMITS.maxDepth - locationDepth(options.definition.locations, target);
+  const availableDepth = SPATIAL_CONTEXT_LIMITS.maxDepth - resolveSpatialLocationDepth(options.definition, target);
   if (availableDepth < 1) {
     throw new Error("This location is already at the maximum nesting depth.");
   }
@@ -490,7 +456,7 @@ export function normalizeSpatialMapExpansionPlan(
     if (target.childPresentation === "map") {
       return {
         ...base,
-        placement: radialPlacement(existingChildren.length + rootIndex, combinedSiblingCount),
+        placement: spatialRadialPlacement(existingChildren.length + rootIndex, combinedSiblingCount),
         layerOrder: undefined,
       };
     }
@@ -545,7 +511,7 @@ export function buildSpatialMapExpansionPrompt(options: BuildSpatialMapExpansion
   if (remainingLocationCapacity < 1) {
     throw new Error("This map already contains the maximum number of locations.");
   }
-  const availableDepth = SPATIAL_CONTEXT_LIMITS.maxDepth - locationDepth(options.definition.locations, target);
+  const availableDepth = SPATIAL_CONTEXT_LIMITS.maxDepth - resolveSpatialLocationDepth(options.definition, target);
   if (availableDepth < 1) {
     throw new Error("This location is already at the maximum nesting depth.");
   }
@@ -557,7 +523,7 @@ export function buildSpatialMapExpansionPrompt(options: BuildSpatialMapExpansion
   const breadcrumb = resolveSpatialBreadcrumb(options.definition, target.id).map((location) => location.name).join(" > ");
   const existingChildren = options.definition.locations
     .filter((location) => location.parentId === target.id && location.status === "active")
-    .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name))
+    .sort(compareSpatialLocations)
     .slice(0, 50)
     .map((location) => ({ name: location.name, kind: location.kind }));
   const selectedContext = JSON.stringify(

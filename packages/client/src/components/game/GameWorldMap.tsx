@@ -8,7 +8,9 @@ import {
   Route,
 } from "lucide-react";
 import {
+  compareSpatialLocations,
   resolveSpatialBreadcrumb,
+  spatialRadialPlacement,
   type SpatialContextResponse,
   type SpatialLocation,
 } from "@marinara-engine/shared";
@@ -24,9 +26,7 @@ interface GameWorldMapProps {
 }
 
 function sortLocations(locations: SpatialLocation[]): SpatialLocation[] {
-  return [...locations].sort(
-    (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name),
-  );
+  return [...locations].sort(compareSpatialLocations);
 }
 
 function defaultViewLocationId(spatial: SpatialContextResponse): string | null {
@@ -44,15 +44,6 @@ function defaultViewLocationId(spatial: SpatialContextResponse): string | null {
     (location) => location.status === "active" && location.parentId === current.id,
   );
   return hasActiveChildren ? current.id : (current.parentId ?? current.id);
-}
-
-function fallbackPlacement(index: number, count: number): { x: number; y: number } {
-  if (count === 1) return { x: 50, y: 50 };
-  const angle = (Math.PI * 2 * index) / count - Math.PI / 2;
-  return {
-    x: Math.round(50 + Math.cos(angle) * 34),
-    y: Math.round(50 + Math.sin(angle) * 34),
-  };
 }
 
 function displayCoordinate(value: number): number {
@@ -105,7 +96,7 @@ export function GameWorldMap({
       new Map(
         visibleLocations.map((location, index) => [
           location.id,
-          location.placement ?? fallbackPlacement(index, visibleLocations.length),
+          location.placement ?? spatialRadialPlacement(index, visibleLocations.length, 34),
         ]),
       ),
     [visibleLocations],

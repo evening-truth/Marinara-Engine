@@ -34,6 +34,7 @@ import { createConnectionsStorage } from "../services/storage/connections.storag
 import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { commitSpatialOwnerTurn, SpatialOwnerTurnError } from "../services/spatial-context/owner-turn.js";
 import { resolveLorebookScopeExclusions } from "../services/lorebook/game-lorebook-scope.js";
+import { parseSpatialMetadata } from "../services/spatial-context/metadata.js";
 
 interface ChatSpatialParams {
   chatId: string;
@@ -54,19 +55,6 @@ const spatialOwnerTurnSchema = z.object({
     )
     .optional(),
 });
-
-function record(value: unknown): Record<string, unknown> {
-  if (!value) return {};
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
-  }
-  return typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
 
 function stringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((entry): entry is string => typeof entry === "string");
@@ -256,14 +244,14 @@ async function buildDraftSourceContext(
   chat: NonNullable<Awaited<ReturnType<ReturnType<typeof createChatsStorage>["getById"]>>>,
   characters: ReturnType<typeof createCharactersStorage>,
 ): Promise<string> {
-  const metadata = record(chat.metadata);
-  const setup = record(metadata.gameSetupConfig);
+  const metadata = parseSpatialMetadata(chat.metadata);
+  const setup = parseSpatialMetadata(metadata.gameSetupConfig);
   const characterContext: Array<Record<string, string>> = [];
   for (const characterId of stringArray(chat.characterIds).slice(0, 8)) {
     if (characterId.startsWith("npc:")) continue;
     const character = await characters.getById(characterId);
     if (!character) continue;
-    const data = record(character.data);
+    const data = parseSpatialMetadata(character.data);
     characterContext.push({
       name: excerpt(data.name, 200) ?? "Character",
       ...(excerpt(data.description, 1_200) ? { description: excerpt(data.description, 1_200)! } : {}),
@@ -448,7 +436,7 @@ export async function spatialContextRoutes(app: FastifyInstance) {
 
     const sourceContext = await buildDraftSourceContext(chat, characters);
     const groundingMode = parsed.data.groundingMode;
-    const lorebookScopeExclusions = resolveLorebookScopeExclusions(chat.mode, record(chat.metadata));
+    const lorebookScopeExclusions = resolveLorebookScopeExclusions(chat.mode, parseSpatialMetadata(chat.metadata));
     const loreCatalog = await buildSpatialLoreCatalog(
       lorebooks,
       groundingMode,
