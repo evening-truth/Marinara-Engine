@@ -665,6 +665,112 @@ test("Roleplay stages story movement separately from prose and recovers stale tu
   }
 });
 
+test("Game screen shows the hierarchical World map alongside the Local tactical map", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const chatResponse = await page.request.post("/api/chats", {
+    data: {
+      name: `Game World Map ${testInfo.project.name}`,
+      mode: "game",
+      characterIds: [],
+      connectionId: "game-world-map-e2-connection",
+    },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+  const tacticalMap = {
+    id: "coast-map",
+    type: "grid",
+    name: "Shrouded Coast Tactical Map",
+    description: "A local tactical map.",
+    width: 1,
+    height: 1,
+    cells: [
+      {
+        x: 0,
+        y: 0,
+        emoji: "⚓",
+        label: "Harbor Gate",
+        discovered: true,
+        terrain: "city",
+      },
+    ],
+    partyPosition: { x: 0, y: 0 },
+  };
+
+  try {
+    const metadataResponse = await page.request.patch(`/api/chats/${chat.id}/metadata`, {
+      data: {
+        gameId: `world-map-game-${chat.id}`,
+        gameSessionStatus: "active",
+        gameMaps: [tacticalMap],
+        gameMap: tacticalMap,
+        activeGameMapId: tacticalMap.id,
+        gameIntroPresented: true,
+      },
+    });
+    expect(metadataResponse.ok()).toBeTruthy();
+    const spatialSave = await page.request.put(`/api/chats/${chat.id}/spatial-context`, {
+      data: {
+        expectedRevision: 0,
+        expectedCurrentLocationId: null,
+        definition: {
+          ...gameGeneratedDefinition,
+          enabled: true,
+        },
+      },
+    });
+    expect(spatialSave.ok()).toBeTruthy();
+    const messageResponse = await page.request.post(`/api/chats/${chat.id}/messages`, {
+      data: {
+        role: "assistant",
+        content: "Fog curls around the piers of the Shrouded Coast.",
+      },
+    });
+    expect(messageResponse.ok()).toBeTruthy();
+
+    await page.addInitScript((chatId) => {
+      localStorage.setItem("marinara-active-chat-id", chatId);
+      localStorage.setItem(
+        "marinara-engine-ui",
+        JSON.stringify({
+          state: {
+            hasCompletedOnboarding: true,
+            sidebarOpen: false,
+            rightPanelOpen: false,
+          },
+          version: 72,
+        }),
+      );
+    }, chat.id);
+    await page.route("**/api/backgrounds/file/Black.jpg", async (route) => {
+      await route.fulfill({ status: 204, body: "" });
+    });
+    await page.goto("/");
+
+    if (testInfo.project.name.includes("mobile")) {
+      await page.getByRole("button", { name: "Open map" }).click();
+    }
+
+    const mapView = page.getByRole("group", { name: "Map view" });
+    await expect(mapView.getByRole("button", { name: "World" })).toHaveAttribute("aria-pressed", "true");
+    const worldMap = page.getByRole("region", { name: "Hierarchical world map" });
+    await expect(worldMap).toBeVisible();
+    await expect(worldMap.getByRole("button", { name: /Gloam Harbor/ })).toBeVisible();
+    await expect(worldMap.getByText("⚓", { exact: true })).toBeVisible();
+
+    await worldMap.getByRole("button", { name: /Gloam Harbor/ }).click();
+    await expect(worldMap.getByText("A busy harbor of black piers.")).toBeVisible();
+    await expect(worldMap.getByRole("button", { name: "Set destination: Gloam Harbor" })).toBeVisible();
+
+    await mapView.getByRole("button", { name: "Local" }).click();
+    await expect(mapView.getByRole("button", { name: "Local" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("Shrouded Coast Tactical Map", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("region", { name: "Hierarchical world map" })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
 test("Game Location Details binds and clears a tactical cell", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "The binding editor interaction is covered on desktop.");
   const chatResponse = await page.request.post("/api/chats", {

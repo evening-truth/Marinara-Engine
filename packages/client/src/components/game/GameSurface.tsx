@@ -11016,6 +11016,7 @@ function GameSurfaceComponent({
                   {/* Mobile: map icon button that opens modal */}
                   <div data-tour="game-map" className="md:hidden">
                     <MobileMapButton
+                      chatId={activeChatId}
                       map={viewedMap}
                       maps={availableMaps}
                       activeMapId={activeMapId}
@@ -11031,6 +11032,8 @@ function GameSurfaceComponent({
                       day={currentGameDay}
                       onDayChange={handleGameDayChange}
                       onTimeChange={handleGameTimeChange}
+                      spatialContext={spatialContext.data}
+                      spatialContextLoading={spatialContext.isLoading}
                     />
                   </div>
                   {/* Desktop: inline minimap */}
@@ -11051,6 +11054,8 @@ function GameSurfaceComponent({
                       day={currentGameDay}
                       onDayChange={handleGameDayChange}
                       onTimeChange={handleGameTimeChange}
+                      spatialContext={spatialContext.data}
+                      spatialContextLoading={spatialContext.isLoading}
                       chatId={activeChatId}
                       constraintsRef={hudSurfaceRef}
                     />
