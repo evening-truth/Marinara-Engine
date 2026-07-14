@@ -140,6 +140,7 @@ export function useRemoveNoodleCharacter() {
   });
 }
 
+/** Clear every Noodle invitation source and refresh the bootstrap cache. */
 export function useClearNoodleInvites() {
   const qc = useQueryClient();
   return useMutation({
