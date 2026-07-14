@@ -57,6 +57,7 @@ import { promptOverridesRoutes } from "./prompt-overrides.routes.js";
 import { csrfDiagnosticsRoutes } from "./csrf-diagnostics.routes.js";
 import { professorMariWorkspaceRoutes } from "./professor-mari-workspace.routes.js";
 import { noodleRoutes } from "./noodle.routes.js";
+import { capabilityPackagesRoutes } from "./capability-packages.routes.js";
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(chatsRoutes, { prefix: "/api/chats" });
@@ -113,6 +114,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(csrfDiagnosticsRoutes, { prefix: "/api/csrf" });
   await app.register(professorMariWorkspaceRoutes, { prefix: "/api/professor-mari/workspace" });
   await app.register(noodleRoutes, { prefix: "/api/noodle" });
+  await app.register(capabilityPackagesRoutes, { prefix: "/api/capability-packages" });
   if (process.env.MARINARA_LITE !== "true" && process.env.MARINARA_LITE !== "1") {
     await app.register(sidecarRoutes, { prefix: "/api/sidecar" });
   }
