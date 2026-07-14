@@ -8781,6 +8781,8 @@ function GameSurfaceComponent({
       }
       if (boundSpatialLocationId && spatialContext.data?.definition?.enabled) {
         const spatial = spatialContext.data;
+        const definition = spatial.definition;
+        if (!definition) return;
         if (!spatial.currentLocationId) {
           toast.error("The current story location is unavailable. Repair the hierarchy before moving.");
           setPendingMapMove(null);
@@ -8800,7 +8802,7 @@ function GameSurfaceComponent({
         useChatStore.getState().setPendingSpatialTransition(activeChatId, {
           transition: {
             destinationId: destination.id,
-            expectedDefinitionRevision: spatial.definition.revision,
+            expectedDefinitionRevision: definition.revision,
             expectedCurrentLocationId: spatial.currentLocationId,
             commandId: generateClientId(),
           },
