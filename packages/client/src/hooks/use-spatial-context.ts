@@ -2,11 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   GenerateSpatialMapDraftRequest,
   GenerateSpatialMapDraftResponse,
+  Message,
+  MessageAttachment,
+  PendingSpatialTransition,
   SpatialContextDefinition,
   SpatialContextResponse,
   SpatialDefinitionIssue,
 } from "@marinara-engine/shared";
 import { api, ApiError } from "../lib/api-client";
+import { useChatStore } from "../stores/chat.store";
+import { chatKeys } from "./use-chats";
 
 export const spatialContextKeys = {
   all: ["spatial-context"] as const,
@@ -23,6 +28,18 @@ export interface UpdateSpatialContextInput {
 
 export interface GenerateSpatialMapDraftInput extends GenerateSpatialMapDraftRequest {
   chatId: string;
+}
+
+export interface CommitSpatialOwnerTurnInput {
+  chatId: string;
+  content: string;
+  transition: PendingSpatialTransition;
+  attachments?: MessageAttachment[];
+}
+
+interface CommitSpatialOwnerTurnResponse {
+  message: Message;
+  spatial: SpatialContextResponse;
 }
 
 export interface SpatialContextProblem {
@@ -114,6 +131,28 @@ export function useUpdateSpatialContext() {
       if (getSpatialContextProblem(error).conflict) {
         void queryClient.invalidateQueries({ queryKey: spatialContextKeys.detail(variables.chatId) });
       }
+    },
+  });
+}
+
+export function useCommitSpatialOwnerTurn() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ chatId, ...request }: CommitSpatialOwnerTurnInput) =>
+      api.post<CommitSpatialOwnerTurnResponse>(`/chats/${chatId}/spatial-context/turn`, request),
+    onSuccess: (response, variables) => {
+      queryClient.setQueryData(spatialContextKeys.detail(variables.chatId), response.spatial);
+      useChatStore
+        .getState()
+        .clearPendingSpatialTransition(variables.chatId, variables.transition.commandId);
+      void queryClient.invalidateQueries({ queryKey: chatKeys.messages(variables.chatId) });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.messageCount(variables.chatId) });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.list() });
+      void queryClient.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
+    },
+    onError: (_error, variables) => {
+      useChatStore.getState().setPendingSpatialTransitionStatus(variables.chatId, "needs_review");
+      void queryClient.invalidateQueries({ queryKey: spatialContextKeys.detail(variables.chatId) });
     },
   });
 }

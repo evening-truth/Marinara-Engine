@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import {
   resolveSpatialBreadcrumb,
   validateSpatialArchive,
+  type GameMap,
   type SpatialContextDefinition,
   type SpatialDefinitionIssue,
   type SpatialOwnerMode,
@@ -98,6 +99,28 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
   const [aiBuilderOpen, setAiBuilderOpen] = useState(false);
 
   const ownerMode: SpatialOwnerMode = chat?.mode === "game" ? "game" : "roleplay";
+  const gameMaps = useMemo(() => {
+    if (ownerMode !== "game") return [];
+    const raw = chat?.metadata as unknown;
+    let metadata: Record<string, unknown> = {};
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          metadata = parsed as Record<string, unknown>;
+        }
+      } catch {
+        return [];
+      }
+    } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      metadata = raw as Record<string, unknown>;
+    }
+    const maps = Array.isArray(metadata.gameMaps) ? (metadata.gameMaps as GameMap[]) : [];
+    const activeMap = metadata.gameMap as GameMap | undefined;
+    if (!activeMap) return maps;
+    const activeId = activeMap.id?.trim();
+    return maps.some((map) => (activeId ? map.id === activeId : map === activeMap)) ? maps : [...maps, activeMap];
+  }, [chat?.metadata, ownerMode]);
 
   useEffect(() => {
     setInitialized(false);
@@ -557,6 +580,15 @@ export function SpatialMapWorkspace({ chatId }: SpatialMapWorkspaceProps) {
       onReparent={(parentId) => selected && applyDraft(reparentSpatialLocation(draft, selected.id, parentId))}
       onSetStarting={() => selected && applyDraft({ ...draft, startingLocationId: selected.id })}
       onArchive={() => selected && requestArchive(selected.id)}
+      gameBinding={
+        ownerMode === "game"
+          ? {
+              chatId,
+              maps: gameMaps,
+              disabled: dirty || !baseDefinition?.locations.some((location) => location.id === selected?.id),
+            }
+          : undefined
+      }
     />
   );
 

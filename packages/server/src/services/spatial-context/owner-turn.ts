@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   resolveSpatialBreadcrumb,
   validateSpatialTransition,
+  type MessageAttachment,
   type PendingSpatialTransition,
   type SpatialContextSnapshot,
   type SpatialTransitionErrorCode,
@@ -13,6 +14,7 @@ import { newId, now } from "../../utils/id-generator.js";
 import { withChatMetadataPatchQueue } from "../storage/chats.storage.js";
 import { createSpatialContextStorage } from "../storage/spatial-context.storage.js";
 import { parseStoredSpatialDefinition, resolveEffectiveSpatialState } from "./state-resolution.js";
+import { selectBoundGameMapForLocation } from "./game-map-binding.js";
 
 export type SpatialOwnerTurnErrorCode =
   | SpatialTransitionErrorCode
@@ -45,6 +47,7 @@ export interface CommitSpatialOwnerTurnInput {
   content: string;
   transition: PendingSpatialTransition;
   gameStateSnapshotId?: string | null;
+  attachments?: MessageAttachment[];
 }
 
 function transitionPayloadHash(transition: PendingSpatialTransition): string {
@@ -60,13 +63,27 @@ function transitionPayloadHash(transition: PendingSpatialTransition): string {
     .digest("hex");
 }
 
-function messageExtra() {
+function messageExtra(attachments?: MessageAttachment[]) {
   return JSON.stringify({
     displayText: null,
     isGenerated: false,
     tokenCount: null,
     generationInfo: null,
+    ...(attachments?.length ? { attachments } : {}),
   });
+}
+
+function parseMetadata(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value !== "string") return value as Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 export async function commitSpatialOwnerTurn(
@@ -137,6 +154,10 @@ export async function commitSpatialOwnerTurn(
             and(eq(gameStateSnapshots.id, input.gameStateSnapshotId), eq(gameStateSnapshots.chatId, input.chatId)),
           );
       }
+      const nextGameMetadata =
+        chat.mode === "game"
+          ? selectBoundGameMapForLocation(parseMetadata(chat.metadata), definition, validation.destination.id)
+          : null;
 
       const timestamp = now();
       const messageId = newId();
@@ -148,7 +169,7 @@ export async function commitSpatialOwnerTurn(
         characterId: null,
         content: input.content,
         activeSwipeIndex: 0,
-        extra: messageExtra(),
+        extra: messageExtra(input.attachments),
         createdAt: timestamp,
       });
       await tx.insert(messageSwipes).values({
@@ -170,7 +191,14 @@ export async function commitSpatialOwnerTurn(
         transitionCommandId: input.transition.commandId,
         transitionPayloadHash: payloadHash,
       });
-      await tx.update(chats).set({ lastMessageAt: timestamp, updatedAt: timestamp }).where(eq(chats.id, input.chatId));
+      await tx
+        .update(chats)
+        .set({
+          lastMessageAt: timestamp,
+          updatedAt: timestamp,
+          ...(nextGameMetadata ? { metadata: JSON.stringify(nextGameMetadata) } : {}),
+        })
+        .where(eq(chats.id, input.chatId));
 
       const createdRows = await tx.select().from(messages).where(eq(messages.id, messageId)).limit(1);
       const message = createdRows[0];

@@ -27,6 +27,10 @@ import {
   omitAuthoritativeGameLocation,
   projectGameSnapshotLocation,
 } from "../../packages/server/src/services/spatial-context/projection.js";
+import {
+  selectBoundGameMapForLocation,
+  updateGameMapBinding,
+} from "../../packages/server/src/services/spatial-context/game-map-binding.js";
 
 function location(
   id: string,
@@ -536,6 +540,78 @@ const boundMap: GameMap = {
 };
 assert.equal(boundMap.spatialLocationId, "tower");
 assert.equal(boundMap.nodes?.[0]?.spatialLocationId, "tower_library");
+
+const worldMap: GameMap = {
+  id: "world-map",
+  type: "grid",
+  name: "Known World",
+  description: "The regional map.",
+  spatialLocationId: "world",
+  width: 1,
+  height: 1,
+  cells: [
+    {
+      x: 0,
+      y: 0,
+      emoji: "🏙️",
+      label: "Capital City",
+      discovered: true,
+      terrain: "city",
+    },
+  ],
+  partyPosition: { x: 0, y: 0 },
+};
+const gameMetadata = {
+  gameMaps: [worldMap, boundMap],
+  gameMap: worldMap,
+  activeGameMapId: "world-map",
+};
+
+const cellBoundMetadata = updateGameMapBinding(gameMetadata, {
+  target: "cell",
+  mapId: "world-map",
+  x: 0,
+  y: 0,
+  spatialLocationId: "capital",
+});
+assert.equal((cellBoundMetadata.gameMaps as GameMap[])[0]?.cells?.[0]?.spatialLocationId, "capital");
+assert.equal(cellBoundMetadata.activeGameMapId, "world-map");
+assert.equal((cellBoundMetadata.gameMap as GameMap).id, "world-map");
+
+const nodeClearedMetadata = updateGameMapBinding(gameMetadata, {
+  target: "node",
+  mapId: "tower-map",
+  nodeId: "library-node",
+  spatialLocationId: null,
+});
+assert.equal((nodeClearedMetadata.gameMaps as GameMap[])[1]?.nodes?.[0]?.spatialLocationId, undefined);
+assert.equal(nodeClearedMetadata.activeGameMapId, "world-map");
+
+const mapReboundMetadata = updateGameMapBinding(gameMetadata, {
+  target: "map",
+  mapId: "tower-map",
+  spatialLocationId: "tower_library",
+});
+assert.equal((mapReboundMetadata.gameMaps as GameMap[])[1]?.spatialLocationId, "tower_library");
+assert.equal(mapReboundMetadata.activeGameMapId, "world-map");
+
+const ancestorSelectedMetadata = selectBoundGameMapForLocation(gameMetadata, validDefinition, "tower_library");
+assert.equal(ancestorSelectedMetadata.activeGameMapId, "tower-map");
+assert.equal((ancestorSelectedMetadata.gameMap as GameMap).id, "tower-map");
+
+const exactSelectedMetadata = selectBoundGameMapForLocation(
+  {
+    ...gameMetadata,
+    gameMaps: [worldMap, boundMap, { ...worldMap, id: "library-map", spatialLocationId: "tower_library" }],
+  },
+  validDefinition,
+  "tower_library",
+);
+assert.equal(exactSelectedMetadata.activeGameMapId, "library-map");
+
+const unboundDefinition = definition([location("unbound-region", "Unbound Region", { kind: "region" })]);
+const unboundSelectionMetadata = selectBoundGameMapForLocation(gameMetadata, unboundDefinition, "unbound-region");
+assert.equal(unboundSelectionMetadata, gameMetadata);
 
 const ownerProjection = buildOwnerSpatialProjection("chat-roleplay", validDefinition, "tower_library");
 assert.ok(ownerProjection);

@@ -543,3 +543,220 @@ test("Game setup can skip a generated map without persisting it", async ({ page 
     if (!testInfo.project.name.includes("mobile")) await page.request.delete(`/api/chats/${chat.id}`);
   }
 });
+
+test("Roleplay stages story movement separately from prose and recovers stale turns", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const chatResponse = await page.request.post("/api/chats", {
+    data: {
+      name: `Spatial Runtime ${testInfo.project.name}`,
+      mode: "roleplay",
+      characterIds: [],
+      connectionId: "spatial-runtime-e2-connection",
+    },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+  const runtimeDefinition = {
+    ...generatedDefinition,
+    enabled: true,
+    revision: 0,
+    startingLocationId: "ai_world",
+    locations: generatedDefinition.locations.slice(0, 2),
+  };
+  const saveResponse = await page.request.put(`/api/chats/${chat.id}/spatial-context`, {
+    data: {
+      expectedRevision: 0,
+      expectedCurrentLocationId: null,
+      definition: runtimeDefinition,
+    },
+  });
+  expect(saveResponse.ok()).toBeTruthy();
+  const saved = (await saveResponse.json()) as { definition: { revision: number }; currentLocationId: string };
+  let generationRequestCount = 0;
+
+  await page.route("**/api/generate", async (route) => {
+    generationRequestCount += 1;
+    const request = route.request().postDataJSON() as {
+      chatId: string;
+      userMessage: string;
+      pendingSpatialTransition: {
+        destinationId: string;
+        expectedDefinitionRevision: number;
+        expectedCurrentLocationId: string;
+        commandId: string;
+      };
+    };
+    expect(request.chatId).toBe(chat.id);
+    expect(request.pendingSpatialTransition).toMatchObject({
+      destinationId: "ai_harbor",
+      expectedDefinitionRevision: saved.definition.revision,
+      expectedCurrentLocationId: "ai_world",
+    });
+    expect(request.userMessage).not.toContain("moves to");
+    if (generationRequestCount === 1) {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body:
+          `data: ${JSON.stringify({
+            type: "spatial_transition_committed",
+            data: {
+              chatId: chat.id,
+              commandId: request.pendingSpatialTransition.commandId,
+              currentLocationId: "ai_harbor",
+              definitionRevision: saved.definition.revision,
+            },
+          })}\n\n` + `data: ${JSON.stringify({ type: "done", data: "" })}\n\n`,
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "The hierarchical map changed. Review the available destinations.",
+        code: "spatial_transition_stale_definition",
+        currentRevision: saved.definition.revision + 1,
+        currentLocationId: "ai_world",
+      }),
+    });
+  });
+
+  try {
+    await page.addInitScript((chatId) => {
+      localStorage.setItem("marinara-active-chat-id", chatId);
+      localStorage.setItem(
+        "marinara-engine-ui",
+        JSON.stringify({ state: { hasCompletedOnboarding: true, sidebarOpen: false }, version: 72 }),
+      );
+    }, chat.id);
+    await page.route("**/api/backgrounds/file/Black.jpg", async (route) => {
+      await route.fulfill({ status: 204, body: "" });
+    });
+    await page.goto("/");
+
+    const storyLocation = page.getByRole("region", { name: "Story location" });
+    await expect(storyLocation).toContainText("Shrouded Coast");
+    await storyLocation.getByRole("button", { name: /Story location.*Shrouded Coast/ }).click();
+    await storyLocation.getByRole("button", { name: /Enter Gloam Harbor/ }).click();
+    await expect(storyLocation.getByText("Moves with your next turn")).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Story location" }).getByText("Moves with your next turn")).toBeVisible();
+    const input = page.locator("textarea.mari-chat-input-textarea");
+    await input.fill("I follow the harbor road.");
+    await page.locator("button.mari-chat-send-btn").click();
+    await expect(page.getByText("Moves with your next turn")).toHaveCount(0);
+    await expect(input).toHaveValue("");
+
+    await storyLocation.getByRole("button", { name: /Story location.*Shrouded Coast/ }).click();
+    await storyLocation.getByRole("button", { name: /Enter Gloam Harbor/ }).click();
+    await input.fill("Wait for me at the gate.");
+    await page.locator("button.mari-chat-send-btn").click();
+    await expect(input).toHaveValue("Wait for me at the gate.");
+    await expect(storyLocation.getByText(/Needs review/)).toBeVisible();
+
+    await page.reload();
+    await expect(page.locator("textarea.mari-chat-input-textarea")).toHaveValue("Wait for me at the gate.");
+    await expect(page.getByRole("region", { name: "Story location" }).getByText(/Needs review/)).toBeVisible();
+  } finally {
+    await page.unroute("**/api/generate");
+    if (!testInfo.project.name.includes("mobile")) await page.request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
+test("Game Location Details binds and clears a tactical cell", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "The binding editor interaction is covered on desktop.");
+  const chatResponse = await page.request.post("/api/chats", {
+    data: {
+      name: "Game Map Binding Smoke",
+      mode: "game",
+      characterIds: [],
+      connectionId: "game-map-binding-e2-connection",
+    },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+  const tacticalMap = {
+    id: "coast-map",
+    type: "grid",
+    name: "Shrouded Coast Tactical Map",
+    description: "A local tactical map.",
+    width: 1,
+    height: 1,
+    cells: [
+      {
+        x: 0,
+        y: 0,
+        emoji: "⚓",
+        label: "Harbor Gate",
+        discovered: true,
+        terrain: "city",
+      },
+    ],
+    partyPosition: { x: 0, y: 0 },
+  };
+
+  try {
+    const metadataResponse = await page.request.patch(`/api/chats/${chat.id}/metadata`, {
+      data: {
+        gameId: `binding-game-${chat.id}`,
+        gameSessionStatus: "active",
+        gameMaps: [tacticalMap],
+        gameMap: tacticalMap,
+        activeGameMapId: tacticalMap.id,
+      },
+    });
+    expect(metadataResponse.ok()).toBeTruthy();
+    const spatialSave = await page.request.put(`/api/chats/${chat.id}/spatial-context`, {
+      data: {
+        expectedRevision: 0,
+        expectedCurrentLocationId: null,
+        definition: {
+          ...gameGeneratedDefinition,
+          enabled: true,
+          locations: gameGeneratedDefinition.locations.slice(0, 2),
+        },
+      },
+    });
+    expect(spatialSave.ok()).toBeTruthy();
+
+    await page.addInitScript((chatId) => {
+      localStorage.setItem("marinara-active-chat-id", chatId);
+      localStorage.setItem(
+        "marinara-engine-ui",
+        JSON.stringify({
+          state: {
+            hasCompletedOnboarding: true,
+            sidebarOpen: false,
+            rightPanelOpen: false,
+            spatialMapDetailChatId: chatId,
+          },
+          version: 72,
+        }),
+      );
+    }, chat.id);
+    await page.route("**/api/backgrounds/file/Black.jpg", async (route) => {
+      await route.fulfill({ status: 204, body: "" });
+    });
+    await page.goto("/");
+
+    await expect(page.getByText("Game map binding", { exact: true })).toBeVisible();
+    await page.getByLabel("Map position").selectOption("cell:0:0");
+    await page.getByRole("button", { name: "Bind to this location" }).click();
+    await expect(page.getByRole("button", { name: "Bound here" })).toBeVisible();
+
+    const boundChatResponse = await page.request.get(`/api/chats/${chat.id}`);
+    const boundChat = (await boundChatResponse.json()) as { metadata: unknown };
+    const boundMetadata =
+      typeof boundChat.metadata === "string"
+        ? (JSON.parse(boundChat.metadata) as { gameMaps: Array<{ cells: Array<{ spatialLocationId?: string }> }> })
+        : (boundChat.metadata as { gameMaps: Array<{ cells: Array<{ spatialLocationId?: string }> }> });
+    expect(boundMetadata.gameMaps[0]?.cells[0]?.spatialLocationId).toBe("ai_world");
+
+    await page.getByRole("button", { name: "Clear binding" }).click();
+    await expect(page.getByText("Unbound tactical position", { exact: true })).toBeVisible();
+  } finally {
+    await page.request.delete(`/api/chats/${chat.id}`);
+  }
+});

@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { z } from "zod";
 import {
   PROVIDERS,
   generateSpatialMapDraftRequestSchema,
   localAuthProviderBaseUrl,
+  pendingSpatialTransitionSchema,
   updateSpatialContextRequestSchema,
   type GenerateSpatialMapDraftResponse,
   type SpatialOwnerMode,
@@ -24,10 +26,27 @@ import {
 import { createCharactersStorage } from "../services/storage/characters.storage.js";
 import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
+import { commitSpatialOwnerTurn, SpatialOwnerTurnError } from "../services/spatial-context/owner-turn.js";
 
 interface ChatSpatialParams {
   chatId: string;
 }
+
+const spatialOwnerTurnSchema = z.object({
+  content: z.string().default(""),
+  transition: pendingSpatialTransitionSchema,
+  attachments: z
+    .array(
+      z.object({
+        type: z.string().min(1),
+        data: z.string().optional(),
+        url: z.string().optional(),
+        filename: z.string().optional(),
+        name: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
 
 function record(value: unknown): Record<string, unknown> {
   if (!value) return {};
@@ -152,6 +171,43 @@ export async function spatialContextRoutes(app: FastifyInstance) {
       return await service.get(req.params.chatId);
     } catch (error) {
       return sendServiceError(reply, error);
+    }
+  });
+
+  app.post<{ Params: ChatSpatialParams }>("/:chatId/spatial-context/turn", async (req, reply) => {
+    const parsed = spatialOwnerTurnSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: parsed.error.issues[0]?.message ?? "Invalid spatial owner turn.",
+        code: "spatial_request_invalid",
+        issues: parsed.error.issues,
+      });
+    }
+    const chat = await chats.getById(req.params.chatId);
+    if (!chat) return reply.status(404).send({ error: "Chat not found.", code: "spatial_chat_missing" });
+    if (chat.mode !== "roleplay") {
+      return reply.status(400).send({
+        error: "Manual spatial turns are available only in Roleplay chats.",
+        code: "spatial_manual_turn_mode_unsupported",
+      });
+    }
+    try {
+      const committed = await commitSpatialOwnerTurn(app.db, {
+        chatId: req.params.chatId,
+        content: parsed.data.content,
+        transition: parsed.data.transition,
+        attachments: parsed.data.attachments,
+      });
+      return { message: committed.message, spatial: await service.get(req.params.chatId) };
+    } catch (error) {
+      if (error instanceof SpatialOwnerTurnError) {
+        return reply.status(error.statusCode).send({
+          error: error.message,
+          code: error.code,
+          ...(error.details ?? {}),
+        });
+      }
+      throw error;
     }
   });
 

@@ -18,7 +18,12 @@ import { createGameStoryboardsStorage } from "../services/storage/game-storyboar
 import { createGameStateStorage } from "../services/storage/game-state.storage.js";
 import { createSpatialContextStorage } from "../services/storage/spatial-context.storage.js";
 import { formatOwnerSpatialBreadcrumb, resolveOwnerSpatialProjection } from "../services/spatial-context/projection.js";
-import { resolveEffectiveSpatialState } from "../services/spatial-context/state-resolution.js";
+import { parseStoredSpatialDefinition, resolveEffectiveSpatialState } from "../services/spatial-context/state-resolution.js";
+import {
+  GameMapBindingError,
+  updateGameMapBinding,
+  type UpdateGameMapBindingInput,
+} from "../services/spatial-context/game-map-binding.js";
 import { createLorebooksStorage } from "../services/storage/lorebooks.storage.js";
 import { createAgentsStorage } from "../services/storage/agents.storage.js";
 import { createLLMProvider } from "../services/llm/provider-registry.js";
@@ -1678,6 +1683,30 @@ const mapMoveSchema = z.object({
   position: z.union([z.object({ x: z.number().int(), y: z.number().int() }), z.string().min(1).max(200)]),
   mapId: z.string().min(1).max(200).optional().nullable(),
 });
+
+const mapBindingSchema = z.discriminatedUnion("target", [
+  z.object({
+    target: z.literal("map"),
+    chatId: z.string().min(1),
+    mapId: z.string().min(1).max(200),
+    spatialLocationId: z.string().min(1).nullable(),
+  }),
+  z.object({
+    target: z.literal("cell"),
+    chatId: z.string().min(1),
+    mapId: z.string().min(1).max(200),
+    x: z.number().int(),
+    y: z.number().int(),
+    spatialLocationId: z.string().min(1).nullable(),
+  }),
+  z.object({
+    target: z.literal("node"),
+    chatId: z.string().min(1),
+    mapId: z.string().min(1).max(200),
+    nodeId: z.string().min(1).max(200),
+    spatialLocationId: z.string().min(1).nullable(),
+  }),
+]);
 
 // ──────────────────────────────────────────────
 // Helpers
@@ -8563,6 +8592,57 @@ export async function gameRoutes(app: FastifyInstance) {
       maps: getGameMapsFromMeta(finalMeta),
       activeGameMapId: (finalMeta.activeGameMapId as string | null) ?? getGameMapId(finalMeta.gameMap as GameMap),
     };
+  });
+
+  // ── PUT /game/map/binding ──
+  app.put("/map/binding", async (req, reply) => {
+    const input = mapBindingSchema.parse(req.body);
+    const chats = createChatsStorage(app.db);
+    const chat = await chats.getById(input.chatId);
+    if (!chat) return reply.status(404).send({ error: "Chat not found.", code: "game_chat_missing" });
+    if (chat.mode !== "game") {
+      return reply.status(400).send({ error: "Map bindings require a Game chat.", code: "game_mode_required" });
+    }
+    const definition = parseStoredSpatialDefinition(chat.metadata);
+    if (!definition?.enabled) {
+      return reply.status(409).send({
+        error: "Enable and save the hierarchical map before binding Game maps.",
+        code: "spatial_definition_missing",
+      });
+    }
+    if (
+      input.spatialLocationId &&
+      !definition.locations.some(
+        (location) => location.id === input.spatialLocationId && location.status === "active",
+      )
+    ) {
+      return reply.status(400).send({
+        error: "The selected hierarchical location no longer exists.",
+        code: "spatial_location_missing",
+      });
+    }
+
+    try {
+      const bindingInput = input as UpdateGameMapBindingInput & { chatId: string };
+      const updated = await chats.patchMetadata(input.chatId, (metadata) =>
+        updateGameMapBinding(metadata, bindingInput),
+      );
+      if (!updated) return reply.status(404).send({ error: "Chat not found.", code: "game_chat_missing" });
+      const updatedMetadata = parseMeta(updated.metadata);
+      return {
+        sessionChat: updated,
+        map: updatedMetadata.gameMap as GameMap,
+        maps: getGameMapsFromMeta(updatedMetadata),
+        activeGameMapId:
+          (updatedMetadata.activeGameMapId as string | null) ??
+          getGameMapId(updatedMetadata.gameMap as GameMap | null),
+      };
+    } catch (error) {
+      if (error instanceof GameMapBindingError) {
+        return reply.status(400).send({ error: error.message, code: error.code });
+      }
+      throw error;
+    }
   });
 
   // ── GET /game/:gameId/sessions ──

@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Archive, Link2, MapPin, Plus, Trash2 } from "lucide-react";
 import type {
+  GameMap,
   SpatialContextDefinition,
   SpatialDefinitionIssue,
   SpatialLocation,
@@ -9,6 +10,7 @@ import type {
 } from "@marinara-engine/shared";
 import { cn } from "../../../lib/utils";
 import { getSpatialDescendantIds } from "../editor-state";
+import { GameMapBindingsPanel } from "./GameMapBindingsPanel";
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--marinara-chat-chrome-panel-text)] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-[var(--marinara-chat-chrome-panel-muted)] focus:border-[var(--marinara-chat-chrome-button-border-active)] focus:ring-2 focus:ring-[var(--marinara-chat-chrome-focus-ring)]";
@@ -47,6 +49,11 @@ interface LocationInspectorProps {
   onReparent: (parentId: string | null) => void;
   onSetStarting: () => void;
   onArchive: () => void;
+  gameBinding?: {
+    chatId: string;
+    maps: GameMap[];
+    disabled: boolean;
+  };
 }
 
 export function LocationInspector({
@@ -58,6 +65,7 @@ export function LocationInspector({
   onReparent,
   onSetStarting,
   onArchive,
+  gameBinding,
 }: LocationInspectorProps) {
   const [newLinkTarget, setNewLinkTarget] = useState("");
   const descendants = useMemo(
@@ -192,6 +200,16 @@ export function LocationInspector({
             onChange={(event) => onUpdate({ awarenessSummary: event.target.value || undefined })}
           />
         </Field>
+
+        {gameBinding && (
+          <GameMapBindingsPanel
+            chatId={gameBinding.chatId}
+            location={location}
+            definition={definition}
+            maps={gameBinding.maps}
+            disabled={gameBinding.disabled || location.status !== "active"}
+          />
+        )}
 
         <div className="border-t border-[var(--marinara-chat-chrome-panel-divider)] pt-4">
           <h3 className="mb-3 text-xs font-semibold text-[var(--marinara-chat-chrome-panel-title)]">

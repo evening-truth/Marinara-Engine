@@ -134,6 +134,15 @@ interface MapMoveResponse {
   activeGameMapId?: string | null;
 }
 
+export type UpdateGameMapBindingInput =
+  | { target: "map"; chatId: string; mapId: string; spatialLocationId: string | null }
+  | { target: "cell"; chatId: string; mapId: string; x: number; y: number; spatialLocationId: string | null }
+  | { target: "node"; chatId: string; mapId: string; nodeId: string; spatialLocationId: string | null };
+
+interface UpdateGameMapBindingResponse extends MapMoveResponse {
+  sessionChat: Chat;
+}
+
 interface UpdateGameWidgetsResponse {
   ok: boolean;
 }
@@ -606,6 +615,22 @@ export function useMoveOnMap() {
       }
       qc.invalidateQueries({ queryKey: chatKeys.detail(variables.chatId) });
       qc.invalidateQueries({ queryKey: [...gameKeys.all, "journal", variables.chatId] });
+    },
+  });
+}
+
+export function useUpdateGameMapBinding() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: UpdateGameMapBindingInput) =>
+      api.put<UpdateGameMapBindingResponse>("/game/map/binding", data),
+    onSuccess: (response, variables) => {
+      useGameModeStore.getState().setMaps(response.maps ?? [response.map], response.activeGameMapId);
+      qc.setQueryData(chatKeys.detail(variables.chatId), response.sessionChat);
+      if (useChatStore.getState().activeChatId === variables.chatId) {
+        useChatStore.getState().setActiveChat(response.sessionChat);
+      }
+      void qc.invalidateQueries({ queryKey: chatKeys.list() });
     },
   });
 }

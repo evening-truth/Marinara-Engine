@@ -749,6 +749,9 @@ export async function generateRoutes(app: FastifyInstance) {
     const discordWebhookUrl = typeof earlyMeta.discordWebhookUrl === "string" ? earlyMeta.discordWebhookUrl : "";
     let pendingUserDiscordMsg = "";
     let currentTurnUserMessageId: string | null = null;
+    let committedSpatialTransition:
+      | { commandId: string; currentLocationId: string | null; definitionRevision: number }
+      | null = null;
 
     // Save user message — skip for impersonate (no real user message to save)
     if (!input.impersonate && (input.userMessage || input.attachments?.length || input.pendingSpatialTransition)) {
@@ -780,8 +783,14 @@ export async function generateRoutes(app: FastifyInstance) {
             content: input.userMessage ?? "",
             transition: input.pendingSpatialTransition,
             gameStateSnapshotId: spatialGameStateSnapshotId,
+            attachments: input.attachments,
           });
           userMsg = committed.message;
+          committedSpatialTransition = {
+            commandId: input.pendingSpatialTransition.commandId,
+            currentLocationId: committed.snapshot.currentLocationId,
+            definitionRevision: committed.snapshot.definitionRevision,
+          };
         } catch (error) {
           releaseActiveGeneration();
           if (error instanceof SpatialOwnerTurnError) {
@@ -941,6 +950,12 @@ export async function generateRoutes(app: FastifyInstance) {
 
     // Set up SSE headers
     startSseReply(reply, { "X-Accel-Buffering": "no" });
+    if (committedSpatialTransition) {
+      sendSseEvent(reply, {
+        type: "spatial_transition_committed",
+        data: { chatId: input.chatId, ...committedSpatialTransition },
+      });
+    }
     const onFallback = createReplyFallbackNotifier(reply);
 
     let generationComplete = false;
