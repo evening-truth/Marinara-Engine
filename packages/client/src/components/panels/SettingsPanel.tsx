@@ -118,8 +118,11 @@ import {
 } from "lucide-react";
 import { useClearAllData, useExpungeData, useUpdateChatMetadata, type ExpungeScope } from "../../hooks/use-chats";
 import { useChatStore } from "../../stores/chat.store";
-import { useGameAssetStore } from "../../stores/game-asset.store";
-import { useOpenGameAssetsFolder } from "../../hooks/use-game-assets";
+import {
+  useGameAssetManifest,
+  useOpenGameAssetsFolder,
+  useRescanGameAssets,
+} from "../../hooks/use-game-assets";
 import { chatKeys } from "../../hooks/use-chats";
 import { useInstalledCapabilityPackages } from "../../hooks/use-capability-packages";
 import { HelpTooltip } from "../ui/HelpTooltip";
@@ -3287,7 +3290,7 @@ function VideoGenerationSettings() {
 }
 
 function GameAssetsSettings() {
-  const rescanGameAssets = useGameAssetStore((s) => s.rescanAssets);
+  const rescanGameAssets = useRescanGameAssets();
   const openGameAssetsFolder = useOpenGameAssetsFolder();
   const openGameAssetsBrowser = useUIStore((s) => s.openGameAssetsBrowser);
   const assetFileRef = useRef<HTMLInputElement>(null);
@@ -3346,7 +3349,7 @@ function GameAssetsSettings() {
       );
       const succeeded = uploads.filter((result) => result.status === "fulfilled").length;
       const failed = uploads.length - succeeded;
-      await rescanGameAssets();
+      await rescanGameAssets.mutateAsync();
       if (succeeded > 0) {
         toast.success(`Uploaded ${succeeded} game asset${succeeded === 1 ? "" : "s"}.`);
       }
@@ -3384,7 +3387,8 @@ function GameAssetsSettings() {
           </button>
           <button
             onClick={() => {
-              rescanGameAssets()
+              rescanGameAssets
+                .mutateAsync()
                 .then(() => toast.success("Game assets rescanned."))
                 .catch(() => toast.error("Failed to rescan game assets."));
             }}
@@ -4750,7 +4754,7 @@ function BackgroundPicker({
   const [renamingFile, setRenamingFile] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const refreshGameAssetManifest = useGameAssetStore((s) => s.fetchManifest);
+  const { refetch: refreshGameAssetManifest } = useGameAssetManifest();
   const qc = useQueryClient();
 
   const { data: backgrounds } = useQuery({

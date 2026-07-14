@@ -890,9 +890,7 @@ async function buildRefreshPrompt(input: {
       characterContext || "No character profiles.",
       "",
       ...(loreContext ? ["# World / Lore", loreContext, ""] : []),
-      "# Random User Profiles",
-      randomUserContext || "Random users are disabled for this refresh.",
-      "",
+      ...(randomUserContext ? ["# Random User Profiles", randomUserContext, ""] : []),
       "# Opted-In Chat Context",
       "Only chats whose Chat Settings allow Noodle references are included here.",
       chatContext,
@@ -1423,6 +1421,14 @@ export async function noodleRoutes(app: FastifyInstance) {
       );
     }
     return accounts;
+  });
+
+  app.delete("/invites", async () => {
+    await Promise.all([
+      noodle.clearCharacterInvites(),
+      noodle.updateSettings({ invitedCharacterGroupIds: [], allowRandomUsers: false }),
+    ]);
+    return bootstrapVisibleNoodle(noodle, characters);
   });
 
   app.delete("/invites/:characterId", async (req, reply) => {

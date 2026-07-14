@@ -13,6 +13,7 @@ import {
   noodleTimelineVoiceDefaultText,
   NOODLE_CONGRUENCY_INSTRUCTION,
   NOODLE_CREATIVE_FORMAT_INSTRUCTIONS,
+  noodleCreativeFormatInstructions,
   NOODLE_LEGACY_PAST_MEMORY_INCLUSION_CHANCE,
   NOODLE_LEGACY_PAST_MEMORY_MAX_ITEMS,
   NOODLE_LEGACY_RECALLED_MEMORY_INSTRUCTION,
@@ -269,6 +270,8 @@ assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[1], /not every post or reply ne
 assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[2], /allowed to be assholes to each other/u);
 assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[2], /revive old grievances, form rivalries/u);
 assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[2], /permission, not a quota/u);
+assert.doesNotMatch(noodleCreativeFormatInstructions(false).join("\n"), /random users?/iu);
+assert.match(noodleCreativeFormatInstructions(false)[0] ?? "", /^- Characters may create polls/u);
 
 assert.equal(NOODLE_TONE_INSTRUCTIONS.length, 2);
 assert.match(NOODLE_TONE_INSTRUCTIONS[0], /must come from each character's own Personality\/Description\/Backstory/u);
@@ -610,14 +613,14 @@ assert.equal(noodleTimelineVoiceDefaultText(false), expectedLegacyVoiceText);
 assert.equal(noodleTimelineVoiceDefaultText(true), expectedEnhancedVoiceText);
 assert.equal(
   noodleTimelineVoiceDefaultText(false, false),
-  [NOODLE_LEGACY_TONE_INSTRUCTION, ...NOODLE_CREATIVE_FORMAT_INSTRUCTIONS].join("\n"),
+  [NOODLE_LEGACY_TONE_INSTRUCTION, ...noodleCreativeFormatInstructions(false)].join("\n"),
 );
 assert.equal(NOODLE_TIMELINE_VOICE.key, "noodle.timelineVoice");
 assert.equal(NOODLE_TIMELINE_VOICE.defaultBuilder({ enhanced: "false" }), expectedLegacyVoiceText);
 assert.equal(NOODLE_TIMELINE_VOICE.defaultBuilder({ enhanced: "true" }), expectedEnhancedVoiceText);
 assert.doesNotMatch(
   NOODLE_TIMELINE_VOICE.defaultBuilder({ enhanced: "false", allowRandomUsers: "false" }),
-  /Random user accounts/u,
+  /random users?/iu,
 );
 assert.equal(NOODLE_TIMELINE_VOICE.defaultBuilder({ enhanced: "garbage" }), expectedLegacyVoiceText);
 assert.match(NOODLE_LEGACY_RECALLED_MEMORY_INSTRUCTION, /optional long-term memories/u);

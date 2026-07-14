@@ -60,7 +60,7 @@ import type { SpriteInfo } from "../../hooks/use-characters";
 import { useTranslate } from "../../hooks/use-translate";
 import { useTTSConfig } from "../../hooks/use-tts";
 import { useApplyRegex } from "../../hooks/use-apply-regex";
-import { useGameAssetStore } from "../../stores/game-asset.store";
+import { useGameAssetManifest } from "../../hooks/use-game-assets";
 import { useGameModeStore } from "../../stores/game-mode.store";
 import { useUIStore } from "../../stores/ui.store";
 import { useChatStore } from "../../stores/chat.store";
@@ -3245,7 +3245,7 @@ export function GameNarration({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, gameInstantTextReveal, gameTextSpeed, directionsActive, scenePreparing, logsOpen]); // visibleChars intentionally excluded — managed internally
 
-  const assetManifest = useGameAssetStore((s) => s.manifest);
+  const { data: assetManifest } = useGameAssetManifest();
 
   const renderTranslationPanel = useCallback(
     (message: NarrationMessage | null, translatedText?: string, isTranslating = false, className?: string) => {

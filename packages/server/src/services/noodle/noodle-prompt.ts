@@ -24,6 +24,16 @@ export const NOODLE_CREATIVE_FORMAT_INSTRUCTIONS = [
   "- Standard Unicode emojis are allowed in post and reply content. Use them naturally when they fit the account's voice or reaction; emojis are optional, and not every post or reply needs one.",
   "- Characters are allowed to be assholes to each other when it fits their personalities, history, and relationships. They may be rude, insulting, confrontational, jealous, petty, sarcastic, start arguments, revive old grievances, form rivalries, or deliberately stir up interpersonal drama. This is permission, not a quota: do not force hostility into every refresh or flatten established characterization just to create conflict.",
 ] as const;
+const NOODLE_CHARACTER_ONLY_POLL_INSTRUCTION =
+  "- Characters may create polls in their own posts and vote in polls. Occasionally use a poll when an audience question or set of choices fits naturally with the account and current activity; polls are optional, not a quota.";
+const NOODLE_CHARACTER_ONLY_CREATIVE_FORMAT_INSTRUCTIONS = [
+  NOODLE_CHARACTER_ONLY_POLL_INSTRUCTION,
+  ...NOODLE_CREATIVE_FORMAT_INSTRUCTIONS.slice(1),
+] as const;
+
+export function noodleCreativeFormatInstructions(allowRandomUsers: boolean): readonly string[] {
+  return allowRandomUsers ? NOODLE_CREATIVE_FORMAT_INSTRUCTIONS : NOODLE_CHARACTER_ONLY_CREATIVE_FORMAT_INSTRUCTIONS;
+}
 /** Legacy single-line tone instruction, used when `enableEnhancedTimelineWriting` is off. */
 export const NOODLE_LEGACY_TONE_INSTRUCTION =
   "- Characters should act in character but like people posting online: funny, messy, indirect, petty, affectionate, dramatic, vulgar, or casual as fits them.";
@@ -53,7 +63,7 @@ export function noodleTimelineVoiceDefaultText(enhanced: boolean, allowRandomUse
   return [
     ...(enhanced ? NOODLE_TONE_INSTRUCTIONS : [NOODLE_LEGACY_TONE_INSTRUCTION]),
     ...(allowRandomUsers ? [NOODLE_RANDOM_USER_TREATMENT_INSTRUCTION] : []),
-    ...NOODLE_CREATIVE_FORMAT_INSTRUCTIONS,
+    ...noodleCreativeFormatInstructions(allowRandomUsers),
     ...(enhanced ? [NOODLE_CONGRUENCY_INSTRUCTION] : []),
   ].join("\n");
 }

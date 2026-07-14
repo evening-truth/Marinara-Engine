@@ -963,6 +963,7 @@ export function App() {
       >
         <Toaster
           position="top-center"
+          swipeDirections={["left", "right", "top"]}
           offset="4rem"
           theme={theme}
           closeButton

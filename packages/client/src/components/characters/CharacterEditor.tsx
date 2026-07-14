@@ -2282,7 +2282,7 @@ function CharacterGalleryTab({ characterId, characterName }: { characterId: stri
                       <button
                         type="button"
                         onClick={() => void handleDelete(image)}
-	                        className="rounded-lg bg-white/15 p-1.5 text-white transition-colors hover:bg-white/25"
+                        className="rounded-lg bg-white/15 p-1.5 text-white transition-colors hover:bg-white/25"
                         title="Delete"
                       >
                         <Trash2 size="0.75rem" />
@@ -4113,8 +4113,17 @@ function ColorsTab({
       <div className="rounded-xl border border-[var(--border)] bg-black/30 p-4 space-y-3">
         <p className="text-[0.625rem] font-medium uppercase tracking-widest text-[var(--muted-foreground)]">Preview</p>
         <div className="flex gap-3">
-          <div className="mari-chrome-accent-tile mari-accent-animated flex h-10 w-10 shrink-0 items-center justify-center rounded-full ring-2 ring-[var(--marinara-chat-chrome-button-border-active)]">
-            <User size="1rem" className="text-white" />
+          <div className="mari-chrome-accent-tile mari-accent-animated flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-[var(--marinara-chat-chrome-button-border-active)]">
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={`${formData.name || "Character"} avatar preview`}
+                className="h-full w-full object-cover"
+                style={getAvatarCropStyle(formData.extensions.avatarCrop as AvatarCrop | LegacyAvatarCrop | undefined)}
+              />
+            ) : (
+              <User size="1rem" className="text-white" />
+            )}
           </div>
           <div className="flex-1 space-y-1">
             <span

@@ -20,6 +20,8 @@ import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
 import { useGameModeStore } from "../../stores/game-mode.store";
 import { useGameAssetStore } from "../../stores/game-asset.store";
+import { gameAssetKeys, useGameAssetManifest, type GameAssetManifest } from "../../hooks/use-game-assets";
+import { isSameNpcAvatarResource } from "../../lib/game-npc-avatar";
 import { useChatStore } from "../../stores/chat.store";
 import { useUIStore } from "../../stores/ui.store";
 import { useGameStateStore } from "../../stores/game-state.store";
@@ -2587,7 +2589,7 @@ function GameSurfaceComponent({
     },
     [activeChatId, queryClient],
   );
-  const assetManifest = useGameAssetStore((s) => s.manifest);
+  const { data: assetManifest, refetch: fetchManifest } = useGameAssetManifest();
   const currentBackground = useGameAssetStore((s) => s.currentBackground);
   const gameAssetExcludedFolders = useMemo(
     () => parseGameAssetExcludedFolders(chatMeta.gameAssetSelection),
@@ -2598,11 +2600,13 @@ function GameSurfaceComponent({
     [assetManifest?.assets, gameAssetExcludedFolders],
   );
   const getScopedAssetMap = useCallback(
-    () => filterGameAssetMap(useGameAssetStore.getState().manifest?.assets ?? null, gameAssetExcludedFolders),
-    [gameAssetExcludedFolders],
+    () => {
+      const manifest = queryClient.getQueryData<GameAssetManifest>(gameAssetKeys.manifest());
+      return filterGameAssetMap(manifest?.assets ?? null, gameAssetExcludedFolders);
+    },
+    [gameAssetExcludedFolders, queryClient],
   );
   const audioMuted = useGameAssetStore((s) => s.audioMuted);
-  const fetchManifest = useGameAssetStore((s) => s.fetchManifest);
 
   useEffect(() => {
     if (!useMusicDjPlayerMusic) return;
@@ -3300,11 +3304,6 @@ function GameSurfaceComponent({
     [closeLocalFloatingWindows],
   );
 
-  // Fetch asset manifest on mount
-  useEffect(() => {
-    fetchManifest();
-  }, [fetchManifest]);
-
   // Clean up audio + reset playback state when switching chats or replacing the game in the same chat.
   // On unmount, only dispose audio (stop sounds) but keep store state intact so that
   // same-chat remount (e.g. returning from persona editor) can read it immediately
@@ -3391,7 +3390,10 @@ function GameSurfaceComponent({
     for (const npc of npcs) {
       if (!npc.name) continue;
       const libraryCharacter = findNamedEntry(characters, npc.name, (character) => character.name);
-      if (libraryCharacter?.avatarUrl && libraryCharacter.avatarUrl !== npc.avatarUrl) {
+      if (
+        libraryCharacter?.avatarUrl &&
+        (!npc.avatarUrl || !isSameNpcAvatarResource(libraryCharacter.avatarUrl, npc.avatarUrl))
+      ) {
         avatarPatches.push({ name: npc.name, avatarUrl: libraryCharacter.avatarUrl });
       }
     }
@@ -10103,7 +10105,7 @@ function GameSurfaceComponent({
           "flex min-h-0 flex-col overflow-hidden",
           mobile
             ? GAME_MOBILE_FLOATING_PANEL
-            : "absolute right-0 top-9 z-50 max-h-[min(42rem,calc(100vh-6rem))] w-[min(42rem,calc(100vw-1.5rem))]",
+            : "absolute right-0 top-9 z-50 h-[min(42rem,calc(100dvh-6rem))] w-[min(42rem,calc(100vw-1.5rem))]",
         )}
         style={mobile ? getGameMobileFloatingPanelStyle(mobileSessionPanelAnchor) : undefined}
       >
@@ -10223,7 +10225,7 @@ function GameSurfaceComponent({
             </Suspense>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-h-0 flex-1 overflow-hidden">
             <Suspense fallback={null}>
               <GameJournal
                 chatId={activeChatId}

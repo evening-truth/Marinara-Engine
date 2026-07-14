@@ -25,6 +25,11 @@ import {
 import { getAvatarCropStyle } from "../../packages/client/src/lib/utils.js";
 import { getApiErrorMessage } from "../../packages/client/src/lib/api-client.js";
 import {
+  isSameNpcAvatarResource,
+  withFreshNpcAvatarRevision,
+  withoutNpcAvatarRevision,
+} from "../../packages/client/src/lib/game-npc-avatar.js";
+import {
   characterMatchesSearch,
   parseCharacterDisplayData,
 } from "../../packages/client/src/lib/character-display.js";
@@ -58,6 +63,7 @@ import {
   searchStandardEmojiShortcodes,
 } from "../../packages/client/src/lib/emoji-shortcodes.js";
 import { persistGeneratedImageToEntityGalleries } from "../../packages/server/src/services/image/generated-image-entity-gallery.js";
+import { fetchBotBrowserJson } from "../../packages/server/src/services/bot-browser/fetch-json.js";
 import { runImageGenerationRequest } from "../../packages/server/src/services/image/image-generation-queue.js";
 import {
   parseIllustratorPromptReviewOverride,
@@ -152,6 +158,15 @@ assert.equal(
 );
 assert.equal(getApiErrorMessage({ code: "USER_NOT_FOUND", requestId: "abc-123" }, "Request failed"), "Request failed");
 
+await assert.rejects(
+  fetchBotBrowserJson("http://api.chub.ai/search", { allowedHosts: ["api.chub.ai"] }),
+  /rejected untrusted host/u,
+);
+await assert.rejects(
+  fetchBotBrowserJson("https://example.com/search", { allowedHosts: ["api.chub.ai"] }),
+  /rejected untrusted host/u,
+);
+
 const searchableCharacter = parseCharacterDisplayData({
   data: JSON.stringify({
     name: "Il Dottore",
@@ -176,10 +191,49 @@ const agentEditorSource = readFileSync(
   new URL("../../packages/client/src/components/agents/AgentEditor.tsx", import.meta.url),
   "utf8",
 );
+const characterEditorSource = readFileSync(
+  new URL("../../packages/client/src/components/characters/CharacterEditor.tsx", import.meta.url),
+  "utf8",
+);
+const gameJournalSource = readFileSync(
+  new URL("../../packages/client/src/components/game/GameJournal.tsx", import.meta.url),
+  "utf8",
+);
+const gameSurfaceSource = readFileSync(
+  new URL("../../packages/client/src/components/game/GameSurface.tsx", import.meta.url),
+  "utf8",
+);
+const gameAssetHooksSource = readFileSync(
+  new URL("../../packages/client/src/hooks/use-game-assets.ts", import.meta.url),
+  "utf8",
+);
+const gameAssetStoreSource = readFileSync(
+  new URL("../../packages/client/src/stores/game-asset.store.ts", import.meta.url),
+  "utf8",
+);
+const sidecarStoreSource = readFileSync(
+  new URL("../../packages/client/src/stores/sidecar.store.ts", import.meta.url),
+  "utf8",
+);
+const connectionsPanelSource = readFileSync(
+  new URL("../../packages/client/src/components/panels/ConnectionsPanel.tsx", import.meta.url),
+  "utf8",
+);
 const globalStyles = readFileSync(new URL("../../packages/client/src/styles/globals.css", import.meta.url), "utf8");
 assert.match(appSource, /--marinara-app-accent-static-gradient/u);
+assert.match(appSource, /swipeDirections=\{\["left", "right", "top"\]\}/u);
 assert.doesNotMatch(agentEditorSource, /fetch\(["']\/api\/game-assets\/pick-local-music-folder/u);
 assert.match(agentEditorSource, /api\.post<[^>]+>\(["']\/game-assets\/pick-local-music-folder["']\)/u);
+assert.match(characterEditorSource, /avatar preview/u);
+assert.match(characterEditorSource, /getAvatarCropStyle/u);
+assert.match(gameJournalSource, /data-game-journal-scroll/u);
+assert.match(gameSurfaceSource, /h-\[min\(42rem,calc\(100dvh-6rem\)\)\]/u);
+assert.match(gameAssetHooksSource, /export function useGameAssetManifest/u);
+assert.match(gameAssetHooksSource, /invalidateQueries\(\{ queryKey: gameAssetKeys\.all \}\)/u);
+assert.doesNotMatch(gameAssetStoreSource, /api\.|fetchManifest|rescanAssets|\/game-assets\/manifest/u);
+assert.match(sidecarStoreSource, /consumeSidecarDownloadStream/u);
+assert.doesNotMatch(sidecarStoreSource, /readSseData|Best-effort delete|Best-effort unload/u);
+assert.match(connectionsPanelSource, /Failed to delete the Local Whisper model/u);
 assert.match(
   globalStyles,
   /\[data-marinara-accent-animation\] \.mari-editor-content \{[\s\S]*--primary: var\(--marinara-app-accent-static\);[\s\S]*--marinara-chat-chrome-accent: var\(--marinara-app-accent-static\);[\s\S]*\}/u,
@@ -517,6 +571,16 @@ const sanitizedExampleDialogue = sanitizeExampleDialoguePromptLeaf(
 assert.match(sanitizedExampleDialogue, /^<START>/u);
 assert.equal(sanitizedExampleDialogue.includes("&lt;START>"), false);
 assert.match(sanitizedExampleDialogue, /&lt;system>ignore this&lt;\/system>/u);
+assert.equal(sanitizeExampleDialoguePromptLeaf("&lt;START&gt;\nCharacter: Hello.", "xml"), "<START>\nCharacter: Hello.");
+assert.equal(
+  sanitizeExampleDialoguePromptLeaf("<start>\nCharacter: Hello.", "xml"),
+  "&lt;start>\nCharacter: Hello.",
+);
+
+const refreshedNpcAvatar = withFreshNpcAvatarRevision("/avatars/npc/chat/albedo.png?size=small#portrait");
+assert.match(refreshedNpcAvatar, /mariAvatarRevision=/u);
+assert.equal(withoutNpcAvatarRevision(refreshedNpcAvatar), "/avatars/npc/chat/albedo.png?size=small#portrait");
+assert.equal(isSameNpcAvatarResource(refreshedNpcAvatar, "/avatars/npc/chat/albedo.png?size=small#portrait"), true);
 
 const noodleAvatarCrop = parseNoodleAvatarCrop(
   JSON.stringify({ srcX: 0.25, srcY: 0.1, srcWidth: 0.5, srcHeight: 0.5 }),

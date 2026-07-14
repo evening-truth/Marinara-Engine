@@ -29,6 +29,13 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Moved the Game Assets manifest and rescan lifecycle out of Zustand into one React Query cache shared by Game surfaces and the Asset Browser, consolidated model/runtime and Whisper download SSE parsing, and made failed sidecar delete/unload actions propagate instead of silently succeeding (#3616).
+- Fixed Game Journal tabs refusing to scroll on desktop and iOS by giving the embedded journal a bounded flex viewport, and made replaced/generated NPC portraits refresh immediately even when the server reuses the same image URL (#3624).
+- Updated the Character Colors preview to render the active card's cropped avatar with an icon fallback, while keeping its sample narration free of formatting asterisks (#3622).
+- Preserved the standard `<START>` example-dialogue separator through XML prompt sanitization, including cards whose importer had already encoded the marker, without allowing other XML-looking card text through unescaped (#3623).
+- Removed every random-user instruction and profile placeholder from Noodle refresh prompts when Random Characters are disabled, while participant selection continues to exclude those accounts entirely (#3619).
+- Consolidated Chub, CharacterTavern, and Wyvern Bot Browser JSON requests behind a shared HTTPS-only `safeFetch` boundary with explicit provider hosts, JSON content-type validation, redirect rejection, cancellation-aware timeouts, and bounded response sizes (#3617).
+- Restored swipe-to-dismiss for mobile web toasts in both horizontal directions and upward, so touch users no longer need to target the small close control (#3625).
 - Renamed the Connections **Illustrator** defaults category to **Images**, hid image/video generation settings and `/illustrate` or `/selfie` commands until Illustrator is installed, kept `/help` first in slash suggestions, and refreshed `/help` and `/macros` feedback with chroma-aware styling.
 - Fixed Gallery generation controls appearing without an active Illustrator package. Illustrate, Selfie, Storyboard, Video, Animate, and Background actions now require Illustrator to be installed and enabled for that chat in every mode, while Roleplay Gallery replaces the separate Browse Images window with its asset search directly in the Gallery.
 - Unified Chat Settings → Agents and Conversation command toggles with the same accessible chroma-aware control styling used by the rest of Chat Settings, restored spacing between installed Conversation Calls settings and schedule-generation preferences, and changed Game setup's selected SFW/NSFW rating from green/red status colors to the selected accent color.
