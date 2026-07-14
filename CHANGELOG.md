@@ -10,6 +10,10 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ## [2.2.2]
 
+### Added
+
+- Added separate opt-in browser and Android generation-completion notifications for manually started Conversation, Roleplay, Visual Novel, and Game replies that finish while Marinara is unfocused, without changing autonomous-message background notification preferences (#3588).
+
 ### Changed
 
 - Began the v2.2.2 development cycle and synchronized version metadata across packages, the PWA manifest, Windows installer sources, Android APK metadata, and shared update checks.
