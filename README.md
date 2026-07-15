@@ -151,7 +151,7 @@ Character expression sprites with automatic emotion switching, custom scene back
 
 ### AI Agent System
 
-An optional one-click catalog of 29 first-party agents and feature packages. Fresh installs stay lightweight with no bundled agents. Open **Agents → Download Agents** to install only what you want; update or uninstall packages from the same responsive catalog. Existing installations retain their agents during upgrade. Package sources, artifacts, and the complete catalog are published in [Pasta-Devs/Marinara-Agents](https://github.com/Pasta-Devs/Marinara-Agents). You can also create or import custom agents.
+An optional one-click catalog of 29 first-party agents and feature packages. Fresh installs stay lightweight with no bundled agents. Open **Agents → Download Agents** to install only what you want or uninstall packages you no longer need. Installed official packages automatically update to the newest compatible catalog version when the Marinara server starts, while remaining available at their current version when the server is offline. Existing installations retain their agents during Engine upgrades. Package sources, artifacts, and the complete catalog are published in [Pasta-Devs/Marinara-Agents](https://github.com/Pasta-Devs/Marinara-Agents). You can also create or import custom agents.
 
 - **Writer Agents:** Prose Guardian, Continuity Checker, Narrative Director, Knowledge Retrieval, Knowledge Router, and Card Evolution Auditor.
 - **Tracker Agents:** World State, Expression Engine, Quest Tracker, Background, Character Tracker, Persona Stats, Custom Tracker, and Hierarchical Maps.

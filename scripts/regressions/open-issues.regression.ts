@@ -69,6 +69,7 @@ import {
 } from "../../packages/client/src/lib/emoji-shortcodes.js";
 import { persistGeneratedImageToEntityGalleries } from "../../packages/server/src/services/image/generated-image-entity-gallery.js";
 import { fetchBotBrowserJson } from "../../packages/server/src/services/bot-browser/fetch-json.js";
+import { isAllowedResponseContentType } from "../../packages/server/src/utils/security.js";
 import { runImageGenerationRequest } from "../../packages/server/src/services/image/image-generation-queue.js";
 import {
   parseIllustratorPromptReviewOverride,
@@ -235,6 +236,10 @@ await assert.rejects(
   fetchBotBrowserJson("https://example.com/search", { allowedHosts: ["api.chub.ai"] }),
   /rejected untrusted host/u,
 );
+assert.equal(isAllowedResponseContentType(null, ["application/json"]), false);
+assert.equal(isAllowedResponseContentType(null, ["application/json"], true), true);
+assert.equal(isAllowedResponseContentType("application/json; charset=utf-8", ["application/json"], true), true);
+assert.equal(isAllowedResponseContentType("text/html; charset=utf-8", ["application/json"], true), false);
 
 const searchableCharacter = parseCharacterDisplayData({
   data: JSON.stringify({

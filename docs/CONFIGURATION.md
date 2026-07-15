@@ -17,7 +17,7 @@ You might edit configuration when you want to:
 
 Almost everything else, like your AI provider keys, characters, and chat options, is set inside the app, not here. To add an AI provider, see [Connecting to an AI Provider](connections/connecting-to-a-provider.md).
 
-Optional first-party agents are also managed inside the app. Open **Agents → Download Agents** to install, update, or uninstall them. Package sources, manifests, artifacts, and the complete catalog live in [Pasta-Devs/Marinara-Agents](https://github.com/Pasta-Devs/Marinara-Agents). Installed packages live under `DATA_DIR/capability-packages`, so Docker volumes, custom data directories, backups, and normal upgrades preserve them. Installed packages work offline; catalog browsing and installation require outbound HTTPS access to that official repository. Server-runtime package changes require a full Marinara restart.
+Optional first-party agents are also managed inside the app. Open **Agents → Download Agents** to install or uninstall them. On every server startup, installed official packages check the [Pasta-Devs/Marinara-Agents](https://github.com/Pasta-Devs/Marinara-Agents) catalog and automatically upgrade to the newest version compatible with the running Engine before package runtimes activate. The same behavior applies to desktop, Docker, and Termux-hosted Android installations; iOS and other browser clients use the packages installed on their Marinara host server. Packages live under `DATA_DIR/capability-packages`, so Docker volumes, custom data directories, backups, and normal upgrades preserve them. Existing packages continue working at their installed version when outbound GitHub HTTPS is unavailable or an update fails verification.
 
 ## Where the .env file is
 
@@ -216,11 +216,13 @@ This section lists the remaining settings, grouped by purpose. The tables above 
 | `HOST` | `127.0.0.1` (`0.0.0.0` in the shell launchers) | The network interface to bind. Use `0.0.0.0` for LAN access. |
 | `AUTO_OPEN_BROWSER` | `true` | Whether the shell launchers open the app URL for you. Set `false` to stop this. |
 | `MARINARA_ENV_FILE` | project-root `.env` | Optional path override for the `.env` file. Set it before startup. |
-| `TZ` | system default | Optional IANA timezone used by server-side schedules. Leave it unset to inherit the host timezone; an empty `TZ=` is also treated as unset. |
+| `TZ` | system default | Host fallback timezone for server-side jobs. Conversation schedules use the global timezone selected in their schedule controls when one has been saved. Leave `TZ` unset to inherit the host timezone; an empty `TZ=` is also treated as unset. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Browser origins allowed to make cross-origin requests. |
 | `AUTO_CREATE_DEFAULT_CONNECTION` | `true` | Legacy flag. Current builds bundle no starter key, so this creates nothing. Add your own connection in the app. |
 
 `AUTO_CREATE_DEFAULT_CONNECTION` is kept only for older installs. New builds no longer ship a bundled starter connection, so leaving it on does nothing. To start chatting, add a connection under [Connecting to an AI Provider](connections/connecting-to-a-provider.md).
+
+Conversation schedule controls default to the timezone reported by the browser or app device. **Schedule timezone** can be changed during Conversation setup, in Conversation Chat Settings, or in the character schedule editor. The selected IANA timezone is one global preference shared by every Conversation chat and synced to other Marinara clients connected to the same server.
 
 ### Media and sprite tools
 
