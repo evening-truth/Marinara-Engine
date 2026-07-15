@@ -839,15 +839,12 @@ test("home shell and primary topbar panels open without client errors", async ({
 
 test("Card Browser labels and the Persona full library stay available across viewports", async ({ page }) => {
   const errors = collectUnexpectedErrors(page);
-  await page.addInitScript(() => {
-    const nativeFetch = window.fetch.bind(window);
-    window.fetch = (input, init) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("/api/bot-browser/chub/search?")) {
-        return Promise.resolve(new Response(JSON.stringify({ error: "offline" }), { status: 503 }));
-      }
-      return nativeFetch(input, init);
-    };
+  await page.route("**/api/bot-browser/chub/search?*", async (route) => {
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "offline" }),
+    });
   });
   await page.goto("/");
 
@@ -880,7 +877,7 @@ test("Card Browser labels and the Persona full library stay available across vie
   ).toBeVisible();
   await expect(page.locator('[data-tour="panel-personas"]')).toHaveClass(/mari-topbar-panel-icon--active/);
   await expect(page.locator('[data-tour="panel-characters"]')).not.toHaveClass(/bg-\[var\(--accent\)\]/);
-  expect(errors).toEqual([]);
+  expect(errors.filter((error) => !error.includes("status of 503 (Service Unavailable)"))).toEqual([]);
 });
 
 test("downloadable agent catalog is usable on desktop and mobile", async ({ page }, testInfo) => {

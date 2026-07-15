@@ -1943,31 +1943,39 @@ export function BotBrowserView() {
           {sourceOpen &&
             sourceMenuPosition &&
             createPortal(
-              <div
-                className="mari-chrome-token-scope mari-chrome-selection-bar mari-chrome-selection-bar--opaque fixed z-[9999] min-w-[180px] overflow-y-auto shadow-xl"
-                style={{
-                  left: sourceMenuPosition.left,
-                  top: sourceMenuPosition.top,
-                  maxHeight: sourceMenuPosition.maxHeight,
-                }}
-              >
-                {ALL_PROVIDERS.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => switchProvider(p.id)}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-xs transition-colors",
-                      p.id === sourceId
-                        ? "mari-chrome-accent-surface mari-accent-animated font-semibold"
-                        : "hover:bg-[var(--accent)]",
-                    )}
-                  >
-                    <span className="text-sm">{p.icon}</span>
-                    <span>{p.name}</span>
-                    {p.id === sourceId && <span className="ml-auto text-[0.6rem]">✓</span>}
-                  </button>
-                ))}
-              </div>,
+              <>
+                <button
+                  type="button"
+                  aria-label="Close provider menu"
+                  className="fixed inset-0 z-[9998] cursor-default"
+                  onClick={() => setSourceOpen(false)}
+                />
+                <div
+                  className="mari-chrome-token-scope mari-chrome-selection-bar mari-chrome-selection-bar--opaque fixed z-[9999] min-w-[180px] overflow-y-auto shadow-xl"
+                  style={{
+                    left: sourceMenuPosition.left,
+                    top: sourceMenuPosition.top,
+                    maxHeight: sourceMenuPosition.maxHeight,
+                  }}
+                >
+                  {ALL_PROVIDERS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => switchProvider(p.id)}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-xs transition-colors",
+                        p.id === sourceId
+                          ? "mari-chrome-accent-surface mari-accent-animated font-semibold"
+                          : "hover:bg-[var(--accent)]",
+                      )}
+                    >
+                      <span className="text-sm">{p.icon}</span>
+                      <span>{p.name}</span>
+                      {p.id === sourceId && <span className="ml-auto text-[0.6rem]">✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </>,
               document.body,
             )}
           {/* Auth indicator for login providers */}

@@ -641,16 +641,18 @@ export async function charactersRoutes(app: FastifyInstance) {
         : undefined,
     });
     const cardParts: string[] = [];
-    if (input.name) cardParts.push(`Name: ${resolveAboutMeMacros(input.name)}`);
-    if (sources.description && input.description)
-      cardParts.push(`Description: ${resolveAboutMeMacros(input.description)}`);
-    if (sources.personality && input.personality)
-      cardParts.push(`Personality: ${resolveAboutMeMacros(input.personality)}`);
-    if (sources.scenario && input.scenario) cardParts.push(`Scenario: ${resolveAboutMeMacros(input.scenario)}`);
-    if (sources.backstory && input.backstory) cardParts.push(`Backstory: ${resolveAboutMeMacros(input.backstory)}`);
-    if (sources.appearance && input.appearance) cardParts.push(`Appearance: ${resolveAboutMeMacros(input.appearance)}`);
+    const pushResolvedCardPart = (label: string, value: string) => {
+      const resolved = resolveAboutMeMacros(value).trim();
+      if (resolved) cardParts.push(`${label}: ${resolved}`);
+    };
+    if (input.name) pushResolvedCardPart("Name", input.name);
+    if (sources.description && input.description) pushResolvedCardPart("Description", input.description);
+    if (sources.personality && input.personality) pushResolvedCardPart("Personality", input.personality);
+    if (sources.scenario && input.scenario) pushResolvedCardPart("Scenario", input.scenario);
+    if (sources.backstory && input.backstory) pushResolvedCardPart("Backstory", input.backstory);
+    if (sources.appearance && input.appearance) pushResolvedCardPart("Appearance", input.appearance);
     if (sources.convoBehavior && input.convoBehavior?.trim())
-      cardParts.push(`How they behave in conversation: ${resolveAboutMeMacros(input.convoBehavior).trim()}`);
+      pushResolvedCardPart("How they behave in conversation", input.convoBehavior);
 
     // Lorebook entries (characters only). All of the character's lorebook entries come
     // through listByCharacter — the embedded card book is synced to a standalone that
@@ -665,6 +667,7 @@ export async function charactersRoutes(app: FastifyInstance) {
         for (const e of entries) {
           if (selectedEntryIds && (!e.id || !selectedEntryIds.has(e.id))) continue;
           const content = resolveAboutMeMacros(e.content ?? "").trim();
+          if (!content) continue;
           const name = resolveAboutMeMacros(e.name ?? "").trim();
           loreLines.push(name ? `[${name}] ${content}` : content);
         }
@@ -686,8 +689,10 @@ export async function charactersRoutes(app: FastifyInstance) {
           content: string;
         }>;
         chatTranscript = recent
-          .map((m) => `${m.role}: ${resolveAboutMeMacros(m.content ?? "").trim()}`)
-          .filter((line) => line.trim())
+          .flatMap((m) => {
+            const content = resolveAboutMeMacros(m.content ?? "").trim();
+            return content ? [`${m.role}: ${content}`] : [];
+          })
           .join("\n")
           .slice(-8000)
           .trim();
@@ -696,12 +701,11 @@ export async function charactersRoutes(app: FastifyInstance) {
       }
     }
 
+    const resolvedInstruction = input.instruction ? resolveAboutMeMacros(input.instruction).trim() : "";
     const userContent =
       `Here is what defines them:\n${cardParts.join("\n\n")}\n\n` +
       (chatTranscript ? `Recent conversation, for tone and context:\n${chatTranscript}\n\n` : "") +
-      (input.instruction?.trim()
-        ? `Extra direction from the user: ${resolveAboutMeMacros(input.instruction).trim()}\n\n`
-        : "") +
+      (resolvedInstruction ? `Extra direction from the user: ${resolvedInstruction}\n\n` : "") +
       `Write their Conversation-mode "about me" now, staying true to who they are.`;
     logDebugOverride(
       input.debugMode,
