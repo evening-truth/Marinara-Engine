@@ -85,16 +85,19 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  */
 export function lorebookSimilarityBaseline(embeddings: number[][]): number {
   if (embeddings.length < 2) return 0;
-  const similarities: number[] = [];
+  let similaritySum = 0;
+  let similarityCount = 0;
   for (let left = 0; left < embeddings.length; left += 1) {
     for (let right = left + 1; right < embeddings.length; right += 1) {
       const similarity = cosineSimilarity(embeddings[left]!, embeddings[right]!);
-      if (Number.isFinite(similarity)) similarities.push(similarity);
+      if (Number.isFinite(similarity)) {
+        similaritySum += similarity;
+        similarityCount += 1;
+      }
     }
   }
-  if (similarities.length === 0) return 0;
-  const average = similarities.reduce((sum, similarity) => sum + similarity, 0) / similarities.length;
-  return Math.max(0, Math.min(0.999, average));
+  if (similarityCount === 0) return 0;
+  return Math.max(0, Math.min(0.999, similaritySum / similarityCount));
 }
 
 export function calibrateLorebookSimilarity(similarity: number, baseline = 0): number {

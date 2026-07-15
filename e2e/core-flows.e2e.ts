@@ -1935,7 +1935,7 @@ test("desktop Connections and Lorebooks folders expand without a React hook erro
             id: "folder-expansion-regression",
             scope: "lorebooks",
             name: folderName,
-            collapsed: false,
+            collapsed: true,
             sortOrder: 0,
             itemIds: [lorebookId],
             createdAt: now,
