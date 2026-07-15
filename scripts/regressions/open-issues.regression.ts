@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Chat, Message } from "../../packages/shared/src/types/chat.js";
 import {
   parseGroupedSpeakerSegments,
+  splitGroupedSegmentDisplayLines,
   stripLeadingMessageTimestamps,
 } from "../../packages/shared/src/utils/speaker-segments.js";
 import type { Lorebook } from "../../packages/shared/src/types/lorebook.js";
@@ -265,6 +266,23 @@ const parsedWithAuthor = parseGroupedSpeakerSegments(partiallyPrefixedConversati
 assert.equal(parsedWithAuthor?.length, 1);
 assert.equal(parsedWithAuthor?.[0]?.speaker, "Paige");
 assert.deepEqual(parsedWithAuthor?.[0]?.lines, ["lol you're such a rebel!!", "Are you powered by pure caffeine?"]);
+const inheritedGroupConversationReply = "Char1: so anyway\ni was thinking about that\nChar2: yeah?";
+const inheritedGroupConversationSegments = parseGroupedSpeakerSegments(
+  inheritedGroupConversationReply,
+  new Set(["char1", "char2"]),
+);
+assert.deepEqual(inheritedGroupConversationSegments, [
+  { speaker: "Char1", lines: ["so anyway\ni was thinking about that"], start: 0, end: 42 },
+  { speaker: "Char2", lines: ["yeah?"], start: 43, end: 55 },
+]);
+assert.deepEqual(splitGroupedSegmentDisplayLines(inheritedGroupConversationSegments![0]!), [
+  "so anyway",
+  "i was thinking about that",
+]);
+assert.deepEqual(
+  splitGroupedSegmentDisplayLines({ ...inheritedGroupConversationSegments![0]!, lines: ["so anyway\r\nstill thinking"] }),
+  ["so anyway", "still thinking"],
+);
 const annotatedPartiallyPrefixedReply = annotateContentWithReactions(
   partiallyPrefixedConversationReply,
   partiallyPrefixedConversationReply,
