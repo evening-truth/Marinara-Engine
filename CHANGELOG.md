@@ -4,6 +4,13 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ## [Unreleased]
 
+## [2.3.1]
+
+### Changed
+
+- Began the v2.3.1 development cycle and synchronized version metadata across packages, the PWA manifest, README release pointer, Windows installer sources, Android APK metadata, and shared update checks.
+- Android `versionName` is `2.3.1` with `versionCode 35`.
+
 ## [2.3.0]
 
 ### Added
