@@ -30,6 +30,7 @@ import {
   type NoodleInteraction,
   type NoodleInteractionType,
   type NoodlePost,
+  type NoodleRefreshAttemptKind,
   type NoodleSettings,
 } from "@marinara-engine/shared";
 import type { ChatMessage } from "../services/llm/base-provider.js";
@@ -1879,6 +1880,7 @@ export async function noodleRoutes(app: FastifyInstance) {
         responseFormat: noodleResponseFormat(conn.model, "timeline"),
       } as const;
       let requestMessages: ChatMessage[] = messages;
+      let firstAttemptKind: NoodleRefreshAttemptKind = "initial";
       let result: Awaited<ReturnType<typeof provider.chatComplete>>;
       try {
         result = await provider.chatComplete(messages, completionOptions);
@@ -1894,9 +1896,17 @@ export async function noodleRoutes(app: FastifyInstance) {
           textOnlyPromptForLog,
         );
         requestMessages = textOnlyMessages;
+        firstAttemptKind = "text_only_fallback";
         result = await provider.chatComplete(textOnlyMessages, completionOptions);
       }
       let content = result.content ?? "";
+      logDebugOverride(
+        debugMode,
+        "[debug/noodle] Raw model response (%s attempt %d):\n%s",
+        firstAttemptKind,
+        1,
+        content,
+      );
       let parsedGenerated: ReturnType<typeof parseNoodleGeneratedRefresh> | null = null;
       let retryReason: string | null = null;
       const allowedActorHandles = new Set(selectedParticipants.map((account) => normalizeNoodleHandle(account.handle)));
@@ -1905,8 +1915,15 @@ export async function noodleRoutes(app: FastifyInstance) {
         parsedGenerated = parseNoodleGeneratedRefresh(parseGameJsonish(content));
         retryReason = validateNoodleGeneratedRefresh(parsedGenerated.refresh, allowedActorHandles, knownHandles);
       } catch (error) {
-        retryReason = `the response was not valid timeline JSON (${getErrorMessage(error).slice(0, 180)})`;
+        retryReason = `the response was not valid timeline JSON (${getErrorMessage(error)})`;
       }
+      await noodle.recordRefreshAttempt(runId, {
+        sequence: 1,
+        kind: firstAttemptKind,
+        response: content,
+        rejectionReason: retryReason,
+        createdAt: new Date().toISOString(),
+      });
 
       if (retryReason) {
         const allowedHandles = selectedParticipants.map((account) => `@${account.handle}`);
@@ -1921,12 +1938,32 @@ export async function noodleRoutes(app: FastifyInstance) {
         ].join("\n");
         result = await provider.chatComplete([...requestMessages, { role: "user", content: correction }], completionOptions);
         content = result.content ?? "";
-        parsedGenerated = parseNoodleGeneratedRefresh(parseGameJsonish(content));
-        const correctedRetryReason = validateNoodleGeneratedRefresh(
-          parsedGenerated.refresh,
-          allowedActorHandles,
-          knownHandles,
+        logDebugOverride(
+          debugMode,
+          "[debug/noodle] Raw model response (%s attempt %d):\n%s",
+          "correction",
+          2,
+          content,
         );
+        parsedGenerated = null;
+        let correctedRetryReason: string | null = null;
+        try {
+          parsedGenerated = parseNoodleGeneratedRefresh(parseGameJsonish(content));
+          correctedRetryReason = validateNoodleGeneratedRefresh(
+            parsedGenerated.refresh,
+            allowedActorHandles,
+            knownHandles,
+          );
+        } catch (error) {
+          correctedRetryReason = `the response was not valid timeline JSON (${getErrorMessage(error)})`;
+        }
+        await noodle.recordRefreshAttempt(runId, {
+          sequence: 2,
+          kind: "correction",
+          response: content,
+          rejectionReason: correctedRetryReason,
+          createdAt: new Date().toISOString(),
+        });
         if (correctedRetryReason) {
           throw new Error(`Noodle timeline correction could not be used because ${correctedRetryReason}.`);
         }

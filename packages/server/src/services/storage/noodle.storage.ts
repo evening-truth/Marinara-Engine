@@ -21,6 +21,7 @@ import {
   type NoodlePost,
   type NoodlePostUpdateInput,
   type NoodlePostSource,
+  type NoodleRefreshAttempt,
   type NoodleRefreshRun,
   type NoodleRemoveInteractionInput,
   type NoodleSettings,
@@ -66,6 +67,43 @@ function parseRecord(value: unknown): Record<string, unknown> {
     }
   }
   return typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function parseRefreshAttempts(value: unknown): NoodleRefreshAttempt[] {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((entry): NoodleRefreshAttempt[] => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const candidate = entry as Record<string, unknown>;
+    const kind = candidate.kind;
+    if (kind !== "initial" && kind !== "text_only_fallback" && kind !== "correction") return [];
+    if (
+      typeof candidate.sequence !== "number" ||
+      !Number.isInteger(candidate.sequence) ||
+      candidate.sequence < 1 ||
+      typeof candidate.response !== "string" ||
+      (candidate.rejectionReason !== null && typeof candidate.rejectionReason !== "string") ||
+      typeof candidate.createdAt !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        sequence: candidate.sequence,
+        kind,
+        response: candidate.response,
+        rejectionReason: candidate.rejectionReason,
+        createdAt: candidate.createdAt,
+      },
+    ];
+  });
 }
 
 export function parseNoodleAvatarCrop(value: unknown): NoodleAvatarCrop | null {
@@ -283,6 +321,7 @@ function mapRefreshRun(row: RefreshRunRow): NoodleRefreshRun {
     prompt: row.prompt ?? "",
     result: row.result ?? null,
     error: row.error ?? null,
+    attempts: parseRefreshAttempts(row.attempts),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -851,6 +890,7 @@ export function createNoodleStorage(db: DB) {
         prompt: input.prompt,
         result: null,
         error: null,
+        attempts: "[]",
         createdAt: timestamp,
         updatedAt: timestamp,
       });
@@ -868,6 +908,21 @@ export function createNoodleStorage(db: DB) {
             .limit(limit)
         : await baseQuery.orderBy(desc(noodleRefreshRuns.createdAt)).limit(limit);
       return rows.map(mapRefreshRun);
+    },
+
+    async recordRefreshAttempt(id: string, attempt: NoodleRefreshAttempt): Promise<NoodleRefreshRun | null> {
+      const rows = await db.select().from(noodleRefreshRuns).where(eq(noodleRefreshRuns.id, id));
+      const current = rows[0];
+      if (!current) return null;
+      await db
+        .update(noodleRefreshRuns)
+        .set({
+          attempts: JSON.stringify([...parseRefreshAttempts(current.attempts), attempt]),
+          updatedAt: now(),
+        })
+        .where(eq(noodleRefreshRuns.id, id));
+      const updatedRows = await db.select().from(noodleRefreshRuns).where(eq(noodleRefreshRuns.id, id));
+      return updatedRows[0] ? mapRefreshRun(updatedRows[0]) : null;
     },
 
     async finishRefreshRun(

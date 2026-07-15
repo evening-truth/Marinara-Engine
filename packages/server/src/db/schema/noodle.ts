@@ -72,6 +72,7 @@ export const noodleRefreshRuns = fileTable("noodle_refresh_runs", {
   prompt: text("prompt").notNull().default(""),
   result: text("result"),
   error: text("error"),
+  attempts: text("attempts").notNull().default("[]"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
