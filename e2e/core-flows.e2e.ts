@@ -842,8 +842,7 @@ test("Card Browser labels and the Persona full library stay available across vie
   await page.route("**/api/bot-browser/chub/search?*", async (route) => {
     await route.fulfill({
       status: 503,
-      contentType: "application/json",
-      body: JSON.stringify({ error: "offline" }),
+      json: { error: "offline" },
     });
   });
   await page.goto("/");
