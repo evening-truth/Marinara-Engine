@@ -74,7 +74,14 @@ test("What's New opens once for each Marinara Engine version", async ({ page }) 
   await expect(announcement).toBeVisible();
   await expect(announcement.getByText(`Version ${APP_VERSION}`)).toBeVisible();
   await expect(announcement.getByText("Hierarchical Maps")).toBeVisible();
-  await expect(announcement.getByText("NoodleR")).toBeVisible();
+  await expect(announcement.getByText("Tactical Combat Mode in Games")).toBeVisible();
+  await expect(announcement.getByText("NoodleR")).toHaveCount(0);
+  const tacticalPreview = announcement.getByRole("img", {
+    name: "Tactical Combat Mode battlefield with a terrain grid, units, and battle controls",
+  });
+  await expect(tacticalPreview).toHaveAttribute("src", "https://i.imgur.com/tMhfbej.jpeg");
+  await expect(tacticalPreview).toHaveClass(/max-h-36/);
+  await expect(tacticalPreview).toHaveClass(/object-contain/);
   await expect(announcement.getByRole("link", { name: "View release" })).toHaveAttribute(
     "href",
     `https://github.com/Pasta-Devs/Marinara-Engine/releases/tag/v${APP_VERSION}`,
@@ -95,6 +102,34 @@ test("What's New opens once for each Marinara Engine version", async ({ page }) 
   });
   await page.reload();
   await expect(announcement).toBeVisible();
+});
+
+test("turning off the custom mouse pointer persists immediately and after reload", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Appearance preference persistence is covered on desktop.");
+
+  await page.goto("/");
+  await page.locator('[data-tour="panel-settings"]').click();
+  await page.getByRole("tab", { name: "Appearance" }).click();
+
+  const cursorToggle = page.getByLabel("Custom Mouse Pointer");
+  await expect(cursorToggle).toBeChecked();
+  await page.getByText("Custom Mouse Pointer", { exact: true }).click();
+  await expect(cursorToggle).not.toBeChecked();
+  await page.waitForTimeout(100);
+
+  const persistedCursorPreference = await page.evaluate(() => {
+    const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{}}') as {
+      state?: { customCursorEnabled?: unknown };
+    };
+    return persisted.state?.customCursorEnabled;
+  });
+  expect(persistedCursorPreference).toBe(false);
+
+  await page.reload();
+  await expect(page.getByLabel("Custom Mouse Pointer")).not.toBeChecked();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.dataset.marinaraCustomCursor ?? null))
+    .toBeNull();
 });
 
 test("initial Roleplay character assignment does not block greeting seeding", async ({ request }, testInfo) => {
@@ -2556,6 +2591,7 @@ test("Noodle interface icons consistently use Noodle blue", async ({ page }, tes
   await expectBlueIcons('[data-component="NoodleView"]');
   await noodle.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(noodle.getByRole("button", { name: "Reset Noodle Timeline" })).toBeVisible();
+  await expect(noodle.getByRole("button", { name: "Uninvite everybody" })).toHaveCSS("color", "rgb(126, 167, 255)");
   const scheduleCard = noodle.locator('[data-component="NoodleView.RefreshSchedule"]');
   await expect(scheduleCard).toBeVisible();
   await expect(scheduleCard.getByText("Automatic schedule")).toBeVisible();
@@ -2596,6 +2632,78 @@ test("Noodle interface icons consistently use Noodle blue", async ({ page }, tes
   await resetDialog.getByRole("button", { name: "Cancel" }).click();
 
   expect(errors).toEqual([]);
+});
+
+test("Noodle settings edit and restore the timeline base prompt", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "The complete prompt editing flow is covered on desktop.");
+
+  const promptKey = "noodle.timelineBase";
+  const initialDetailResponse = await page.request.get(`/api/prompt-overrides/${promptKey}`);
+  expect(initialDetailResponse.ok()).toBe(true);
+  const initialDetail = (await initialDetailResponse.json()) as {
+    override: { template: string; enabled: boolean } | null;
+  };
+  const customPrompt = `Custom Noodle timeline base prompt ${Date.now()}.`;
+
+  try {
+    await page.goto("/");
+    await page.locator('[data-tour="noodle-tab"]').click();
+    const noodle = page.locator('[data-component="NoodleView"]');
+    await noodle.getByRole("button", { name: "Settings", exact: true }).click();
+
+    const promptSetting = noodle.locator('[data-component="NoodleView.PromptSetting"]');
+    await expect(promptSetting).toBeVisible();
+    const promptRect = await promptSetting.boundingBox();
+    const invitesRect = await noodle.getByRole("heading", { name: "Invites" }).boundingBox();
+    expect(promptRect).not.toBeNull();
+    expect(invitesRect).not.toBeNull();
+    expect(promptRect!.y).toBeLessThan(invitesRect!.y);
+
+    const editPromptButton = promptSetting.getByRole("button", { name: "Edit prompt" });
+    await expect(editPromptButton).toHaveCSS("align-items", "center");
+    await expect(editPromptButton).toHaveCSS("justify-content", "center");
+    await expect(editPromptButton.locator("svg")).toBeVisible();
+    await expect(editPromptButton.locator("svg")).toHaveCSS("color", "rgb(126, 167, 255)");
+    await editPromptButton.click();
+    const editor = page.locator('[data-component="ExpandedTextarea"]');
+    await expect(editor.getByRole("heading", { name: "Edit Noodle Prompt" })).toBeVisible();
+    const promptTextarea = editor.locator("textarea");
+    await expect(promptTextarea).toHaveValue(
+      /You write a fake social media timeline for Marinara Engine's in-app parody site called Noodle\./,
+    );
+    await promptTextarea.fill(customPrompt);
+    const saveResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        new URL(response.url()).pathname === `/api/prompt-overrides/${promptKey}`,
+    );
+    await editor.getByRole("button", { name: "Save prompt" }).click();
+    expect((await saveResponse).ok()).toBe(true);
+    await expect(promptSetting).toContainText(customPrompt);
+    await expect(promptSetting).toContainText("Custom");
+
+    const restoreResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        new URL(response.url()).pathname === `/api/prompt-overrides/${promptKey}`,
+    );
+    await promptSetting.getByRole("button", { name: "Restore default" }).click();
+    expect((await restoreResponse).ok()).toBe(true);
+    await expect(promptSetting).toContainText("Default");
+
+    await promptSetting.getByRole("button", { name: "Edit prompt" }).click();
+    await expect(page.locator('[data-component="ExpandedTextarea"] textarea')).toHaveValue(
+      /You write a fake social media timeline for Marinara Engine's in-app parody site called Noodle\./,
+    );
+  } finally {
+    if (initialDetail.override) {
+      await page.request.put(`/api/prompt-overrides/${promptKey}`, {
+        data: initialDetail.override,
+      });
+    } else {
+      await page.request.delete(`/api/prompt-overrides/${promptKey}`);
+    }
+  }
 });
 
 test("Noodle settings persist through refetch and reload", async ({ page }, testInfo) => {
@@ -3704,6 +3812,17 @@ test("Noodle mobile shell keeps navigation usable across every view", async ({ p
   await accountMenu.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(drawer).toHaveCount(0);
   await expect(noodle.getByRole("heading", { name: "Noodle settings" })).toBeVisible();
+  const promptSetting = noodle.locator('[data-component="NoodleView.PromptSetting"]');
+  await expect(promptSetting).toBeVisible();
+  const editPromptButton = promptSetting.getByRole("button", { name: "Edit prompt" });
+  await expect(editPromptButton).toHaveCSS("justify-content", "center");
+  await expect(editPromptButton.locator("svg")).toBeVisible();
+  await expect(editPromptButton.locator("svg")).toHaveCSS("color", "rgb(126, 167, 255)");
+  await editPromptButton.click();
+  const promptEditor = page.locator('[data-component="ExpandedTextarea"]');
+  await expect(promptEditor.getByRole("heading", { name: "Edit Noodle Prompt" })).toBeVisible();
+  await promptEditor.getByRole("button", { name: "Cancel" }).first().click();
+  await expect(promptEditor).toBeHidden();
   await expect(bottomNav).toBeVisible();
   await noodle.getByRole("button", { name: "Back to Noodle timeline" }).click();
   await expect(header).toBeVisible();

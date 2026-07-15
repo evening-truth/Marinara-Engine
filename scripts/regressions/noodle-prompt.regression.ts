@@ -5,12 +5,14 @@ import type { NoodleAccount, NoodleInteraction, NoodlePost } from "../../package
 import { LIMITS, PROFESSOR_MARI_ID } from "../../packages/shared/src/constants/defaults.js";
 import {
   canGenerateNoodleActivityForAccountKind,
+  composeNoodleTimelineSystemPrompt,
   formatNoodleTimelineForPrompt,
   noodleLorebookTokenBudget,
   noodlePastMemoryCutoff,
   noodlePastMemorySampleSize,
   noodlePersonaCommentPostIds,
   noodleTimelineVoiceDefaultText,
+  NOODLE_ADULT_PLATFORM_POLICY,
   NOODLE_CONGRUENCY_INSTRUCTION,
   NOODLE_CREATIVE_FORMAT_INSTRUCTIONS,
   noodleCreativeFormatInstructions,
@@ -22,6 +24,7 @@ import {
   NOODLE_RANDOM_USER_TREATMENT_INSTRUCTION,
   NOODLE_RECALLED_MEMORY_INSTRUCTION,
   NOODLE_TONE_INSTRUCTIONS,
+  NOODLE_TIMELINE_BASE_DEFAULT_PROMPT,
   noodleTimelineFeatureInstructions,
   sampleNoodlePastMemories,
   sampleNoodlePastMemoriesWeighted,
@@ -34,7 +37,10 @@ import {
   validateNoodleGeneratedRefresh,
 } from "../../packages/server/src/services/noodle/noodle-generated-refresh.js";
 import { normalizeNoodleImagePrompt } from "../../packages/server/src/services/noodle/noodle-image-prompt.js";
-import { NOODLE_IMAGE_POST } from "../../packages/server/src/services/prompt-overrides/registry/noodle.js";
+import {
+  NOODLE_IMAGE_POST,
+  NOODLE_TIMELINE_BASE,
+} from "../../packages/server/src/services/prompt-overrides/registry/noodle.js";
 import { collectNoodlePriorityAccountIds } from "../../packages/server/src/routes/noodle.routes.js";
 import { NOODLE_TIMELINE_VOICE } from "../../packages/server/src/services/prompt-overrides/registry/noodle.js";
 
@@ -261,6 +267,28 @@ assert.match(NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION, /controlled exclusively by t
 assert.match(
   NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
   /Never generate posts, replies, likes, reposts, poll votes, or follows/u,
+);
+assert.match(
+  NOODLE_TIMELINE_BASE_DEFAULT_PROMPT,
+  /^You write a fake social media timeline for Marinara Engine's in-app parody site called Noodle\./u,
+);
+assert.equal(NOODLE_TIMELINE_BASE_DEFAULT_PROMPT.includes(NOODLE_ADULT_PLATFORM_POLICY), true);
+assert.equal(NOODLE_TIMELINE_BASE_DEFAULT_PROMPT.includes(NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION), true);
+assert.match(NOODLE_TIMELINE_BASE_DEFAULT_PROMPT, /Return JSON only\. No prose outside the JSON object\.$/u);
+assert.equal(NOODLE_TIMELINE_BASE.defaultBuilder({}), NOODLE_TIMELINE_BASE_DEFAULT_PROMPT);
+const timelineVoiceTail = "- Distinct final timeline voice instruction.";
+const composedTimelineSystemPrompt = composeNoodleTimelineSystemPrompt(
+  NOODLE_TIMELINE_BASE_DEFAULT_PROMPT,
+  timelineVoiceTail,
+);
+assert.equal(composedTimelineSystemPrompt.endsWith(timelineVoiceTail), true);
+assert.ok(
+  composedTimelineSystemPrompt.indexOf(NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION) <
+    composedTimelineSystemPrompt.indexOf(timelineVoiceTail),
+);
+assert.equal(
+  composeNoodleTimelineSystemPrompt("Replace the base prompt entirely.", timelineVoiceTail),
+  `Replace the base prompt entirely.\n${timelineVoiceTail}`,
 );
 assert.equal(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS.length, 3);
 assert.match(NOODLE_CREATIVE_FORMAT_INSTRUCTIONS[0], /create polls in their own posts and vote in polls/u);

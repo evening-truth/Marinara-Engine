@@ -2255,6 +2255,18 @@ export const useUIStore = create<UIState>()(
         let pendingName: string | null = null;
         let pendingValue: string | null = null;
 
+        const readCustomCursorPreference = (value: string | null): boolean | undefined => {
+          if (!value) return undefined;
+          try {
+            const parsed = JSON.parse(value) as { state?: { customCursorEnabled?: unknown } };
+            return typeof parsed.state?.customCursorEnabled === "boolean"
+              ? parsed.state.customCursorEnabled
+              : undefined;
+          } catch {
+            return undefined;
+          }
+        };
+
         const flush = () => {
           if (pendingName !== null && pendingValue !== null) {
             localStorage.setItem(pendingName, pendingValue);
@@ -2270,6 +2282,7 @@ export const useUIStore = create<UIState>()(
         // Flush pending writes before the tab closes
         if (typeof window !== "undefined") {
           window.addEventListener("beforeunload", flush);
+          window.addEventListener("pagehide", flush);
           document.addEventListener("visibilitychange", () => {
             if (document.visibilityState === "hidden") flush();
           });
@@ -2278,8 +2291,13 @@ export const useUIStore = create<UIState>()(
         return {
           getItem: (name: string) => localStorage.getItem(name),
           setItem: (name: string, value: string) => {
+            const previousValue = pendingValue ?? localStorage.getItem(name);
             pendingName = name;
             pendingValue = value;
+            if (readCustomCursorPreference(previousValue) !== readCustomCursorPreference(value)) {
+              flush();
+              return;
+            }
             if (timer) clearTimeout(timer);
             timer = setTimeout(flush, 1000);
           },

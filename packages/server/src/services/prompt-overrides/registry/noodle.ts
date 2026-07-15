@@ -2,7 +2,7 @@
 // Registered prompt-override keys: Noodle social feed
 // ──────────────────────────────────────────────
 import type { PromptOverrideKeyDef } from "../types.js";
-import { noodleTimelineVoiceDefaultText } from "../../noodle/noodle-prompt.js";
+import { NOODLE_TIMELINE_BASE_DEFAULT_PROMPT, noodleTimelineVoiceDefaultText } from "../../noodle/noodle-prompt.js";
 
 export interface NoodleImagePostCtx extends Record<string, string | number | undefined> {
   authorName: string;
@@ -58,6 +58,18 @@ export const NOODLE_IMAGE_POST: PromptOverrideKeyDef<NoodleImagePostCtx> = {
   },
 };
 
+export type NoodleTimelineBaseCtx = Record<string, string | number | undefined>;
+
+export const NOODLE_TIMELINE_BASE: PromptOverrideKeyDef<NoodleTimelineBaseCtx> = {
+  key: "noodle.timelineBase",
+  label: "Noodle Timeline Prompt",
+  description:
+    "The editable base system prompt used for Noodle timeline refreshes. Timeline voice and tone instructions are appended after this prompt.",
+  variables: [],
+  defaultBuilder: () => NOODLE_TIMELINE_BASE_DEFAULT_PROMPT,
+  exampleContext: {},
+};
+
 export interface NoodleTimelineVoiceCtx extends Record<string, string | number | undefined> {
   /** Mirrors the Noodle setting `enableEnhancedTimelineWriting` ("true"/"false"). Only affects the
    *  unedited default text — once a user customizes this override, their text always wins. */
@@ -69,7 +81,7 @@ export const NOODLE_TIMELINE_VOICE: PromptOverrideKeyDef<NoodleTimelineVoiceCtx>
   key: "noodle.timelineVoice",
   label: "Noodle Timeline Voice & Tone",
   description:
-    "Tone and creative-freedom instructions for Noodle timeline refreshes: how much personality/attitude each account's voice should carry, and how much accounts may banter, joke, or clash with each other. This does not control which structured actions (posts, replies, likes, polls) are allowed or their JSON shape — those rules always stay enforced regardless of this text, so editing it cannot break refresh generation.",
+    "Tone and creative-freedom instructions for Noodle timeline refreshes: how much personality/attitude each account's voice should carry, and how much accounts may banter, joke, or clash with each other. This text is appended after the editable Noodle Timeline Prompt.",
   variables: [],
   defaultBuilder: (ctx) => noodleTimelineVoiceDefaultText(ctx.enhanced === "true", ctx.allowRandomUsers !== "false"),
   exampleContext: { enhanced: "false", allowRandomUsers: "true" },

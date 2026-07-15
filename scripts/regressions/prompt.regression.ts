@@ -121,6 +121,7 @@ import {
 } from "../../packages/server/src/services/video/prompt-context.js";
 import { resolveGameGmPromptTemplate } from "../../packages/server/src/services/generation/game-gm-prompt-runtime.js";
 import { countUserMessagesAfterSummaryAnchor } from "../../packages/server/src/services/conversation/auto-summary.service.js";
+import { prepareConversationPromptHistory } from "../../packages/server/src/routes/generate/conversation-history-runtime.js";
 import {
   buildNpcPortraitProviderPrompt,
   buildSceneIllustrationProviderPrompt,
@@ -3139,6 +3140,77 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
       assert.equal(countUserMessagesAfterSummaryAnchor(messages, null), 2);
       assert.equal(countUserMessagesAfterSummaryAnchor(messages, "missing"), 2);
       assert.equal(countUserMessagesAfterSummaryAnchor(messages, "a1"), 1);
+    },
+  },
+  {
+    name: "past Conversation scene summaries compact into day and week summaries",
+    async run() {
+      const oldCreatedAt = "2026-06-23T12:00:00.000Z";
+      const currentCreatedAt = "2026-07-15T12:00:00.000Z";
+      const oldSceneSummary = "OLD_SCENE_SUMMARY_MUST_NOT_REMAIN_VERBATIM";
+      const currentSceneSummary = "CURRENT_SCENE_SUMMARY_MUST_REMAIN_VERBATIM";
+      const authoredSystemInstruction = "AUTHORED_SYSTEM_INSTRUCTION_MUST_REMAIN";
+      const chatMessages = [
+        { id: "old-user", role: "user", content: "An older conversation turn.", createdAt: oldCreatedAt },
+        { id: "old-scene", role: "narrator", content: oldSceneSummary, createdAt: oldCreatedAt },
+        { id: "authored-system", role: "system", content: authoredSystemInstruction, createdAt: oldCreatedAt },
+        { id: "current-scene", role: "narrator", content: currentSceneSummary, createdAt: currentCreatedAt },
+      ];
+      const finalMessages = [
+        { id: "old-user", role: "user" as const, content: "An older conversation turn.", contextKind: "history" as const },
+        { id: "old-scene", role: "system" as const, content: oldSceneSummary, contextKind: "history" as const },
+        {
+          id: "authored-system",
+          role: "system" as const,
+          content: authoredSystemInstruction,
+          contextKind: "history" as const,
+        },
+        { id: "current-scene", role: "system" as const, content: currentSceneSummary, contextKind: "history" as const },
+      ];
+
+      const prepared = await prepareConversationPromptHistory({
+        finalMessages,
+        chatMessages,
+        scopedMessages: chatMessages,
+        chatMeta: {
+          summaryTailMessages: 1,
+          daySummaries: {
+            "23.06.2026": { summary: "Compact day summary.", keyDetails: [] },
+          },
+          weekSummaries: {
+            "22.06.2026": { summary: "COMPACT_WEEK_SUMMARY", keyDetails: [] },
+          },
+        },
+        chatId: "conversation-scene-summary-regression",
+        chats: {
+          async patchMetadata() {
+            throw new Error("Existing day and week summaries should not require a metadata patch");
+          },
+        },
+        chars: {
+          async getById() {
+            return null;
+          },
+        },
+        characterIds: ["char-echo"],
+        allCharacterIds: ["char-echo"],
+        convoCharInfo: [{ name: "Echo" }],
+        convoCharNames: ["Echo"],
+        personaName: "User",
+        nowInstant: new Date("2026-07-15T18:00:00.000Z"),
+        promptTimeZone: "UTC",
+        wrapFormat: "xml",
+        connection: { provider: "openai", apiKey: "", model: "regression-model" },
+        connectionId: "regression-connection",
+        baseUrl: "https://example.invalid/v1",
+      });
+      const promptText = prepared.finalMessages.map((message) => message.content).join("\n");
+
+      assert.match(promptText, /COMPACT_WEEK_SUMMARY/u);
+      assert.equal(promptText.includes(oldSceneSummary), false, promptText);
+      assert.match(promptText, /An older conversation turn\./u);
+      assert.match(promptText, new RegExp(currentSceneSummary, "u"));
+      assert.match(promptText, new RegExp(authoredSystemInstruction, "u"));
     },
   },
   {

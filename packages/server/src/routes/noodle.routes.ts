@@ -46,7 +46,12 @@ import { generateImage, saveImageToDisk } from "../services/image/image-generati
 import { resolveConnectionImageDefaults } from "../services/image/image-generation-defaults.js";
 import { loadImageGenerationUserSettings } from "../services/image/image-generation-settings.js";
 import { compileImagePrompt } from "../services/image/image-prompt-compiler.js";
-import { loadPrompt, NOODLE_IMAGE_POST, NOODLE_TIMELINE_VOICE } from "../services/prompt-overrides/index.js";
+import {
+  loadPrompt,
+  NOODLE_IMAGE_POST,
+  NOODLE_TIMELINE_BASE,
+  NOODLE_TIMELINE_VOICE,
+} from "../services/prompt-overrides/index.js";
 import { parseGameJsonish } from "../services/game/jsonish.js";
 import { resolveIllustratorCharacterReferences } from "./generate/illustrator-references.js";
 import { resolveBaseUrl } from "./generate/generate-route-utils.js";
@@ -62,15 +67,16 @@ import { generateNoodleImageWithRetry } from "../services/noodle/noodle-image-re
 import {
   canGenerateNoodleActivityForAccountKind,
   collectNoodlePromptImageCandidates,
+  composeNoodleTimelineSystemPrompt,
   formatNoodleTimelineForPrompt,
   noodleLorebookTokenBudget,
   noodlePastMemoryCutoff,
   noodlePastMemorySampleSize,
   noodlePersonaCommentPostIds,
+  NOODLE_ADULT_PLATFORM_POLICY,
   NOODLE_LEGACY_PAST_MEMORY_INCLUSION_CHANCE,
   NOODLE_LEGACY_PAST_MEMORY_MAX_ITEMS,
   NOODLE_LEGACY_RECALLED_MEMORY_INSTRUCTION,
-  NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
   NOODLE_RECALLED_MEMORY_INSTRUCTION,
   noodleTimelineFeatureInstructions,
   sampleNoodlePastMemories,
@@ -177,9 +183,6 @@ function parseConversationCharacterStatuses(metadata: unknown): Record<string, {
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-const NOODLE_ADULT_PLATFORM_POLICY =
-  "Noodle only accepts confirmed adult accounts and personas. Every participant on Noodle is 18+; minors are not allowed on the platform. NSFW content is allowed, anything goes, and adult in-character drama, flirtation, gossip, and explicit references may appear when they fit the accounts involved.";
 
 function sinceHoursIso(hours: number) {
   return new Date(Date.now() - Math.max(1, hours) * 60 * 60 * 1000).toISOString();
@@ -816,32 +819,19 @@ async function buildRefreshPrompt(input: {
     ? [lorebookResult.worldInfoBefore, lorebookResult.worldInfoAfter].filter(Boolean).join("\n")
     : "";
 
-  // Tone/creative-freedom instructions are user-editable via Settings -> Generations -> Image
-  // Generation Prompt Overrides -> Noodle Timeline Voice & Tone. Everything else in `system`
-  // below is schema-critical (structured action limits, target field rules, persona authorship,
-  // adult platform policy, "Return JSON only") and stays hardcoded so a rewritten voice/tone text
-  // can never break the noodleGeneratedRefreshSchema output contract.
-  const timelineVoiceText = await loadPrompt(input.promptOverrides, NOODLE_TIMELINE_VOICE, {
-    enhanced: String(enhancedTimelineWriting),
-    allowRandomUsers: String(input.settings.allowRandomUsers),
-  });
-
-  const system = [
-    "You write a fake social media timeline for Marinara Engine's in-app parody site called Noodle.",
-    NOODLE_ADULT_PLATFORM_POLICY,
-    timelineVoiceText,
-    "- Structured actions are limited to posts, polls, follows, likes, reposts, replies, and poll votes.",
-    "- Generated interactions may target existing posts included in this prompt or posts you create in this response.",
-    "- To respond directly to an existing comment, create a reply interaction for its post and set parentInteractionId to that comment's exact replyId.",
-    "- Do not make an account interact with the same existing post again when it has already liked, reposted, voted, or replied there, unless that account was tagged or is answering a direct response to its own comment. Never make an account reply to its own comment.",
-    "- Avoid repeating an account's recent post topic or phrasing. Continue an existing thread only when new activity gives the account a reason to return.",
-    NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
-    "- For each interaction, set either targetTempId or targetPostId and set the unused target field to null.",
-    "- pollOptionIndex must be a zero-based integer for votes and null for every other interaction.",
-    "- An exact @handle in post or reply text tags that active account. Preserve the @handle exactly when mentioning someone.",
-    ...noodleTimelineFeatureInstructions(input.settings),
-    "- Return JSON only. No prose outside the JSON object.",
-  ].join("\n");
+  // The base timeline prompt and its voice/tone tail are independently editable. The base prompt
+  // includes the complete default adult-platform, persona-authorship, interaction, and JSON rules;
+  // the voice text is deliberately appended last so users can tune style without hunting through
+  // the structural instructions.
+  const [timelineBaseText, timelineVoiceText] = await Promise.all([
+    loadPrompt(input.promptOverrides, NOODLE_TIMELINE_BASE, {}),
+    loadPrompt(input.promptOverrides, NOODLE_TIMELINE_VOICE, {
+      enhanced: String(enhancedTimelineWriting),
+      allowRandomUsers: String(input.settings.allowRandomUsers),
+    }),
+  ]);
+  const system = composeNoodleTimelineSystemPrompt(timelineBaseText, timelineVoiceText);
+  const timelineFeatureInstructions = noodleTimelineFeatureInstructions(input.settings);
 
   const visionCandidates = await prepareNoodleVisionAttachments([
     ...collectNoodlePromptImageCandidates(recentPosts, recentInteractions, {
@@ -917,6 +907,9 @@ async function buildRefreshPrompt(input: {
           ]
         : []),
       ...(imageManifest ? ["", imageManifest] : []),
+      ...(timelineFeatureInstructions.length > 0
+        ? ["", "# Enabled Timeline Features", ...timelineFeatureInstructions]
+        : []),
       "",
       "# Quotas",
       `posts: at most ${input.settings.maxGeneratedPostsPerRefresh}`,

@@ -25,6 +25,7 @@ export {
   CONVERSATION_CALL_VIDEO_CLIP_LABEL_BY_KIND,
   CONVERSATION_SELFIE,
   NOODLE_IMAGE_POST,
+  NOODLE_TIMELINE_BASE,
   NOODLE_TIMELINE_VOICE,
   getPromptOverrideDef,
   listPromptOverrideKeys,
@@ -48,5 +49,6 @@ export type {
   ConversationCallVideoClipCtx,
   ConversationSelfieCtx,
   NoodleImagePostCtx,
+  NoodleTimelineBaseCtx,
   NoodleTimelineVoiceCtx,
 } from "./registry.js";

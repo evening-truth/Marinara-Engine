@@ -332,7 +332,13 @@ function bucketConversationHistory(args: {
   for (let i = 0; i < args.finalMessages.length; i++) {
     const msg = args.finalMessages[i]!;
     const raw = args.chatMessages[i];
-    if (!raw?.createdAt || msg.role === "system") {
+    const narratorTimestamp = raw?.role === "narrator" && raw.createdAt ? new Date(raw.createdAt as string) : null;
+    const isPastNarratorHistory =
+      msg.role === "system" &&
+      narratorTimestamp !== null &&
+      Number.isFinite(narratorTimestamp.getTime()) &&
+      !args.isSameDay(narratorTimestamp);
+    if (!raw?.createdAt || (msg.role === "system" && !isPastNarratorHistory)) {
       if (currentBucket) {
         buckets.push(currentBucket);
         currentBucket = null;
@@ -342,12 +348,15 @@ function bucketConversationHistory(args: {
     }
 
     const ts = new Date(raw.createdAt as string);
-    const author =
-      msg.role === "user"
-        ? args.personaName
-        : ((raw.characterId ? args.charIdToName.get(raw.characterId as string) : null) ??
-          args.convoCharNames[0] ??
-          "Character");
+    let author = "Character";
+    if (raw.role === "narrator") author = "Narrator";
+    else if (msg.role === "user") author = args.personaName;
+    else {
+      author =
+        (raw.characterId ? args.charIdToName.get(raw.characterId as string) : null) ??
+        args.convoCharNames[0] ??
+        "Character";
+    }
 
     if (args.isSameDay(ts)) {
       if (currentBucket) {
@@ -428,7 +437,12 @@ function collectConversationSummaryTail(args: {
     if (bucket.date === args.todayDateKey) continue;
     if (!args.daySummaries[bucket.date]) continue;
     for (let mi = bucket.msgs.length - 1; mi >= 0; mi--) {
-      tailEntries.unshift(bucket.msgs[mi]!);
+      const message = bucket.msgs[mi]!;
+      // Timestamped narrator messages (including concluded scene summaries) are represented as
+      // system-role history. Once their day is summarized, do not resurrect those generated blocks
+      // through the verbatim conversation tail; keep filling the tail with real conversation turns.
+      if (message.role === "system") continue;
+      tailEntries.unshift(message);
       if (tailEntries.length >= args.tailCount) break outer;
     }
   }

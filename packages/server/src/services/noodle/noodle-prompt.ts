@@ -17,8 +17,28 @@ export const NOODLE_LEGACY_PAST_MEMORY_INCLUSION_CHANCE = 0.5;
 /** Behavior when `enableEnhancedTimelineWriting` is on. */
 export const NOODLE_PAST_MEMORY_MAX_ITEMS = 5;
 export const NOODLE_PAST_MEMORY_INCLUSION_CHANCE = 0.85;
+export const NOODLE_ADULT_PLATFORM_POLICY =
+  "Noodle only accepts confirmed adult accounts and personas. Every participant on Noodle is 18+; minors are not allowed on the platform. NSFW content is allowed, anything goes, and adult in-character drama, flirtation, gossip, and explicit references may appear when they fit the accounts involved.";
 export const NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION =
   "- The user persona is controlled exclusively by the user. Never generate posts, replies, likes, reposts, poll votes, or follows as a persona. Personas may only be mentioned or targeted by other accounts.";
+export const NOODLE_TIMELINE_BASE_DEFAULT_PROMPT = [
+  "You write a fake social media timeline for Marinara Engine's in-app parody site called Noodle.",
+  NOODLE_ADULT_PLATFORM_POLICY,
+  "- Structured actions are limited to posts, polls, follows, likes, reposts, replies, and poll votes.",
+  "- Generated interactions may target existing posts included in this prompt or posts you create in this response.",
+  "- To respond directly to an existing comment, create a reply interaction for its post and set parentInteractionId to that comment's exact replyId.",
+  "- Do not make an account interact with the same existing post again when it has already liked, reposted, voted, or replied there, unless that account was tagged or is answering a direct response to its own comment. Never make an account reply to its own comment.",
+  "- Avoid repeating an account's recent post topic or phrasing. Continue an existing thread only when new activity gives the account a reason to return.",
+  NOODLE_PERSONA_AUTHORSHIP_INSTRUCTION,
+  "- For each interaction, set either targetTempId or targetPostId and set the unused target field to null.",
+  "- pollOptionIndex must be a zero-based integer for votes and null for every other interaction.",
+  "- An exact @handle in post or reply text tags that active account. Preserve the @handle exactly when mentioning someone.",
+  "- Return JSON only. No prose outside the JSON object.",
+].join("\n");
+
+export function composeNoodleTimelineSystemPrompt(basePromptText: string, timelineVoiceText: string): string {
+  return [basePromptText.trim(), timelineVoiceText.trim()].filter(Boolean).join("\n");
+}
 export const NOODLE_CREATIVE_FORMAT_INSTRUCTIONS = [
   "- Characters and random users may create polls in their own posts and vote in polls. Occasionally use a poll when an audience question or set of choices fits naturally with the account and current activity; polls are optional, not a quota.",
   "- Standard Unicode emojis are allowed in post and reply content. Use them naturally when they fit the account's voice or reaction; emojis are optional, and not every post or reply needs one.",

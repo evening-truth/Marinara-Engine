@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, Flame, MapPinned, type LucideIcon } from "lucide-react";
+import { ExternalLink, MapPinned, Swords, type LucideIcon } from "lucide-react";
 import { APP_VERSION } from "@marinara-engine/shared";
 import { useUIStore } from "../../stores/ui.store";
 import { Modal } from "../ui/Modal";
@@ -13,6 +13,8 @@ type ReleaseHighlight = {
   title: string;
   description: string;
   icon: LucideIcon;
+  imageUrl?: string;
+  imageAlt?: string;
 };
 
 type ReleaseAnnouncement = {
@@ -38,9 +40,12 @@ const RELEASE_ANNOUNCEMENTS: Record<string, ReleaseAnnouncement> = {
       },
       {
         label: "New Feature",
-        title: "NoodleR",
-        description: "An Adult mode for Noodle. Available in the Noodle tab!",
-        icon: Flame,
+        title: "Tactical Combat Mode in Games",
+        description:
+          "Completely new way to handle battles in game mode, inspired by the Fire Emblem series, with a grid, movements, terrain and forecasts.",
+        icon: Swords,
+        imageUrl: "https://i.imgur.com/tMhfbej.jpeg",
+        imageAlt: "Tactical Combat Mode battlefield with a terrain grid, units, and battle controls",
       },
     ],
   },
@@ -123,21 +128,32 @@ export function WhatsNewModal({ presentationAllowed }: { presentationAllowed: bo
               {announcement.highlights.map((highlight) => {
                 const HighlightIcon = highlight.icon;
                 return (
-                  <article key={`${highlight.label}:${highlight.title}`} className="flex gap-3.5 py-4">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]">
-                      <HighlightIcon size="1.25rem" aria-hidden="true" />
+                  <article key={`${highlight.label}:${highlight.title}`} className="py-4">
+                    <div className="flex gap-3.5">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[var(--marinara-chat-chrome-button-border-active)] bg-[var(--marinara-chat-chrome-button-bg-active)] text-[var(--marinara-chat-chrome-button-text-active)]">
+                        <HighlightIcon size="1.25rem" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[0.625rem] font-bold uppercase tracking-[0.14em] text-[var(--marinara-chat-chrome-accent)]">
+                          {highlight.label}
+                        </p>
+                        <h4 className="mt-1 text-base font-semibold text-[var(--marinara-chat-chrome-panel-title)]">
+                          {highlight.title}
+                        </h4>
+                        <p className="mt-1 text-sm leading-5 text-[var(--marinara-chat-chrome-panel-muted)]">
+                          {highlight.description}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-[0.625rem] font-bold uppercase tracking-[0.14em] text-[var(--marinara-chat-chrome-accent)]">
-                        {highlight.label}
-                      </p>
-                      <h4 className="mt-1 text-base font-semibold text-[var(--marinara-chat-chrome-panel-title)]">
-                        {highlight.title}
-                      </h4>
-                      <p className="mt-1 text-sm leading-5 text-[var(--marinara-chat-chrome-panel-muted)]">
-                        {highlight.description}
-                      </p>
-                    </div>
+                    {highlight.imageUrl ? (
+                      <img
+                        src={highlight.imageUrl}
+                        alt={highlight.imageAlt ?? ""}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="mx-auto mt-3 max-h-36 w-auto max-w-full rounded-lg border border-[var(--marinara-chat-chrome-panel-divider)] object-contain shadow-sm sm:max-h-44"
+                      />
+                    ) : null}
                   </article>
                 );
               })}
