@@ -41,9 +41,7 @@ import {
   resolveImageConnectionFallback,
   resolveVideoConnectionFallback,
 } from "../services/generation/media-connection-fallback.js";
-import { createLLMProvider } from "../services/llm/provider-registry.js";
-import { withConnectionFallbackProvider } from "../services/llm/connection-fallback-provider.js";
-import { getLocalSidecarProvider, LOCAL_SIDECAR_MODEL } from "../services/llm/local-sidecar.js";
+import { resolveIllustratorPromptRuntime } from "../services/generation/illustrator-prompt-runtime.js";
 import { resolveConversationSelfieSystemPrompt } from "../services/conversation/selfie-prompt.js";
 import { isNovelAiImageConnection, resolveIllustratorCharacterReferences } from "./generate/illustrator-references.js";
 import { resolveBaseUrl } from "./generate/generate-route-utils.js";
@@ -907,12 +905,6 @@ export async function galleryRoutes(app: FastifyInstance) {
         error: "No image generation connection configured for this chat. Set one in Conversation Chat Settings.",
       });
     }
-    if (!chat.connectionId) {
-      return reply.status(400).send({
-        error: "No conversation connection configured for this chat. Set one before generating selfies.",
-      });
-    }
-
     const connections = createConnectionsStorage(app.db);
     const imageConn = await connections.getWithKey(imageConnectionId);
     if (!imageConn) return reply.status(404).send({ error: "Image generation connection not found." });
@@ -920,9 +912,10 @@ export async function galleryRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Selected selfie connection is not an image generation connection." });
     }
 
-    const useLocalSidecar = chat.connectionId === LOCAL_SIDECAR_CONNECTION_ID;
-    const chatConn = useLocalSidecar ? null : await connections.getWithKey(chat.connectionId);
-    if (!useLocalSidecar && !chatConn) return reply.status(404).send({ error: "Conversation connection not found." });
+    const defaultPromptConnection =
+      chat.connectionId && chat.connectionId !== LOCAL_SIDECAR_CONNECTION_ID
+        ? await connections.getWithKey(chat.connectionId)
+        : null;
 
     const characterData = parseJsonRecord(character.data);
     const characterName = readTrimmedString(characterData.name) ?? "character";
@@ -940,26 +933,20 @@ export async function galleryRoutes(app: FastifyInstance) {
     });
 
     const selfieAbortSignal = createResponseAbortSignal(reply, SCENE_VIDEO_GENERATION_TIMEOUT_MS, "Selfie generation");
-    const promptFallbackConnection = await connections.getFallbackForAgents();
-    const primaryPromptBuilder = useLocalSidecar
-      ? getLocalSidecarProvider()
-      : createLLMProvider(
-          chatConn!.provider,
-          resolveBaseUrl(chatConn!),
-          chatConn!.apiKey,
-          chatConn!.maxContext,
-          chatConn!.openrouterProvider,
-          chatConn!.maxTokensOverride,
-          chatConn!.claudeFastMode === "true",
-          chatConn!.treatAsLocalEndpoint === "true",
-        );
-    const promptBuilder = withConnectionFallbackProvider({
-      primary: primaryPromptBuilder,
-      primaryConnectionId: useLocalSidecar ? LOCAL_SIDECAR_CONNECTION_ID : chatConn!.id,
-      fallbackConnection: promptFallbackConnection,
-      fallbackBaseUrl: promptFallbackConnection ? resolveBaseUrl(promptFallbackConnection) : "",
-      category: "agents",
-    });
+    let promptRuntime;
+    try {
+      promptRuntime = await resolveIllustratorPromptRuntime({
+        chatMetadata: meta,
+        defaultConnection: defaultPromptConnection,
+        defaultConnectionId: chat.connectionId,
+        connections,
+        resolveBaseUrl,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Selfie Prompt Model connection is unavailable.";
+      return reply.status(400).send({ error: message });
+    }
+    const promptBuilder = promptRuntime.provider;
     const promptContext = input.context?.trim()
       ? `Context for the selfie: ${input.context.trim()}`
       : `Generate a casual selfie of ${characterName} based on the current conversation context.`;
@@ -978,12 +965,12 @@ export async function galleryRoutes(app: FastifyInstance) {
             { role: "user", content: promptContext },
           ],
           {
-            model: useLocalSidecar ? LOCAL_SIDECAR_MODEL : chatConn!.model,
-            temperature: 0.7,
-            maxTokens: 8196,
+            model: promptRuntime.model,
+            ...(promptRuntime.suppressModelParameters ? {} : { temperature: 0.7, maxTokens: 8196 }),
+            suppressModelParameters: promptRuntime.suppressModelParameters,
             signal: selfieAbortSignal,
-            enableCaching: !useLocalSidecar && chatConn!.enableCaching === "true",
-            anthropicExtendedCacheTtl: !useLocalSidecar && chatConn!.anthropicExtendedCacheTtl === "true",
+            enableCaching: promptRuntime.enableCaching,
+            anthropicExtendedCacheTtl: promptRuntime.anthropicExtendedCacheTtl,
           },
         );
         imagePrompt = (promptResult.content ?? "").trim();

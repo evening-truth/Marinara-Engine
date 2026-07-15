@@ -1,5 +1,6 @@
 import type { DB } from "../../db/connection.js";
-import { logger } from "../../lib/logger.js";
+import { isDebugAgentsEnabled } from "../../config/runtime-config.js";
+import { logger, logDebugOverride } from "../../lib/logger.js";
 import {
   isNovelAiImageConnection,
   resolveIllustratorCharacterReferences,
@@ -9,17 +10,17 @@ import { persistGeneratedImageToEntityGalleries } from "../image/generated-image
 import { resolveConnectionImageDefaults } from "../image/image-generation-defaults.js";
 import { generateImage, saveImageToDisk } from "../image/image-generation.js";
 import { loadImageGenerationUserSettings } from "../image/image-generation-settings.js";
-import { createLLMProvider } from "../llm/provider-registry.js";
-import {
-  withConnectionFallbackProvider,
-  type FallbackConnection,
-} from "../llm/connection-fallback-provider.js";
 import { resolveConversationSelfieSystemPrompt } from "../conversation/selfie-prompt.js";
 import type { CharacterCommand, SelfieCommand } from "../conversation/character-commands.js";
 import { createGalleryStorage } from "../storage/gallery.storage.js";
 import { createCharacterGalleryStorage } from "../storage/character-gallery.storage.js";
 import { createPersonaGalleryStorage } from "../storage/persona-gallery.storage.js";
 import { createPromptOverridesStorage } from "../storage/prompt-overrides.storage.js";
+import {
+  resolveIllustratorPromptRuntime,
+  type IllustratorPromptConnection,
+  type IllustratorPromptConnectionsStore,
+} from "./illustrator-prompt-runtime.js";
 import { resolveImageConnectionFallback } from "./media-connection-fallback.js";
 import { resolveBaseUrl } from "../../routes/generate/generate-route-utils.js";
 
@@ -34,19 +35,8 @@ type ChatsStore = {
   getMessage(id: string): Promise<{ activeSwipeIndex?: number | null } | null>;
 };
 
-type ConnectionsStore = {
-  getWithKey(id: string): Promise<Record<string, any> | null>;
-  getFallbackForAgents(): Promise<FallbackConnection | null>;
+type ConnectionsStore = IllustratorPromptConnectionsStore & {
   getFallbackForImageGeneration(): Promise<Record<string, any> | null>;
-};
-
-type PromptConnection = {
-  provider: string;
-  apiKey: string;
-  model: string;
-  maxContext?: number | null;
-  openrouterProvider?: string | null;
-  maxTokensOverride?: number | null;
 };
 
 type PromptCharacter = {
@@ -72,10 +62,9 @@ export async function handleConversationSelfieCommand(args: {
   chatMeta: Record<string, unknown>;
   charInfo: PromptCharacter[];
   persona: PersonaReference;
-  promptConnection: PromptConnection;
+  promptConnection: IllustratorPromptConnection;
   promptConnectionId: string;
-  baseUrl: string;
-  suppressModelParameters: boolean;
+  debugMode?: boolean;
   serviceTier: "flex" | "priority" | null;
   db: DB;
   chars: CharactersStore;
@@ -145,26 +134,18 @@ async function generateSelfie(
     typeof args.chatMeta.selfieNegativePrompt === "string" ? args.chatMeta.selfieNegativePrompt.trim() : "";
   const selfiePromptTemplate = typeof args.chatMeta.selfiePrompt === "string" ? args.chatMeta.selfiePrompt.trim() : "";
 
-  const promptFallbackConnection = await args.connections.getFallbackForAgents();
   const reportFallback = (notice: {
     category: "main" | "agents" | "illustrator" | "video";
     connectionId: string;
     connectionName: string;
     model: string;
   }) => args.sendEvent({ type: "fallback_used", data: notice });
-  const promptBuilder = withConnectionFallbackProvider({
-    primary: createLLMProvider(
-      args.promptConnection.provider,
-      args.baseUrl,
-      args.promptConnection.apiKey,
-      args.promptConnection.maxContext,
-      args.promptConnection.openrouterProvider,
-      args.promptConnection.maxTokensOverride,
-    ),
-    primaryConnectionId: args.promptConnectionId,
-    fallbackConnection: promptFallbackConnection,
-    fallbackBaseUrl: promptFallbackConnection ? resolveBaseUrl(promptFallbackConnection) : "",
-    category: "agents",
+  const promptRuntime = await resolveIllustratorPromptRuntime({
+    chatMetadata: args.chatMeta,
+    defaultConnection: args.promptConnection,
+    defaultConnectionId: args.promptConnectionId,
+    connections: args.connections,
+    resolveBaseUrl,
     onFallback: reportFallback,
   });
   const selfieSystemPrompt = await resolveConversationSelfieSystemPrompt({
@@ -173,7 +154,19 @@ async function generateSelfie(
     appearance,
     charName: args.charName,
   });
-  const promptResult = await promptBuilder.chatComplete(
+  const userPrompt = args.command.context
+    ? `Context for the selfie: ${args.command.context}`
+    : `Generate a casual selfie of ${args.charName} based on the current conversation context.`;
+  const debugOverrideEnabled = args.debugMode === true || isDebugAgentsEnabled();
+  if (debugOverrideEnabled || logger.isLevelEnabled("debug")) {
+    logDebugOverride(
+      debugOverrideEnabled,
+      "[debug/commands/selfie] prompt-builder system:\n%s",
+      selfieSystemPrompt,
+    );
+    logDebugOverride(debugOverrideEnabled, "[debug/commands/selfie] prompt-builder user:\n%s", userPrompt);
+  }
+  const promptResult = await promptRuntime.provider.chatComplete(
     [
       {
         role: "system",
@@ -181,15 +174,17 @@ async function generateSelfie(
       },
       {
         role: "user",
-        content: args.command.context
-          ? `Context for the selfie: ${args.command.context}`
-          : `Generate a casual selfie of ${args.charName} based on the current conversation context.`,
+        content: userPrompt,
       },
     ],
     {
-      model: args.promptConnection.model,
-      ...(args.suppressModelParameters ? {} : { temperature: 0.7, maxTokens: 8196, serviceTier: args.serviceTier }),
-      suppressModelParameters: args.suppressModelParameters,
+      model: promptRuntime.model,
+      ...(promptRuntime.suppressModelParameters
+        ? {}
+        : { temperature: 0.7, maxTokens: 8196, serviceTier: args.serviceTier }),
+      suppressModelParameters: promptRuntime.suppressModelParameters,
+      enableCaching: promptRuntime.enableCaching,
+      anthropicExtendedCacheTtl: promptRuntime.anthropicExtendedCacheTtl,
     },
   );
 
