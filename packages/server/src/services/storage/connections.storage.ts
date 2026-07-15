@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Storage: API Connections
 // ──────────────────────────────────────────────
-import { eq, desc, and, ne } from "drizzle-orm";
+import { eq, desc, and, ne } from "../../db/file-query.js";
 import type { DB } from "../../db/connection.js";
 import { apiConnections } from "../../db/schema/index.js";
 import { newId, now } from "../../utils/id-generator.js";

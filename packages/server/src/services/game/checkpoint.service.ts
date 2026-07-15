@@ -5,7 +5,7 @@
 // listing, and loading for game mode.
 // ──────────────────────────────────────────────
 
-import { eq, desc } from "drizzle-orm";
+import { eq, desc } from "../../db/file-query.js";
 import type { DB } from "../../db/connection.js";
 import { gameCheckpoints } from "../../db/schema/index.js";
 import { newId, now } from "../../utils/id-generator.js";

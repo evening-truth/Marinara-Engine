@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Storage: Noodle Fake Social Media
 // ──────────────────────────────────────────────
-import { and, desc, eq, gt, inArray, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt } from "../../db/file-query.js";
 import {
   DEFAULT_NOODLE_SETTINGS,
   noodleSettingsSchema,
@@ -27,6 +27,7 @@ import {
   type NoodleSettingsUpdateInput,
 } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
+import { isFileUniqueConstraintError } from "../../db/file-schema.js";
 import {
   noodleAccounts,
   noodleActivityDigests,
@@ -167,11 +168,6 @@ function legacyCarryoverMode(targets: NoodleCarryoverTarget[]): NoodleCarryoverM
 
 function isToggleInteractionType(type: NoodleInteractionType) {
   return type === "like" || type === "repost";
-}
-
-function isUniqueConstraintError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /SQLITE_CONSTRAINT|unique constraint failed|constraint failed/i.test(message);
 }
 
 export function normalizeNoodleSettings(raw: unknown): NoodleSettings {
@@ -710,7 +706,11 @@ export function createNoodleStorage(db: DB) {
           createdAt: now(),
         });
       } catch (error) {
-        if (isUniqueConstraintError(error)) {
+        const toggleKeys = ["postId", "actorAccountId", "type", "parentInteractionId"];
+        if (
+          isToggleInteractionType(input.type) &&
+          isFileUniqueConstraintError(error, "noodle_interactions", toggleKeys)
+        ) {
           const existing = await readExistingToggleInteraction();
           if (existing) return existing;
         }
@@ -740,9 +740,7 @@ export function createNoodleStorage(db: DB) {
       const existing = rows[0];
       if (!existing) return null;
       await db.transaction(async (tx) => {
-        await tx
-          .delete(noodleActivityDigests)
-          .where(eq(noodleActivityDigests.sourceInteractionId, existing.id));
+        await tx.delete(noodleActivityDigests).where(eq(noodleActivityDigests.sourceInteractionId, existing.id));
         await tx.delete(noodleInteractions).where(eq(noodleInteractions.id, existing.id));
       });
       return mapInteraction(existing);

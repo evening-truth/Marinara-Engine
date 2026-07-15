@@ -14,7 +14,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { createHash } from "crypto";
-import { eq } from "drizzle-orm";
+import { eq } from "./file-query.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

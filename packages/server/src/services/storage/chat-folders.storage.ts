@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Storage: Chat Folders
 // ──────────────────────────────────────────────
-import { eq } from "drizzle-orm";
+import { eq } from "../../db/file-query.js";
 import type { CreateChatFolderInput, UpdateFolderInput } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
 import { chatFolders, chats } from "../../db/schema/index.js";
@@ -69,8 +69,7 @@ export function createChatFoldersStorage(db: DB) {
     async reorder(orderedIds: string[]) {
       // Atomic: a partial failure mid-loop would leave the folder list with
       // mixed sort orders. Folder counts are O(dozens) per user, well below
-      // the loop size that triggers the libSQL Windows transaction
-      // use-after-free noted in chats.storage.ts:984-986.
+      // the size that would make a single storage operation excessively large.
       const timestamp = now();
       await db.transaction(async (tx) => {
         for (let index = 0; index < orderedIds.length; index++) {

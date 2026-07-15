@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Storage: API Connection Folders
 // ──────────────────────────────────────────────
-import { eq } from "drizzle-orm";
+import { eq } from "../../db/file-query.js";
 import type { CreateConnectionFolderInput, UpdateFolderInput } from "@marinara-engine/shared";
 import type { DB } from "../../db/connection.js";
 import { apiConnectionFolders, apiConnections } from "../../db/schema/index.js";

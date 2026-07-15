@@ -206,18 +206,14 @@ The cleanest long-term fix is to put the server behind HTTPS. Last checked again
 
 ### Data seems missing after an update
 
-If your chats or presets look missing after an update, do not delete any data folders yet. Marinara keeps your live data in a `storage` folder inside its data directory. Older installs may also have a legacy `marinara-engine.db` file that can still be imported.
+If your chats or presets look missing after an update, do not delete any data folders yet. Marinara keeps your live data in a `storage` folder inside its data directory.
 
-Check both of these local locations for a `storage` folder or the legacy database file:
+Check both of these local locations for a `storage` folder:
 
 1. `packages/server/data/`
 2. `data/`
 
-The server prints the data directory it resolved on startup. On the first launch after upgrading, Marinara imports the old database automatically.
-
-### Legacy database errors on startup
-
-If you see database or migration errors after updating, remove any custom `STORAGE_BACKEND=sqlite` line from your `.env` and restart. The default file-based backend imports the old database once and then runs without migrations.
+The server prints the data and storage directories it resolved on startup.
 
 ### Backup or Export returns 403
 

@@ -30,7 +30,7 @@ import {
   type GameMap,
   type WrapFormat,
 } from "@marinara-engine/shared";
-import { eq } from "drizzle-orm";
+import { eq } from "../../db/file-query.js";
 import { listCharacterSprites } from "../../services/game/sprite.service.js";
 import { DATA_DIR } from "../../utils/data-dir.js";
 import {

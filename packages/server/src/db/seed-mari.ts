@@ -8,7 +8,7 @@ import { PROFESSOR_MARI_ID } from "@marinara-engine/shared";
 import { MARI_GUIDED_SEQUENCES } from "../services/professor-mari/guided-sequences.js";
 import { PROFESSOR_MARI_AGENT_CATALOG_KNOWLEDGE } from "../services/professor-mari/official-agent-knowledge.js";
 import { characters } from "./schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq } from "./file-query.js";
 
 const MARI_CHARACTER_DATA: CharacterData = {
   name: "Professor Mari",

@@ -1,7 +1,7 @@
 // ──────────────────────────────────────────────
 // Storage: Game State Snapshots
 // ──────────────────────────────────────────────
-import { eq, and, ne, desc, inArray, lte } from "drizzle-orm";
+import { eq, and, ne, desc, inArray, lte } from "../../db/file-query.js";
 import type { DB } from "../../db/connection.js";
 import { gameStateSnapshots } from "../../db/schema/index.js";
 import { newId, now } from "../../utils/id-generator.js";

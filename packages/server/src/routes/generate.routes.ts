@@ -159,7 +159,7 @@ import { executeKnowledgeRouter } from "../services/agents/knowledge-router.js";
 import { extractFileText, getSourceFilePath } from "./knowledge-sources.routes.js";
 import { gameStateSnapshots as gameStateSnapshotsTable } from "../db/schema/index.js";
 import { chats as chatsTable } from "../db/schema/index.js";
-import { eq } from "drizzle-orm";
+import { eq } from "../db/file-query.js";
 import {
   PROFESSOR_MARI_ID,
   normalizeCustomEmojiSelection,

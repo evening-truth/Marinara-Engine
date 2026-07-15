@@ -582,7 +582,7 @@ Planning baseline: `hierarchical-locations` after merging `staging` at `4fd752ea
 | Prompt assembly | Live generation, dry run, live Peek Prompt, cached Peek Prompt, and Game GM prompts have distinct assembly paths. | Resolve structured spatial data once, then call a shared formatter/injector from every live path. Cached Peek Prompt continues to read the exact saved provider request. |
 | Client data | Server data uses React Query. Per-chat input drafts survive navigation and reload. Heavy editors are lazy-loaded through `AppShell`. | Add a dedicated query/mutation hook, persist pending transitions beside per-chat drafts, and route a lazy Location Editor through the existing detail-view model. |
 | Game travel | Game maps already have grid and node positions plus a pending map move that becomes visible `*moves to ...*` text. | Add optional stable-ID bindings. Bound destinations use structured spatial requests without visible prose; unbound movement keeps the existing tactical flow. |
-| Storage backends | File-native storage is the default; legacy libSQL remains supported. Small transactions are used, while large transaction loops are avoided for Windows stability. | Keep the owner-turn transaction constant-size and prove it against both storage backends before expanding the feature. |
+| Storage | File-native snapshots are the sole persistence backend. Small transactions are used, while large transaction loops are avoided to keep writes responsive. | Keep the owner-turn transaction constant-size and prove it against file-native storage before expanding the feature. |
 | Lorebook processing | Lorebook activation already supports explicit chat IDs, keyword and semantic matching, macros, recursion, ordering, and prompt markers. Initial Game setup scans with no chat messages, so ordinary keyword entries do not directly ground the later map draft. | Add forced current-location candidates to the shared lorebook processor and give map drafting a separate explicit, bounded source-catalog path. Do not infer map canon from the world overview alone. |
 | Image consistency | Image style profiles control prompt style, character and persona avatars can already be sent as references, and providers accept different maximum reference counts. Galleries store stable image IDs separately from file paths. | Keep place identity separate from global style and character identity. Resolve the applicable spatial snapshot, attach stable gallery images only to eligible scene-art requests, and trim candidates deterministically through existing provider adapters. |
 | Storyboard references | Storyboard already plans visible characters per keyframe, resolves provider-specific reference limits, sends character images through preview and render, stores its source message and swipe, and uses each rendered keyframe as the video first frame. | Add a frozen visual-reference manifest that resolves the historical location once, varies characters per keyframe, and preserves ordered selections across regeneration. Keep image-to-video input unchanged. |
@@ -661,7 +661,7 @@ Required indexes and invariants:
 - A bootstrap row uses `messageId: ""` and swipe `0` until a committed message anchor exists.
 - Deleting a chat, message, or swipe removes or shifts the matching spatial rows in the same places that currently maintain Game and turn-game snapshots.
 
-The new table must be registered in the Drizzle schema, migration bootstrap, file-backed table list, cascade graph, profile backup/restore, and Mari DB integrity metadata. Legacy libSQL indexes must match file-native lookup behavior.
+The new table must be registered in the file-table definitions, file-backed table list, cascade graph, profile backup/restore, and Mari DB integrity metadata. Lookup behavior must be covered by file-native regressions.
 
 ### Effective-state and history rules
 
@@ -916,7 +916,7 @@ Profile backup and restore include the new table through `FILE_BACKED_TABLES`. C
 #### Package A: core contract and proof spike
 
 - Add shared types, schemas, pure graph helpers, limits, fixtures, and stable error codes.
-- Add a temporary proof harness for constant-size transactions against file-native storage and legacy libSQL. Do not keep `.test.ts` files.
+- Add a temporary proof harness for constant-size transactions against file-native storage. Do not keep `.test.ts` files.
 - Prove the state resolver with bootstrap, visible swipe, earlier branch point, archived historical current, and stale-definition fixtures.
 - Measure projection sizes for shallow, depth-20, wide-500, long-text, and linked graphs.
 

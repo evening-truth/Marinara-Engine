@@ -7,7 +7,7 @@ This is the canonical contributor guide for Marinara Engine. Use it with `README
 | Layer    | Technology                                                     |
 | -------- | -------------------------------------------------------------- |
 | Frontend | React 19, Tailwind CSS v4, Framer Motion, Zustand, React Query |
-| Backend  | Fastify 5, file-backed storage, temporary SQL compatibility    |
+| Backend  | Fastify 5, file-native JSON storage                            |
 | PWA      | vite-plugin-pwa, Web App Manifest                              |
 | Shared   | TypeScript 5, Zod                                              |
 | Build    | Vite 7, pnpm workspaces                                        |
@@ -61,7 +61,7 @@ Guidelines:
 ## Repo Layout
 
 - `packages/client/` — React frontend, PWA shell, and UI components
-- `packages/server/` — Fastify API, file-backed storage bridge, importers, and AI agents
+- `packages/server/` — Fastify API, file-native storage, importers, and AI agents
 - `packages/shared/` — Shared types, schemas, constants, and `APP_VERSION`
 - `android/` — Android WebView wrapper for the Termux-served local app
 - `win/` — Windows installer sources and helper scripts
@@ -104,7 +104,7 @@ All server-side logging goes through a shared [Pino](https://getpino.io/) logger
 
 | Level            | When to use                                         | Examples                                                                                         |
 | ---------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `logger.error()` | Unrecoverable failures that need investigation.     | Database errors, fatal agent failures, image generation crashes, command exceptions.             |
+| `logger.error()` | Unrecoverable failures that need investigation.     | Storage errors, fatal agent failures, image generation crashes, command exceptions.              |
 | `logger.warn()`  | Something went wrong but the request can continue.  | Non-critical agent failures, empty model responses, missing connections, non-fatal catch blocks. |
 | `logger.info()`  | Operational milestones — "this happened".           | Seed results, game session lifecycle, commands executed, abort requests, device connections.     |
 | `logger.debug()` | Verbose detail only useful when actively debugging. | Full prompts/responses, token usage, timing traces, state patches, pipeline internals.           |

@@ -6,7 +6,7 @@
 // so the character naturally "remembers" what's happening elsewhere.
 // ──────────────────────────────────────────────
 
-import { eq } from "drizzle-orm";
+import { eq } from "../../db/file-query.js";
 import type { DB } from "../../db/connection.js";
 import { chats, messages } from "../../db/schema/index.js";
 import { createCharactersStorage } from "../storage/characters.storage.js";

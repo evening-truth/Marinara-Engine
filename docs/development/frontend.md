@@ -672,4 +672,4 @@ pnpm build
 ## Related guides
 
 - [Architecture Map (Developers)](architecture-map.md)
-- [File Storage Migration (Developers)](file-storage-migration.md)
+- [File-Native Storage (Developers)](file-storage.md)

@@ -20,6 +20,8 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 ### Changed
 
 - Made Local Whisper a Conversation Calls-owned download. Connections now shows Local Speech Model controls only while the Conversation Calls package is installed, and uninstalling Conversation Calls removes every downloaded Whisper model and its saved selection to reclaim disk space. Reinstalling Calls makes the models available to download again.
+- Removed the retired database compatibility stack, including its runtime backend switch, startup migrations, one-time importer and repair readers, old migration scripts, database-file backup handling, and external ORM/runtime dependencies. Storage schemas and query expressions are now file-native throughout the Engine.
+- Made file-native primary and natural-key constraints enforceable during atomic inserts and updates, preventing concurrent custom-media names, Noodle toggles, and lorebook links from persisting ambiguous duplicates.
 - Reduced the base Engine by removing more than 25,000 lines of optional agent, map, call, and table-game implementation code. The base now exposes small validated capability registries and compatibility bridges while downloaded packages supply feature code on demand.
 - Added a canonical 29-package catalog summary to both Professor Mari prompt paths and completed the public agent reference, README, and developer documentation so Mari can compare and recommend every Writer, Tracker, Misc, Maps, Calls, and Conversation-game package without confusing catalog availability with installation state.
 - Consolidated Conversation command controls and renamed selfie configuration as **Illustrator Settings** inside Chat Settings → Agents. Agent sections, settings, and package-owned command toggles now appear only for agents that are actually installed, while an empty setup-wizard Agents step links directly to the Agents tab and its Download Agents action.
@@ -43,7 +45,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Fixed Gallery generation controls appearing without an active Illustrator package. Illustrate, Selfie, Storyboard, Video, Animate, and Background actions now require Illustrator to be installed and enabled for that chat in every mode, while Roleplay Gallery replaces the separate Browse Images window with its asset search directly in the Gallery.
 - Unified Chat Settings → Agents and Conversation command toggles with the same accessible chroma-aware control styling used by the rest of Chat Settings, restored spacing between installed Conversation Calls settings and schedule-generation preferences, and changed Game setup's selected SFW/NSFW rating from green/red status colors to the selected accent color.
 - Fixed installed Conversation feature packages still behaving like per-chat pipeline agents. The six table games now appear in the Commands controls without separate Add Agent entries, Conversation Calls settings render directly below Illustrator settings using the native chroma controls and expand only after calls are enabled for that chat, and installed games/calls expose their surfaces and command runtimes without requiring legacy `activeAgentIds` metadata.
-- Fixed downloaded Maps and Conversation Calls packages failing against file-native storage with `Unsupported table: chats` or `Unsupported table: conversation_call_sessions`. Capability-owned Drizzle table and column objects now resolve safely through the Engine's registered schema names instead of requiring identical JavaScript object instances.
+- Fixed downloaded Maps and Conversation Calls packages failing against file-native storage with `Unsupported table: chats` or `Unsupported table: conversation_call_sessions`. Capability-owned file-table and column objects now resolve safely through the Engine's registered schema names instead of requiring identical JavaScript object instances.
 - Updated Persona Status Bars’ **Add** button to follow the selected chroma accent instead of using hard-coded green styling.
 - Fixed Conversation Chat Settings hiding the **Selfies** command after Illustrator was installed. Package-owned commands now appear alongside their separate agent settings as soon as the matching agent is available.
 - Kept Chat Settings → Agents available in Conversation, Roleplay, and Game when no optional agents are installed. Built-in Conversation commands remain configurable without downloads, and the Conversation setup wizard now shows those commands plus only the extra commands owned by installed agents. Empty Roleplay and Game sections link directly to Download Agents, while the chat setup wizard removes its redundant decorative Agents icon from the empty state.
@@ -1141,7 +1143,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Vectorized Lorebook entries are now visibly marked.
 - Character card version history with compare and restore controls.
 - Prefills.
-- File-backed storage is now the default: legacy SQLite data is imported into JSON files under `DATA_DIR/storage`, backups include those files, and `STORAGE_BACKEND=sqlite` remains as an advanced compatibility escape hatch.
+- File-backed storage now writes JSON tables under `DATA_DIR/storage`, and backups include those files.
 - Allowed token size outputs in agents.
 - Lorebook folders.
 - Game mode setup remembers custom genre, tone, setting, and goal options from previous games.
@@ -1173,8 +1175,8 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Custom OpenAI-compatible endpoints like Venice no longer receive provider-specific request fields just because a fetched model ID matches an OpenAI, xAI, OpenRouter, or Z.AI naming pattern.
 - Addressed various security concerns.
 - Game mode dark screen error addressed.
-- Removed the persistent SQLite database as the default live storage path, reducing release-to-release migration failures.
-- File-backed migration now merges every known legacy database location and performs a one-time repair for snapshots that missed chats during early v1.5.7 testing.
+- Consolidated live persistence on file-backed storage, reducing release-to-release migration failures.
+- File-backed recovery now checks every known historical data location and repairs snapshots that missed chats during early v1.5.7 testing.
 - On mobile Roleplay, the branch quick-switcher now lives inside the three-dot toolbar menu, so it no longer overlaps the Agents' controls.
 - Settings Debug Mode now prints prompt, scene-analysis, party-turn, and game asset debug logs even when `LOG_LEVEL` is not set to `debug`.
 - Switching chats doesn't stop the generation of the previously triggered one.
@@ -1199,7 +1201,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - File-backed storage now supports Lorebook folders during generation and migration.
 - Deleting one saved character card version now leaves the rest of the version history intact.
 - Removed the legacy database setup step from the installer flow.
-- Fresh installs no longer install the old `better-sqlite3` or `sql.js` SQLite fallback packages.
+- Fresh installs no longer install the old fallback storage packages.
 - Browser-tab character imports now preserve embedded Chub lorebooks as linked Marinara lorebooks.
 - OpenRouter Claude reasoning is requested with OpenRouter's unified `reasoning` payload again, restoring thinking capture for Sonnet/Opus reasoning models.
 - Sprite sheet prompts now more explicitly require complete slicable grids for expression and full-body pose generation.
@@ -1388,7 +1390,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Various setup fixes, including Docker runtime libraries and launcher/installer build steps.
 - Decreased text padding in Roleplay mode inside the message box area.
 - Session recordings can now be accessed.
-- Addressed Drizzle errors.
+- Addressed storage-query errors.
 - Impersonate direction is now properly sent to the model.
 - Inventory is now saved and stored between game sessions.
 - We now apply the correct headers for official Anthropic calls.
@@ -1501,7 +1503,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Changed
 
-- Startup config now resolves `.env` before env-sensitive server modules, normalizes repo-root data and SQLite paths, and keeps `/api/*` 404s JSON-only.
+- Startup config now resolves `.env` before env-sensitive server modules, normalizes repo-root data paths, and keeps `/api/*` 404s JSON-only.
 - Shell launchers now align on the resolved `PORT`, honor launcher-level browser auto-open consistently, and pin pnpm to the repo version.
 - Android now uses a build-time WebView server URL constant instead of a hardcoded Java literal, with optional `MARINARA_PORT` support in `android/build-apk.sh`.
 - The client app shell now lazy-loads editors, right-panel surfaces, onboarding, modals, and the main chat surface to reduce initial bundle weight.
@@ -1524,7 +1526,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Added
 
-- **Persona Groups** — Organize personas into named groups with full CRUD backend and SQLite storage.
+- **Persona Groups** — Organize personas into named groups with full CRUD and local storage.
 - **Group Scenario Override** — Replace individual character scenarios with a single shared scenario for group chats.
 - **AI Persona Maker** — Generate complete personas from a prompt using your LLM connection via SSE streaming.
 - **Import Persona** — Import personas from PNG character cards or JSON files.

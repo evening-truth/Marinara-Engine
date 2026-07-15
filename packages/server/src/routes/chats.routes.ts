@@ -68,7 +68,7 @@ import { wrapContent } from "../services/prompt/format-engine.js";
 import { chatSummaryFingerprintMatches, fingerprintChatSummary } from "../services/prompt/chat-summary-fingerprint.js";
 import { newId } from "../utils/id-generator.js";
 import { characters, gameStateSnapshots, memoryChunks } from "../db/schema/index.js";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "../db/file-query.js";
 import { existsSync } from "fs";
 import { join } from "path";
 import { DATA_DIR } from "../utils/data-dir.js";
@@ -1981,8 +1981,6 @@ export async function chatsRoutes(app: FastifyInstance) {
     }
     // Wipe all manual overrides when explicitly requested
     if (clearOverrides && updated) {
-      const { eq } = await import("drizzle-orm");
-      const { gameStateSnapshots } = await import("../db/schema/index.js");
       await app.db
         .update(gameStateSnapshots)
         .set({ manualOverrides: null })
@@ -2945,7 +2943,9 @@ export async function chatsRoutes(app: FastifyInstance) {
         definitionRevision: snapshot.definitionRevision,
       }))
       .filter(
-        (snapshot): snapshot is {
+        (
+          snapshot,
+        ): snapshot is {
           messageIndex: number;
           swipeIndex: number;
           currentLocationId: string | null;

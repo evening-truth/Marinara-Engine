@@ -1,21 +1,17 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SpatialContextDefinition, UpdateSpatialContextRequestInput } from "../../packages/shared/src/index.js";
 import { createChatSchema } from "../../packages/shared/src/index.js";
 import type { DB } from "../../packages/server/src/db/connection.js";
 import { createFileNativeDB } from "../../packages/server/src/db/file-backed-store.js";
-import { runMigrations } from "../../packages/server/src/db/migrate.js";
-import * as dbSchema from "../../packages/server/src/db/schema/index.js";
 import { chats, spatialContextSnapshots } from "../../packages/server/src/db/schema/index.js";
 import {
   createSpatialContextService,
   SpatialContextServiceError,
 } from "../../packages/server/src/services/spatial-context/definition.service.js";
 import { createChatsStorage } from "../../packages/server/src/services/storage/chats.storage.js";
-import { createGameStateStorage } from "../../packages/server/src/services/storage/game-state.storage.js";
 import { createSpatialContextStorage } from "../../packages/server/src/services/storage/spatial-context.storage.js";
 
 const storageDir = mkdtempSync(join(tmpdir(), "marinara-spatial-persistence-"));
@@ -198,104 +194,6 @@ try {
 } finally {
   await fileDb._fileStore.close();
   rmSync(storageDir, { recursive: true, force: true });
-}
-
-const requireFromServer = createRequire(new URL("../../packages/server/package.json", import.meta.url));
-const { createClient } = requireFromServer("@libsql/client");
-const { drizzle } = requireFromServer("drizzle-orm/libsql");
-const legacyDir = mkdtempSync(join(tmpdir(), "marinara-spatial-libsql-"));
-const legacyClient = createClient({ url: `file:${join(legacyDir, "spatial.db")}` });
-const legacyDb = drizzle(legacyClient, { schema: dbSchema }) as unknown as DB;
-try {
-  await runMigrations(legacyDb);
-  const legacyChat = await createChatsStorage(legacyDb).create(
-    createChatSchema.parse({
-      name: "Legacy spatial regression",
-      mode: "game",
-      characterIds: [],
-    }),
-  );
-  assert.ok(legacyChat);
-
-  const legacyService = createSpatialContextService(legacyDb);
-  const gameDefinition: SpatialContextDefinition = { ...definition, ownerMode: "game" };
-  const created = await legacyService.update(legacyChat.id, {
-    expectedRevision: 0,
-    expectedCurrentLocationId: null,
-    definition: gameDefinition,
-  });
-  assert.equal(created.definition?.ownerMode, "game");
-  assert.equal(created.currentLocationId, "tower");
-
-  const trackerAnchor = await createChatsStorage(legacyDb).createMessage({
-    chatId: legacyChat.id,
-    role: "assistant",
-    content: "Tracker anchor",
-    characterId: null,
-  });
-  assert.ok(trackerAnchor);
-  const clonedTracker = await createGameStateStorage(legacyDb).updateByMessage(
-    trackerAnchor.id,
-    0,
-    legacyChat.id,
-    { weather: "Rain" },
-    true,
-    { compatibilityLocation: "City > Tower" },
-  );
-  assert.equal(clonedTracker?.location, "City > Tower");
-  assert.deepEqual(clonedTracker?.manualOverrides ? JSON.parse(clonedTracker.manualOverrides as string) : null, {
-    weather: "Rain",
-  });
-  await createSpatialContextStorage(legacyDb).create({
-    chatId: legacyChat.id,
-    messageId: trackerAnchor.id,
-    swipeIndex: 0,
-    currentLocationId: "tower",
-    definitionRevision: 1,
-    source: "assistant_swipe",
-  });
-  assert.equal((await legacyService.get(legacyChat.id)).hasCommittedSpatialHistory, true);
-
-  const rowsBefore = {
-    chats: await legacyDb.select().from(chats),
-    snapshots: await legacyDb.select().from(spatialContextSnapshots),
-  };
-  await assert.rejects(
-    legacyService.update(legacyChat.id, {
-      expectedRevision: 0,
-      expectedCurrentLocationId: "tower",
-      definition: gameDefinition,
-    }),
-    (error: unknown) => error instanceof SpatialContextServiceError && error.code === "spatial_definition_stale",
-  );
-  await assert.rejects(
-    legacyService.update(legacyChat.id, {
-      expectedRevision: 1,
-      expectedCurrentLocationId: "tower",
-      definition: {
-        ...gameDefinition,
-        locations: [{ ...gameDefinition.locations[0], name: "" }],
-      },
-    } as UpdateSpatialContextRequestInput),
-    (error: unknown) => error instanceof SpatialContextServiceError && error.code === "spatial_replacement_invalid",
-  );
-  await assert.rejects(
-    legacyService.update(legacyChat.id, {
-      expectedRevision: 1,
-      expectedCurrentLocationId: "tower",
-      definition: {
-        ...gameDefinition,
-        locations: [{ ...gameDefinition.locations[1]!, parentId: null }],
-      },
-    }),
-    (error: unknown) =>
-      error instanceof SpatialContextServiceError && error.code === "spatial_history_location_removal_forbidden",
-  );
-  assert.deepEqual(await legacyDb.select().from(chats), rowsBefore.chats);
-  assert.deepEqual(await legacyDb.select().from(spatialContextSnapshots), rowsBefore.snapshots);
-} finally {
-  legacyClient.close();
-  rmSync(legacyDir, { recursive: true, force: true });
 }
 
 process.stdout.write("Spatial persistence regression passed.\n");

@@ -2,11 +2,7 @@
 // Routes: Chat Folders
 // ──────────────────────────────────────────────
 import type { FastifyInstance } from "fastify";
-import {
-  createChatFolderSchema,
-  moveChatToFolderSchema,
-  reorderChatsInFolderSchema,
-} from "@marinara-engine/shared";
+import { createChatFolderSchema, moveChatToFolderSchema, reorderChatsInFolderSchema } from "@marinara-engine/shared";
 import { createChatFoldersStorage } from "../services/storage/chat-folders.storage.js";
 import { createChatsStorage } from "../services/storage/chats.storage.js";
 import { registerFolderCrudRoutes } from "./folder-routes.shared.js";
@@ -37,8 +33,7 @@ export async function chatFoldersRoutes(app: FastifyInstance) {
     // Atomic: a partial failure mid-loop would leave chats with a mix of
     // old and new sort_order / folder_id values across siblings of the
     // same group. Chats-per-folder counts are O(dozens), well under the
-    // libSQL Windows transaction use-after-free threshold noted in
-    // chats.storage.ts:449.
+    // threshold for an excessively large single storage operation.
     await app.db.transaction(async (tx) => {
       for (let i = 0; i < orderedChatIds.length; i++) {
         const id = orderedChatIds[i]!;

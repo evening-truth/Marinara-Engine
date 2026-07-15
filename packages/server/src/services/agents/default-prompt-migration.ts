@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq } from "../../db/file-query.js";
 import {
   BUILT_IN_AGENTS,
   DEFAULT_AGENT_PROMPT_TEMPLATE_ID,

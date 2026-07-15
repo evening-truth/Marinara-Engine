@@ -48,7 +48,7 @@ A small group of low-level settings are locked in when the server starts. Changi
 
 - `PORT`, `HOST`
 - `SSL_CERT`, `SSL_KEY`
-- `DATA_DIR`, `STORAGE_BACKEND`, `FILE_STORAGE_DIR`, `DATABASE_URL`
+- `DATA_DIR`, `FILE_STORAGE_DIR`
 - `ENCRYPTION_KEY`
 - `MARINARA_ENV_FILE`
 - `TZ`
@@ -100,12 +100,10 @@ Storage settings control where your local data lives. Your data includes chats, 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `DATA_DIR` | `packages/server/data` | Root folder for all user data. Docker images set `/app/data`. |
-| `STORAGE_BACKEND` | `files` | Storage engine. `files` stores data as files under `DATA_DIR/storage`. Use `sqlite` for the legacy database. |
 | `FILE_STORAGE_DIR` | the `storage` folder inside `DATA_DIR` | Overrides the file-storage folder. |
-| `DATABASE_URL` | `file:./data/marinara-engine.db` | Legacy SQLite source path. Used only to import old data on first run. |
 | `ENCRYPTION_KEY` | empty | Key used to encrypt saved API keys. Generate one with the command below. |
 
-The default `files` backend keeps your data as plain files. This makes backups easy to copy and inspect. You do not need to change `STORAGE_BACKEND` unless you are migrating an older SQLite install.
+Marinara keeps your data as plain JSON files. This makes backups easy to copy and inspect.
 
 To generate an encryption key, run this command and paste the result into `ENCRYPTION_KEY`:
 

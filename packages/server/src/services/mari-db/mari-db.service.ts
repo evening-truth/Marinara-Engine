@@ -7,10 +7,11 @@ import { pathToFileURL } from "node:url";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { eq } from "drizzle-orm";
+import { eq } from "../../db/file-query.js";
 import type { DB } from "../../db/connection.js";
 import { flushDB } from "../../db/connection.js";
 import { CASCADES, FILE_BACKED_TABLES } from "../../db/file-backed-store.js";
+import { getFileTableConfig, isFileTable, type AnyFileColumn, type AnyFileTable } from "../../db/file-schema.js";
 import * as schema from "../../db/schema/index.js";
 import { getFileStorageDir, getMonorepoRoot, isCustomToolScriptEnabled } from "../../config/runtime-config.js";
 import { logger } from "../../lib/logger.js";
@@ -33,15 +34,8 @@ import {
 } from "@marinara-engine/shared";
 
 type Row = Record<string, unknown>;
-type Table = Record<string | symbol, unknown>;
-type Column = {
-  name: string;
-  table: Table;
-  primary?: boolean;
-  hasDefault?: boolean;
-  default?: unknown;
-  notNull?: boolean;
-};
+type Table = AnyFileTable;
+type Column = AnyFileColumn;
 type ColumnMeta = {
   key: string;
   dbName: string;
@@ -265,7 +259,7 @@ async function readPackageVersion(cwd: string): Promise<string | null> {
 // single source of truth) so cascade deletes and the dangling-reference
 // validator never drift from the real relations again.
 
-// Columns stored as JSON text. Ground truth is the drizzle schema in
+// Columns stored as JSON text. Ground truth is the file-table definition in
 // db/schema/* — these are plain text() columns whose JSON-ness only exists in
 // their doc comments, so this map cannot be derived automatically. Keep it in
 // sync with the schema when columns change.
@@ -322,35 +316,20 @@ const JSON_COLUMNS: Record<string, readonly string[]> = {
   regex_scripts: ["trimStrings", "placement", "targetCharacterIds"],
 };
 
-function symbolValue<T>(target: object, symbolName: string): T | undefined {
-  const symbol = Object.getOwnPropertySymbols(target).find((entry) => String(entry) === symbolName);
-  return symbol ? (target as Record<symbol, T>)[symbol] : undefined;
-}
-
-function isTable(value: unknown): value is Table {
-  return Boolean(value && typeof value === "object" && symbolValue(value as object, "Symbol(drizzle:IsDrizzleTable)"));
-}
-
-function tableNameOf(table: Table): string {
-  const name = symbolValue<string>(table, "Symbol(drizzle:Name)");
-  if (!name) throw new Error("Unknown table object");
-  return name;
-}
-
 function buildTableMetas() {
   const metas = new Map<string, TableMeta>();
   for (const candidate of Object.values(schema)) {
-    if (!isTable(candidate)) continue;
-    const table = candidate as Table;
-    const name = tableNameOf(table);
+    if (!isFileTable(candidate)) continue;
+    const table = candidate;
+    const config = getFileTableConfig(table);
+    const name = config.name;
     if (!FILE_BACKED_TABLE_SET.has(name)) continue;
-    const columnsObject = symbolValue<Record<string, Column>>(table, "Symbol(drizzle:Columns)") ?? {};
-    const columns = Object.entries(columnsObject).map(([key, column]) => ({
-      key,
+    const columns = config.columns.map((column) => ({
+      key: column.key,
       dbName: column.name,
       column,
-      primary: column.primary === true,
-      notNull: column.notNull === true,
+      primary: column.primary,
+      notNull: column.isNotNull,
     }));
     metas.set(name, {
       name,

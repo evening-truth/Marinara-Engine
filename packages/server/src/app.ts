@@ -13,7 +13,6 @@ import { basicAuthHook } from "./middleware/basic-auth.js";
 import { csrfProtectionHook } from "./middleware/csrf-protection.js";
 import { rateLimitHook } from "./middleware/rate-limit.js";
 import { securityHeadersHook } from "./middleware/security-headers.js";
-import { runMigrations } from "./db/migrate.js";
 import { seedDefaultPreset } from "./db/seed.js";
 import { seedProfessorMari } from "./db/seed-mari.js";
 import { seedDefaultConnection } from "./db/seed-connection.js";
@@ -33,10 +32,8 @@ import {
   getLogLevel,
   getNodeEnv,
   isRequestLoggingDisabled,
-  isFileStorageBackend,
   isAutoCreateDefaultConnectionDisabled,
   getFileStorageDir,
-  getDatabaseFilePath,
 } from "./config/runtime-config.js";
 import { corsDelegate } from "./config/cors-config.js";
 import { sidecarProcessService } from "./services/sidecar/sidecar-process.service.js";
@@ -56,9 +53,7 @@ const NO_STORE_FILES = new Set(["manifest.json", "sw.js", "registerSW.js"]);
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024;
 
 export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
-  const databaseFile = getDatabaseFilePath();
-  const hadUserStateBeforeStartup =
-    existsSync(join(getFileStorageDir(), "manifest.json")) || (databaseFile !== null && existsSync(databaseFile));
+  const hadUserStateBeforeStartup = existsSync(join(getFileStorageDir(), "manifest.json"));
   const app = Fastify({
     logger: {
       level: getLogLevel(),
@@ -84,7 +79,7 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
     },
   });
 
-  // ── Database ──
+  // ── Storage ──
   const db = await getDB();
   app.decorate("db", db);
   app.addHook("onClose", async () => {
@@ -103,11 +98,6 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
       await closeDB();
     }
   });
-
-  // ── Legacy SQLite migrations (file-native storage imports old DBs without runtime migrations) ──
-  if (!isFileStorageBackend()) {
-    await runMigrations(db);
-  }
 
   // Existing installations retain the capabilities the previous release shipped. Fresh installs stay empty.
   let migratedLegacyCapabilities = false;
