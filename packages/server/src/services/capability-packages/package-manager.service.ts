@@ -28,8 +28,8 @@ const NON_DOWNLOADABLE_CORE_PACKAGE_IDS = new Set(["about-me-keeper"]);
 const OFFICIAL_CATALOG_ROOT = "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/catalog";
 const ENGINE_RELEASE_VERSION_PATTERN = /^v?(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
 export function resolveCapabilityCatalogUrl(
-  engineVersion = APP_VERSION,
-  configuredUrl = process.env.MARINARA_AGENT_CATALOG_URL,
+  engineVersion: string = APP_VERSION,
+  configuredUrl: string | undefined = process.env.MARINARA_AGENT_CATALOG_URL,
 ): string {
   const override = configuredUrl?.trim();
   if (override) return override;
