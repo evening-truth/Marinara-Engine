@@ -464,6 +464,11 @@ function isMobileGameViewport(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
 }
 
+function isCompactGameViewport(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth < 768 || (window.innerHeight < 600 && window.matchMedia("(pointer: coarse)").matches);
+}
+
 function isBrowserSpotifyDeviceName(name: string | null | undefined): boolean {
   return name === "Marinara Engine";
 }
@@ -2936,9 +2941,7 @@ function GameSurfaceComponent({
   const [ambientVolume, setAmbientVolume] = useState(persistedGameAudioSettings.ambientVolume);
   const [audioSettingsHydrated, setAudioSettingsHydrated] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [compactHudWidgets, setCompactHudWidgets] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < 768 : false,
-  );
+  const [compactHudWidgets, setCompactHudWidgets] = useState(isCompactGameViewport);
   const tutorialAutoTriggeredRef = useRef(false);
   const volumePopoverRef = useRef<HTMLDivElement>(null);
   const mobileVolumePopoverRef = useRef<HTMLDivElement>(null);
@@ -9615,13 +9618,6 @@ function GameSurfaceComponent({
   }, [handleStartGameNow, normalizedWidgets.length, startGame.isPending, startGameRequested]);
 
   useEffect(() => {
-    if (combatUiActive || normalizedWidgets.length === 0) {
-      compactHudWidgetsRef.current = false;
-      compactHudReleaseWidthRef.current = null;
-      setCompactHudWidgets(false);
-      return;
-    }
-
     const setCompactLayout = (nextCompact: boolean) => {
       if (compactHudWidgetsRef.current === nextCompact) return;
       compactHudWidgetsRef.current = nextCompact;
@@ -9629,8 +9625,18 @@ function GameSurfaceComponent({
     };
 
     const updateWidgetLayout = () => {
+      const viewportCompact = isCompactGameViewport();
+      if (combatUiActive || normalizedWidgets.length === 0) {
+        compactHudReleaseWidthRef.current = null;
+        setCompactLayout(viewportCompact);
+        return;
+      }
+
       const surface = hudSurfaceRef.current;
-      if (!surface) return;
+      if (!surface) {
+        setCompactLayout(viewportCompact);
+        return;
+      }
 
       const surfaceRect = surface.getBoundingClientRect();
       const dialogue = surface.querySelector<HTMLElement>('[data-tour="game-dialogue"]');
@@ -9662,7 +9668,7 @@ function GameSurfaceComponent({
         compactHudReleaseWidthRef.current = null;
       }
 
-      const nextCompact = surfaceRect.width < 768 || estimatedOverlap || measuredOverlap || heldByPreviousOverlap;
+      const nextCompact = viewportCompact || estimatedOverlap || measuredOverlap || heldByPreviousOverlap;
 
       setCompactLayout(nextCompact);
     };
@@ -10704,7 +10710,13 @@ function GameSurfaceComponent({
                 )}
               >
                 {/* Desktop controls */}
-                <div className={cn("pointer-events-auto hidden items-center md:flex", CHAT_TOOLBAR_ICON_GAP_CLASS)}>
+                <div
+                  className={cn(
+                    "pointer-events-auto items-center",
+                    compactHudWidgets ? "hidden" : "hidden md:flex",
+                    CHAT_TOOLBAR_ICON_GAP_CLASS,
+                  )}
+                >
                   {renderStoryboardBackgroundControls()}
                   <ChatBranchSelector
                     activeChatId={activeChatId}
@@ -10894,7 +10906,7 @@ function GameSurfaceComponent({
                 </div>
 
                 {/* Mobile controls */}
-                <div className="pointer-events-auto md:hidden">
+                <div className={cn("pointer-events-auto", !compactHudWidgets && "md:hidden")}>
                   <div className="relative">
                     <button
                       onClick={() => {
@@ -11193,7 +11205,7 @@ function GameSurfaceComponent({
                   )}
                 >
                   {/* Mobile: map icon button that opens modal */}
-                  <div data-tour="game-map" className="md:hidden">
+                  <div data-tour="game-map" className={cn(!compactHudWidgets && "md:hidden")}>
                     <MobileMapButton
                       chatId={activeChatId}
                       map={viewedMap}
@@ -11216,7 +11228,7 @@ function GameSurfaceComponent({
                     />
                   </div>
                   {/* Desktop: inline minimap */}
-                  <div className="hidden md:block">
+                  <div className={cn("hidden", !compactHudWidgets && "md:block")}>
                     <GameMapPanel
                       map={viewedMap}
                       maps={availableMaps}
@@ -11354,8 +11366,9 @@ function GameSurfaceComponent({
                   const mobileWidgetSlot =
                     !combatUiActive && hudWidgets.length > 0 ? (
                       <div
+                        data-component="GameSurface.MobileWidgetTray"
                         className={cn(
-                          "pointer-events-auto mb-2 flex items-end justify-between",
+                          "pointer-events-auto mb-[clamp(0.25rem,1svh,0.5rem)] flex items-center justify-between gap-3",
                           !compactHudWidgets && "md:hidden",
                         )}
                       >
@@ -11367,7 +11380,15 @@ function GameSurfaceComponent({
                   // Choice cards slot — rendered inside GameNarration above the narration box
                   const choicesSlot =
                     activeChoices && narrationDone ? (
-                      <div className="pointer-events-auto mb-2 flex max-h-[clamp(8rem,30svh,14rem)] min-h-0 w-full shrink justify-center overflow-hidden sm:max-h-[clamp(9rem,36svh,20rem)] md:max-h-[min(52dvh,32rem)]">
+                      <div
+                        data-component="GameSurface.MobileChoiceStack"
+                        className={cn(
+                          "pointer-events-auto mb-[clamp(0.25rem,1svh,0.5rem)] flex min-h-28 w-full shrink-0 justify-center overflow-hidden",
+                          compactHudWidgets
+                            ? "max-h-[clamp(7rem,30svh,14rem)]"
+                            : "max-h-[clamp(7rem,30svh,14rem)] sm:max-h-[clamp(7rem,36svh,20rem)] md:max-h-[min(52dvh,32rem)]",
+                        )}
+                      >
                         <GameChoiceCards
                           choices={activeChoices}
                           onSelect={handleChoiceSelect}

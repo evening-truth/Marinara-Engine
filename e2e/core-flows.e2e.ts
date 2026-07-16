@@ -4502,6 +4502,175 @@ test("mobile topbar remains reachable while sidebars switch", async ({ page }, t
   expect(errors).toEqual([]);
 });
 
+test("mobile Game keeps CYOA usable above four HUD widgets", async ({ page, request }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("mobile"), "The Game viewport-pressure regression is mobile-only.");
+
+  const errors = collectUnexpectedErrors(page);
+  await expect.poll(async () => (await request.get("/api/health")).ok()).toBe(true);
+  const chatResponse = await request.post("/api/chats", {
+    data: { name: "Mobile Game CYOA Viewport Smoke", mode: "game", characterIds: [] },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+
+  const hudWidgets = [
+    {
+      id: "widget-floor",
+      type: "counter",
+      label: "Dungeon Floor",
+      icon: "🗼",
+      position: "hud_left",
+      accent: "#9B6CFF",
+      config: { count: 1 },
+    },
+    {
+      id: "widget-exp",
+      type: "progress_bar",
+      label: "EXP to Next Level",
+      icon: "✨",
+      position: "hud_left",
+      accent: "#4FD6FF",
+      config: { value: 20, max: 100 },
+    },
+    {
+      id: "widget-bonds",
+      type: "stat_block",
+      label: "Party Bonds",
+      icon: "💞",
+      position: "hud_right",
+      accent: "#FF69B4",
+      config: { stats: [{ name: "Ally", value: 40 }] },
+    },
+    {
+      id: "widget-pressure",
+      type: "gauge",
+      label: "Curse Pressure",
+      icon: "💜",
+      position: "hud_right",
+      accent: "#C43DFF",
+      config: { value: 10, max: 100 },
+    },
+  ];
+
+  try {
+    const metadataResponse = await request.patch(`/api/chats/${chat.id}/metadata`, {
+      data: {
+        gameId: "mobile-cyoa-viewport-smoke",
+        gameSessionStatus: "active",
+        gameSessionNumber: 1,
+        gameIntroPresented: true,
+        gameActiveState: "dialogue",
+        enableAgents: false,
+        activeAgentIds: [],
+        enableCustomWidgets: true,
+        gameBlueprint: {
+          campaignPlan: {},
+          hudWidgets,
+          introSequence: [],
+          visualTheme: {},
+        },
+      },
+    });
+    expect(metadataResponse.ok()).toBeTruthy();
+
+    const messageResponse = await request.post(`/api/chats/${chat.id}/messages`, {
+      data: {
+        role: "assistant",
+        content:
+          'The party reaches a fork in the flooded vault.\n\n[choices: "Take the surveyed stairs through the glowing nests"|"Risk the faster waterway before the chamber floods"|"Follow the unstable violet route into the unknown"]',
+      },
+    });
+    expect(messageResponse.ok()).toBeTruthy();
+
+    await page.route("**/api/game-assets/manifest", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ scannedAt: "2026-07-16T00:00:00.000Z", count: 0, assets: {}, byCategory: {} }),
+      });
+    });
+    await page.route("**/api/backgrounds/file/Black.jpg", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "image/gif",
+        body: Buffer.from(TRANSPARENT_GIF_BASE64, "base64"),
+      });
+    });
+    await page.addInitScript((chatId) => {
+      localStorage.setItem("marinara-active-chat-id", chatId);
+      localStorage.setItem(
+        "marinara-engine-ui",
+        JSON.stringify({
+          state: {
+            hasCompletedOnboarding: true,
+            rightPanelOpen: false,
+            sidebarOpen: false,
+            gameNarrationTextSpeed: 100,
+          },
+          version: 65,
+        }),
+      );
+    }, chat.id);
+
+    await page.goto("/");
+    const choiceStack = page.locator('[data-component="GameSurface.MobileChoiceStack"]');
+    const widgetTray = page.locator('[data-component="GameSurface.MobileWidgetTray"]');
+    const narrationPanel = page.locator('[data-component="GameNarration.ActivePanel"]');
+    const options = page.locator('[data-component="GameChoiceCards.Options"] > button');
+    await expect(choiceStack).toBeVisible();
+    await expect(widgetTray).toBeVisible();
+    await expect(options).toHaveCount(3);
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 844, height: 390 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expect(page.getByTitle("Game actions")).toBeVisible();
+      await expect(page.locator('[data-tour="game-map"]').getByRole("button", { name: "Open map" })).toBeVisible();
+      await expect
+        .poll(async () => {
+          const choiceRect = await choiceStack.boundingBox();
+          const widgetRect = await widgetTray.boundingBox();
+          const narrationRect = await narrationPanel.boundingBox();
+          if (!choiceRect || !widgetRect || !narrationRect) return null;
+          return {
+            choiceHeightReserved: choiceRect.height >= 112,
+            choicesBeforeNarration: choiceRect.y + choiceRect.height <= narrationRect.y + 1,
+            widgetsInsideNarration:
+              widgetRect.y >= narrationRect.y - 1 &&
+              widgetRect.y + widgetRect.height <= narrationRect.y + narrationRect.height + 1,
+            widgetsUseOneCompactRow: widgetRect.height <= 40,
+          };
+        })
+        .toEqual({
+          choiceHeightReserved: true,
+          choicesBeforeNarration: true,
+          widgetsInsideNarration: true,
+          widgetsUseOneCompactRow: true,
+        });
+
+      const choiceHeight = await choiceStack.evaluate((element) => element.getBoundingClientRect().height);
+      expect(choiceHeight).toBeGreaterThanOrEqual(112);
+      await page
+        .locator('[data-component="GameChoiceCards.Options"]')
+        .evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+      await expect(page.getByText("Choose your action", { exact: true })).toBeVisible();
+      await expect(options.last()).toBeVisible();
+
+      if (viewport.height < 600) {
+        expect(await narrationPanel.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+        await narrationPanel.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+        await expect(page.getByText("The party reaches a fork in the flooded vault.", { exact: true })).toBeVisible();
+      }
+    }
+
+    expect(errors).toEqual([]);
+  } finally {
+    await request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
 test("Roleplay displays a selected background when its file route is GET-only", async ({ page }) => {
   const chatResponse = await page.request.post("/api/chats", {
     data: { name: "Roleplay Background Smoke", mode: "roleplay", characterIds: [] },
