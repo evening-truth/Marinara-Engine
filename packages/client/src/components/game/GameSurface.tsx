@@ -464,11 +464,6 @@ function isMobileGameViewport(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
 }
 
-function isCompactGameViewport(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.innerWidth < 768 || (window.innerHeight < 600 && window.matchMedia("(pointer: coarse)").matches);
-}
-
 function isBrowserSpotifyDeviceName(name: string | null | undefined): boolean {
   return name === "Marinara Engine";
 }
@@ -2941,7 +2936,9 @@ function GameSurfaceComponent({
   const [ambientVolume, setAmbientVolume] = useState(persistedGameAudioSettings.ambientVolume);
   const [audioSettingsHydrated, setAudioSettingsHydrated] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [compactHudWidgets, setCompactHudWidgets] = useState(isCompactGameViewport);
+  const [compactHudWidgets, setCompactHudWidgets] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  );
   const tutorialAutoTriggeredRef = useRef(false);
   const volumePopoverRef = useRef<HTMLDivElement>(null);
   const mobileVolumePopoverRef = useRef<HTMLDivElement>(null);
@@ -9618,6 +9615,13 @@ function GameSurfaceComponent({
   }, [handleStartGameNow, normalizedWidgets.length, startGame.isPending, startGameRequested]);
 
   useEffect(() => {
+    if (combatUiActive || normalizedWidgets.length === 0) {
+      compactHudWidgetsRef.current = false;
+      compactHudReleaseWidthRef.current = null;
+      setCompactHudWidgets(false);
+      return;
+    }
+
     const setCompactLayout = (nextCompact: boolean) => {
       if (compactHudWidgetsRef.current === nextCompact) return;
       compactHudWidgetsRef.current = nextCompact;
@@ -9625,18 +9629,8 @@ function GameSurfaceComponent({
     };
 
     const updateWidgetLayout = () => {
-      const viewportCompact = isCompactGameViewport();
-      if (combatUiActive || normalizedWidgets.length === 0) {
-        compactHudReleaseWidthRef.current = null;
-        setCompactLayout(viewportCompact);
-        return;
-      }
-
       const surface = hudSurfaceRef.current;
-      if (!surface) {
-        setCompactLayout(viewportCompact);
-        return;
-      }
+      if (!surface) return;
 
       const surfaceRect = surface.getBoundingClientRect();
       const dialogue = surface.querySelector<HTMLElement>('[data-tour="game-dialogue"]');
@@ -9668,7 +9662,7 @@ function GameSurfaceComponent({
         compactHudReleaseWidthRef.current = null;
       }
 
-      const nextCompact = viewportCompact || estimatedOverlap || measuredOverlap || heldByPreviousOverlap;
+      const nextCompact = surfaceRect.width < 768 || estimatedOverlap || measuredOverlap || heldByPreviousOverlap;
 
       setCompactLayout(nextCompact);
     };
@@ -10710,13 +10704,7 @@ function GameSurfaceComponent({
                 )}
               >
                 {/* Desktop controls */}
-                <div
-                  className={cn(
-                    "pointer-events-auto items-center",
-                    compactHudWidgets ? "hidden" : "hidden md:flex",
-                    CHAT_TOOLBAR_ICON_GAP_CLASS,
-                  )}
-                >
+                <div className={cn("pointer-events-auto hidden items-center md:flex", CHAT_TOOLBAR_ICON_GAP_CLASS)}>
                   {renderStoryboardBackgroundControls()}
                   <ChatBranchSelector
                     activeChatId={activeChatId}
@@ -10906,7 +10894,7 @@ function GameSurfaceComponent({
                 </div>
 
                 {/* Mobile controls */}
-                <div className={cn("pointer-events-auto", !compactHudWidgets && "md:hidden")}>
+                <div className="pointer-events-auto md:hidden">
                   <div className="relative">
                     <button
                       onClick={() => {
@@ -11205,7 +11193,7 @@ function GameSurfaceComponent({
                   )}
                 >
                   {/* Mobile: map icon button that opens modal */}
-                  <div data-tour="game-map" className={cn(!compactHudWidgets && "md:hidden")}>
+                  <div data-tour="game-map" className="md:hidden">
                     <MobileMapButton
                       chatId={activeChatId}
                       map={viewedMap}
@@ -11228,7 +11216,7 @@ function GameSurfaceComponent({
                     />
                   </div>
                   {/* Desktop: inline minimap */}
-                  <div className={cn("hidden", !compactHudWidgets && "md:block")}>
+                  <div className="hidden md:block">
                     <GameMapPanel
                       map={viewedMap}
                       maps={availableMaps}
@@ -11362,13 +11350,15 @@ function GameSurfaceComponent({
 
                 {/* Game content — Combat UI / TravelView / Narration */}
                 {(() => {
+                  const choicesVisible = Boolean(activeChoices && narrationDone);
+
                   // Mobile widget slot — rendered inside GameNarration to sit above the narration box
                   const mobileWidgetSlot =
-                    !combatUiActive && hudWidgets.length > 0 ? (
+                    !combatUiActive && hudWidgets.length > 0 && !(compactHudWidgets && choicesVisible) ? (
                       <div
                         data-component="GameSurface.MobileWidgetTray"
                         className={cn(
-                          "pointer-events-auto mb-[clamp(0.25rem,1svh,0.5rem)] flex items-center justify-between gap-3",
+                          "pointer-events-auto mb-2 flex items-end justify-between",
                           !compactHudWidgets && "md:hidden",
                         )}
                       >
@@ -11379,24 +11369,60 @@ function GameSurfaceComponent({
 
                   // Choice cards slot — rendered inside GameNarration above the narration box
                   const choicesSlot =
-                    activeChoices && narrationDone ? (
-                      <div
-                        data-component="GameSurface.MobileChoiceStack"
-                        className={cn(
-                          "pointer-events-auto mb-[clamp(0.25rem,1svh,0.5rem)] flex min-h-28 w-full shrink-0 justify-center overflow-hidden",
-                          compactHudWidgets
-                            ? "max-h-[clamp(7rem,30svh,14rem)]"
-                            : "max-h-[clamp(7rem,30svh,14rem)] sm:max-h-[clamp(7rem,36svh,20rem)] md:max-h-[min(52dvh,32rem)]",
-                        )}
-                      >
-                        <GameChoiceCards
-                          choices={activeChoices}
-                          onSelect={handleChoiceSelect}
-                          onDismiss={handleDismissChoices}
-                          disabled={isStreaming || !sessionInteractive}
-                        />
-                      </div>
-                    ) : undefined;
+                    activeChoices && narrationDone
+                      ? compactHudWidgets && !combatUiActive && hudWidgets.length > 0
+                        ? (
+                            <div
+                              data-component="GameSurface.MobileChoiceStage"
+                              className="pointer-events-auto mb-2 flex max-h-[clamp(8rem,30svh,14rem)] min-h-0 w-full shrink items-stretch gap-1.5 overflow-hidden sm:max-h-[clamp(9rem,36svh,20rem)]"
+                            >
+                              <div
+                                data-component="GameSurface.MobileWidgetRailLeft"
+                                className="relative z-10 flex shrink-0 items-center"
+                              >
+                                <MobileWidgetPanel
+                                  widgets={normalizedWidgets}
+                                  position="hud_left"
+                                  chatId={activeChatId}
+                                />
+                              </div>
+                              <div
+                                data-component="GameSurface.MobileChoiceStack"
+                                className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                              >
+                                <GameChoiceCards
+                                  choices={activeChoices}
+                                  onSelect={handleChoiceSelect}
+                                  onDismiss={handleDismissChoices}
+                                  disabled={isStreaming || !sessionInteractive}
+                                />
+                              </div>
+                              <div
+                                data-component="GameSurface.MobileWidgetRailRight"
+                                className="relative z-10 flex shrink-0 items-center"
+                              >
+                                <MobileWidgetPanel
+                                  widgets={normalizedWidgets}
+                                  position="hud_right"
+                                  chatId={activeChatId}
+                                />
+                              </div>
+                            </div>
+                          )
+                        : (
+                            <div
+                              data-component="GameSurface.MobileChoiceStack"
+                              className="pointer-events-auto mb-2 flex max-h-[clamp(8rem,30svh,14rem)] min-h-0 w-full shrink justify-center overflow-hidden sm:max-h-[clamp(9rem,36svh,20rem)] md:max-h-[min(52dvh,32rem)]"
+                            >
+                              <GameChoiceCards
+                                choices={activeChoices}
+                                onSelect={handleChoiceSelect}
+                                onDismiss={handleDismissChoices}
+                                disabled={isStreaming || !sessionInteractive}
+                              />
+                            </div>
+                          )
+                      : undefined;
 
                   const skillCheckSlot = pendingSkillCheck ? (
                     <GameSkillCheckResult result={pendingSkillCheck} onDismiss={() => setPendingSkillCheck(null)} />

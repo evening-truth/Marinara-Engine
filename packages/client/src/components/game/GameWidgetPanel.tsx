@@ -322,12 +322,7 @@ export function MobileWidgetPanel({ widgets, position, chatId }: MobileWidgetPan
 
   return (
     <>
-      <div
-        className={cn(
-          "pointer-events-auto flex flex-wrap items-end gap-1.5",
-          position === "hud_right" && "justify-end",
-        )}
-      >
+      <div className={cn("pointer-events-auto flex flex-col gap-1.5", position === "hud_right" && "items-end")}>
         {filtered.map((w) => {
           const isExpanded = expandedId === w.id;
 

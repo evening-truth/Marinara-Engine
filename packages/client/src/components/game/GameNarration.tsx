@@ -3513,7 +3513,6 @@ export function GameNarration({
         )}
       </div>
     ) : null;
-  const choicesVisible = choicesSlot != null;
 
   const handleCopyMessage = useCallback(async (key: string, text: string) => {
     const didCopy = await copyToClipboard(text);
@@ -4264,27 +4263,14 @@ export function GameNarration({
   };
 
   return (
-    <div
-      className={cn(
-        "relative flex min-h-0 flex-1 items-end px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 md:pb-4",
-        choicesVisible ? "pt-[clamp(3rem,10svh,5rem)] md:pt-[clamp(3rem,10svh,6rem)]" : "pt-20 md:pt-24",
-      )}
-    >
+    <div className="relative flex min-h-0 flex-1 items-end px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-20 md:pt-24 sm:px-6 md:pb-4">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
 
       <div
         data-tour="game-dialogue"
-        className={cn(
-          "relative z-10 mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col justify-end",
-          choicesVisible ? "max-h-full" : "max-h-[calc(100svh-7rem)] md:max-h-[calc(100svh-8rem)]",
-        )}
+        className="relative z-10 mx-auto flex h-full max-h-[calc(100svh-7rem)] min-h-0 w-full max-w-4xl flex-col justify-end md:max-h-[calc(100svh-8rem)]"
       >
-        <div
-          className={cn(
-            "min-h-0 flex flex-1 flex-col",
-            choicesVisible ? "justify-start overflow-hidden" : "justify-end overflow-hidden",
-          )}
-        >
+        <div className="min-h-0 flex flex-1 flex-col justify-end overflow-hidden">
           {useStackedLogDisplay && (stackedLogEntries.length > 0 || stackedLogHeldHeight !== null) && (
             <div
               ref={stackedLogShellRef}
@@ -4407,7 +4393,7 @@ export function GameNarration({
           {choicesSlot}
 
           {/* Widget slot — mobile widget icons sit above the narration box */}
-          {!choicesVisible && widgetSlot}
+          {widgetSlot}
 
           {/* Skill check result — shown above the narration box until dismissed */}
           {skillCheckSlot}
@@ -4419,16 +4405,8 @@ export function GameNarration({
         <div
           data-game-skip-bg-nav="true"
           data-component="GameNarration.ActivePanel"
-          className={cn(
-            "rounded-2xl border border-[var(--border)] bg-[var(--card)]/90 p-3 shadow-[0_16px_38px_rgba(0,0,0,0.45)] backdrop-blur-md dark:border-white/15 dark:bg-black/50",
-            choicesVisible
-              ? "min-h-[4.5rem] max-h-[clamp(4.5rem,calc(28svh-2.5rem),18rem)] shrink overflow-y-auto overscroll-contain"
-              : "shrink-0",
-          )}
+          className="shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--card)]/90 p-3 shadow-[0_16px_38px_rgba(0,0,0,0.45)] backdrop-blur-md dark:border-white/15 dark:bg-black/50"
         >
-          {/* CYOA owns the space above the box; secondary HUD widgets join the scrollable narration panel. */}
-          {choicesVisible && widgetSlot}
-
           {/* Scene preparation gate: wait for effects before showing narration */}
           {scenePreparing && (
             <div className="flex items-center gap-2 py-3">
