@@ -6,10 +6,12 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Changed
 
+- Moved Conversation **About Me** drafting from per-editor **AI Write** controls to Professor Mari. Character and Persona Convo editors no longer expose a separate model connection or source settings; Professor Mari can inspect a saved character or persona, write the bio in their voice, and save it directly to the real About Me field.
 - Changed Noodle refreshes to choose active participants before first-time profile generation, skip characters that already have generated profiles, and send only the selected character cards to the timeline model. World/lore context and chat carryover now each have an 8,192-token budget so large invited rosters cannot inflate unrelated generations.
 
 ### Fixed
 
+- Resolved `{{user}}`, `{{char}}`, and other prompt macros in opening greetings and `/guided` instructions at the final provider boundary, including lorebook routing and embedding scans, so late prompt injections cannot send raw identity placeholders to models (#3704).
 - Raised Conversation routine-summary generations from a 512-token ceiling to an 8,192-token default, honored larger Connection overrides, and requested low reasoning effort so reasoning models still return visible summaries (#3696).
 - Allowed selected custom agents to run in Conversation, Roleplay, and Game chats whenever **Enable Agents** is on, while preserving per-mode availability rules for official packages (#3692).
 - Applied saved Connection Custom Parameters to every API-backed text generation that uses that connection, including Noodle and custom endpoints hosted locally, while preserving per-chat and per-call overrides.

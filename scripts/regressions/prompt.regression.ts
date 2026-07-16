@@ -201,7 +201,10 @@ import {
   buildNpcPortraitProviderPrompt,
   buildSceneIllustrationProviderPrompt,
 } from "../../packages/server/src/services/game/game-asset-generation.js";
-import { resolveLorebookTokenBudget } from "../../packages/server/src/services/generation/lorebook-generation-runtime.js";
+import {
+  buildLorebookScanMessagesWithGenerationGuide,
+  resolveLorebookTokenBudget,
+} from "../../packages/server/src/services/generation/lorebook-generation-runtime.js";
 import {
   buildGameIllustratorAppearanceContextBlock,
   buildIllustrationNarrationSummaryMessages,
@@ -212,7 +215,6 @@ import {
 } from "../../packages/server/src/routes/game.routes.js";
 import { buildLegacyDefaultAgentConfigUpdate } from "../../packages/server/src/services/agents/default-prompt-migration.js";
 import { buildMemoryRecallBlock } from "../../packages/server/src/services/generation/memory-recall-context.js";
-import { createAboutMeMacroResolver } from "../../packages/server/src/services/conversation/about-me-macros.js";
 import { truncateRecalledMemory } from "../../packages/server/src/services/generation/memory-recall-pack.js";
 import { mergeConversationCharacterMemories } from "../../packages/server/src/services/generation/conversation-memory-context.js";
 import { injectIdentityFallbackMessages } from "../../packages/server/src/services/generation/character-prompt-context.js";
@@ -256,7 +258,12 @@ import {
 } from "../../packages/server/src/services/lorebook/embeddings.js";
 import { scanForActivatedEntries } from "../../packages/server/src/services/lorebook/keyword-scanner.js";
 import { fitMessagesForModelAccess } from "../../packages/server/src/services/generation/model-access-policy.js";
-import { assemblePrompt, type AssemblerInput } from "../../packages/server/src/services/prompt/index.js";
+import {
+  assemblePrompt,
+  resolvePromptMessageMacros,
+  scopePromptMacroContextToCharacter,
+  type AssemblerInput,
+} from "../../packages/server/src/services/prompt/index.js";
 import { executeToolCalls } from "../../packages/server/src/services/tools/tool-executor.js";
 import { parseRouterResponse } from "../../packages/server/src/services/agents/knowledge-router.js";
 import type { PromptOverridesStorage } from "../../packages/server/src/services/storage/prompt-overrides.storage.js";
@@ -388,32 +395,6 @@ const keywordOptions = {
 };
 
 const cases: RegressionCase[] = [
-  {
-    name: "Conversation About Me AI Write resolves card and persona macros before provider submission",
-    run() {
-      const resolvePersona = createAboutMeMacroResolver({
-        kind: "persona",
-        name: "{{user}}",
-        activePersonaName: "Mari",
-        source: {
-          description: "{{user}} builds strange machines.",
-          personality: "Curious",
-        },
-      });
-      assert.equal(resolvePersona("Name: {{user}}"), "Name: Mari");
-      assert.equal(resolvePersona("{{personaDescription}}"), "Mari builds strange machines.");
-
-      const resolveCharacter = createAboutMeMacroResolver({
-        kind: "character",
-        name: "Echo",
-        activePersonaName: "Mari",
-        activePersonaFields: { description: "An engineer" },
-        source: { description: "{{char}} trusts {{user}}." },
-      });
-      assert.equal(resolveCharacter("{{description}}"), "Echo trusts Mari.");
-      assert.equal(resolveCharacter("{{personaDescription}}"), "An engineer");
-    },
-  },
   {
     name: "installed Conversation feature commands do not require per-chat agent attachment",
     run() {
@@ -1161,6 +1142,78 @@ const cases: RegressionCase[] = [
       assert.match(instruction, /Dottore reassuring Mari/);
       assert.equal(instruction.includes("{{user}}"), false);
       assert.equal(instruction.includes("{{char}}"), false);
+    },
+  },
+  {
+    name: "provider-bound greeting and /guided messages resolve identity macros",
+    run() {
+      const baseContext = {
+        user: "Mari",
+        char: "Wrong responder",
+        characters: ["Dottore", "Pantalone"],
+        variables: {},
+      };
+      const dottoreProfile = {
+        name: "Dottore",
+        description: "A precise researcher.",
+      };
+      const profilesById = new Map([["char-dottore", dottoreProfile]]);
+      const providerContext = scopePromptMacroContextToCharacter(baseContext, dottoreProfile);
+      const resolved = resolvePromptMessageMacros(
+        [
+          {
+            id: "opening-greeting",
+            role: "assistant" as const,
+            characterId: "char-dottore",
+            content: "Welcome, {{user}}. I am {{char}}.",
+          },
+          {
+            id: "late-guided-injection",
+            role: "system" as const,
+            content: buildNarratorInstructionMessage("Let {{char}} reassure {{user}}."),
+          },
+        ],
+        providerContext,
+        profilesById,
+      );
+
+      assert.equal(resolved[0]?.content, "Welcome, Mari. I am Dottore.");
+      assert.match(resolved[1]?.content ?? "", /Let Dottore reassure Mari/);
+      assert.equal(resolved.some((message) => /\{\{(?:user|char)\}\}/i.test(message.content)), false);
+
+      const generateRouteSource = readFileSync(
+        new URL("../../packages/server/src/routes/generate.routes.ts", import.meta.url),
+        "utf8",
+      );
+      const dryRunRouteSource = readFileSync(
+        new URL("../../packages/server/src/routes/generate/dry-run-route.ts", import.meta.url),
+        "utf8",
+      );
+      assert.match(generateRouteSource, /const preparedMessagesForGen = resolvePromptMessageMacros\(/);
+      assert.match(dryRunRouteSource, /finalMessages = resolveHistoryMessageMacros\(finalMessages\);/);
+    },
+  },
+  {
+    name: "/guided lorebook scans resolve macros before embedding or routing",
+    run() {
+      const context = {
+        user: "Mari",
+        char: "Dottore",
+        characters: ["Dottore"],
+        variables: {},
+      };
+      const messages = buildLorebookScanMessagesWithGenerationGuide(
+        [{ role: "assistant", content: "The experiment is ready." }],
+        {
+          generationGuide: buildNarratorInstructionMessage("Have {{char}} answer {{user}}."),
+          generationGuideSource: "narrator",
+        },
+        (value) => resolveMacros(value, context, { trimResult: false }),
+      );
+
+      assert.match(messages.at(-1)?.content ?? "", /Have Dottore answer Mari/);
+      assert.equal(messages.at(-1)?.content.includes("{{user}}"), false);
+      assert.equal(messages.at(-1)?.content.includes("{{char}}"), false);
     },
   },
   {
