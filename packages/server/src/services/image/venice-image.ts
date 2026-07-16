@@ -142,7 +142,7 @@ export function normalizeVeniceImageModels(value: unknown): Array<{ id: string; 
   if (!isRecord(value) || !Array.isArray(value.data)) return [];
   return value.data
     .map((entry) => {
-      if (!isRecord(entry) || (typeof entry.type === "string" && entry.type !== "image")) return null;
+      if (!isRecord(entry) || entry.type !== "image") return null;
       const id = typeof entry.id === "string" ? entry.id.trim() : "";
       const spec = isRecord(entry.model_spec) ? entry.model_spec : null;
       const name = spec && typeof spec.name === "string" ? spec.name.trim() : "";

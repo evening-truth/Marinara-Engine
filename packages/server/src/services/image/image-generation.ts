@@ -25,7 +25,7 @@ import {
 } from "@marinara-engine/shared";
 import { isImageLocalUrlsEnabled } from "../../config/runtime-config.js";
 import { generateRunPodComfyUI } from "./runpod-comfyui.service.js";
-import { logger } from "../../lib/logger.js";
+import { logger, logDebugOverride } from "../../lib/logger.js";
 import { assertInsideDir, normalizeLoopbackUrl, safeFetch, validateOutboundUrl } from "../../utils/security.js";
 import { notifyGenerationFallback, type GenerationFallbackNotifier } from "../generation/fallback-notification.js";
 import {
@@ -106,6 +106,8 @@ export interface ImageGenRequest {
   transparentBackground?: boolean;
   /** Optional caller-owned abort signal for cancelling long image requests. */
   signal?: AbortSignal;
+  /** Emit the final provider request even when the global log level is above debug. */
+  debugMode?: boolean;
   /** Called immediately before a configured fallback connection is attempted. */
   onFallback?: GenerationFallbackNotifier;
   /** Optional one-shot backup connection used only when the primary image request fails. */
@@ -935,6 +937,12 @@ async function generateXAI(baseUrl: string, apiKey: string, request: ImageGenReq
 }
 
 async function generateVenice(baseUrl: string, apiKey: string, request: ImageGenRequest): Promise<ImageGenResult> {
+  const body = buildVeniceImageRequest(request);
+  logDebugOverride(
+    request.debugMode === true,
+    "[debug/image/venice] final request payload:\n%s",
+    JSON.stringify(body, null, 2),
+  );
   const resp = await imageFetch(
     buildVeniceApiUrl(baseUrl, "image/generate"),
     {
@@ -943,7 +951,7 @@ async function generateVenice(baseUrl: string, apiKey: string, request: ImageGen
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(buildVeniceImageRequest(request)),
+      body: JSON.stringify(body),
       signal: imageRequestSignal(request),
     },
     { allowLocal: request.allowLocalUrls },

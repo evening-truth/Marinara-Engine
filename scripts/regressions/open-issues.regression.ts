@@ -293,6 +293,7 @@ assert.deepEqual(
     data: [
       { id: "chroma", type: "image", model_spec: { name: "Chroma" } },
       { id: "llama", type: "text", model_spec: { name: "Llama" } },
+      { id: "untyped", model_spec: { name: "Untyped" } },
     ],
   }),
   [{ id: "chroma", name: "Chroma" }],
@@ -886,6 +887,8 @@ assert.match(refreshedNpcAvatar, /mariAvatarRevision=/u);
 assert.equal(withoutNpcAvatarRevision(refreshedNpcAvatar), "/avatars/npc/chat/albedo.png?size=small#portrait");
 assert.equal(isSameNpcAvatarResource(refreshedNpcAvatar, "/avatars/npc/chat/albedo.png?size=small#portrait"), true);
 assert.equal(normalizeNpcAvatarName("Director Althea Voss Friendly"), normalizeNpcAvatarName("Director Althea Voss"));
+assert.equal(normalizeNpcAvatarName("Benemy"), "benemy");
+assert.equal(normalizeNpcAvatarName("Director__Althea--Voss Friendly"), normalizeNpcAvatarName("Director Althea Voss"));
 
 const noodleAvatarCrop = parseNoodleAvatarCrop(
   JSON.stringify({ srcX: 0.25, srcY: 0.1, srcWidth: 0.5, srcHeight: 0.5 }),

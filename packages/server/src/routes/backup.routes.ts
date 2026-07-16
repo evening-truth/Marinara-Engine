@@ -71,6 +71,22 @@ const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const ZIP_EOCD_MIN_SIZE = 22;
 const ZIP_EOCD_MAX_COMMENT_BYTES = 0xffff;
 const ZIP_ENCRYPTED_FLAG = 0x0001;
+let profileImportLifecycleTail = Promise.resolve();
+
+/** Serialize database replacement, asset promotion, and failure recovery as one import lifecycle. */
+async function withProfileImportLifecycleLock<T>(task: () => Promise<T>): Promise<T> {
+  const predecessor = profileImportLifecycleTail;
+  let release: () => void = () => undefined;
+  profileImportLifecycleTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await predecessor;
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+}
 
 function normalizeLorebookScope(value: unknown): { mode: "all" | "disabled" | "specific"; chatIds: string[] } {
   if (!value || typeof value !== "object") return { mode: "all", chatIds: [] };
@@ -749,62 +765,76 @@ async function importProfileStorageSnapshot(
     });
   };
 
-  let files = 0;
-  let committed = false;
-  try {
-    await app.db.transaction(async (tx) => {
-      for (const tableName of FILE_BACKED_TABLES) {
-        const table = profileTableObjects.get(tableName);
-        const rows = snapshot.tables[tableName];
-        if (!table || !Array.isArray(rows) || rows.length === 0) {
-          tableCounts[tableName] = 0;
-          continue;
-        }
-
-        emit("tables", `Importing ${tableName.replace(/_/g, " ")}`);
-        for (const row of rows) {
-          const cleanRow = { ...row };
-          if (tableName === "api_connections") cleanRow.apiKeyEncrypted = "";
-          const insert = tx.insert(table as any).values(cleanRow as any) as any;
-          const conflictTarget = schemaPrimaryKeyColumn(table);
-          if (conflictTarget) {
-            // Preserve live secrets on rows that still exist: the export redacts secret
-            // columns, so upserting the blanks would wipe them unrecoverably. The fresh
-            // insert above still carries the blanks (no prior secret to keep).
-            await insert.onConflictDoUpdate({ target: conflictTarget, set: buildProfileUpdateSet(tableName, cleanRow) });
-          } else {
-            await insert;
+  return withProfileImportLifecycleLock(async () => {
+    let files = 0;
+    let committed = false;
+    let rollbackFailed = false;
+    try {
+      await app.db.transaction(async (tx) => {
+        for (const tableName of FILE_BACKED_TABLES) {
+          const table = profileTableObjects.get(tableName);
+          const rows = snapshot.tables[tableName];
+          if (!table || !Array.isArray(rows) || rows.length === 0) {
+            tableCounts[tableName] = 0;
+            continue;
           }
-          completedItems++;
-          tableCounts[tableName] = (tableCounts[tableName] ?? 0) + 1;
+
           emit("tables", `Importing ${tableName.replace(/_/g, " ")}`);
+          for (const row of rows) {
+            const cleanRow = { ...row };
+            if (tableName === "api_connections") cleanRow.apiKeyEncrypted = "";
+            const insert = tx.insert(table as any).values(cleanRow as any) as any;
+            const conflictTarget = schemaPrimaryKeyColumn(table);
+            if (conflictTarget) {
+              // Preserve live secrets on rows that still exist: the export redacts secret
+              // columns, so upserting the blanks would wipe them unrecoverably. The fresh
+              // insert above still carries the blanks (no prior secret to keep).
+              await insert.onConflictDoUpdate({
+                target: conflictTarget,
+                set: buildProfileUpdateSet(tableName, cleanRow),
+              });
+            } else {
+              await insert;
+            }
+            completedItems++;
+            tableCounts[tableName] = (tableCounts[tableName] ?? 0) + 1;
+            emit("tables", `Importing ${tableName.replace(/_/g, " ")}`);
+          }
+        }
+
+        await promoteStagedProfileAssets(stagedAssets);
+        for (const asset of stagedAssets.assets) {
+          files++;
+          completedItems++;
+          emit("files", `Restoring ${asset.path}`, files);
+        }
+        await flushDB();
+      });
+      committed = true;
+      return buildProfileImportStats(tableCounts, files);
+    } catch (error) {
+      try {
+        await rollbackPromotedProfileAssets(stagedAssets);
+      } catch (rollbackError) {
+        rollbackFailed = true;
+        logger.error(
+          rollbackError,
+          "[backup] Asset rollback failed; preserving recovery files at %s",
+          stagedAssets.rootDir,
+        );
+        throw new AggregateError([error, rollbackError], "Profile import and asset rollback both failed");
+      }
+      throw error;
+    } finally {
+      if (!rollbackFailed) {
+        try {
+          await cleanupStagedProfileAssets(stagedAssets);
+        } catch (cleanupError) {
+          if (committed) logger.warn(cleanupError, "[backup] Failed to remove profile import staging files");
         }
       }
-
-      await promoteStagedProfileAssets(stagedAssets);
-      for (const asset of stagedAssets.assets) {
-        files++;
-        completedItems++;
-        emit("files", `Restoring ${asset.path}`, files);
-      }
-      await flushDB();
-    });
-    committed = true;
-    return buildProfileImportStats(tableCounts, files);
-  } catch (error) {
-    try {
-      await rollbackPromotedProfileAssets(stagedAssets);
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], "Profile import and asset rollback both failed");
     }
-    throw error;
-  } finally {
-    try {
-      await cleanupStagedProfileAssets(stagedAssets);
-    } catch (cleanupError) {
-      if (committed) logger.warn(cleanupError, "[backup] Failed to remove profile import staging files");
-    }
-  }
+  });
 }
 
 async function buildProfileExportEnvelope(
