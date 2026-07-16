@@ -81,7 +81,7 @@ import {
 } from "../../packages/server/src/services/image/illustrator-prompt-review.js";
 import { resolveReviewedImagePromptSubmission } from "../../packages/server/src/services/image/image-prompt-review.js";
 import {
-  cleanupStagedProfileImportAssets,
+  cleanupStagedProfileAssets,
   promoteStagedProfileAssets,
   rollbackPromotedProfileAssets,
   stageProfileImportAssets,
@@ -331,7 +331,7 @@ try {
   assert.equal(readFileSync(liveAvatarPath, "utf8"), "imported-avatar");
   await rollbackPromotedProfileAssets(stagedProfileAssets);
   assert.equal(readFileSync(liveAvatarPath, "utf8"), "live-avatar");
-  await cleanupStagedProfileImportAssets(stagedProfileAssets);
+  await cleanupStagedProfileAssets(stagedProfileAssets);
 } finally {
   rmSync(profileImportAssetRoot, { recursive: true, force: true });
 }

@@ -19,6 +19,8 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Fixed the downloadable Conversation Calls package persisting a hardcoded assistant reply when typed-message generation failed. Package v1.0.3 no longer requires provider-native JSON mode and reports genuine provider failures instead of inventing character dialogue (#3685).
+- Made native profile imports atomic across file-storage rows and assets. Present archive assets are now fully decompressed, CRC-checked, and staged before live mutation; table upserts run in a serialized transaction; and promoted files roll back if a later write or durable database flush fails, while missing assets remain warning-only (#3683).
 - Fixed generated and manually replaced Game Journal NPC portraits failing to update when a reputation label was appended to the NPC name. Portrait matching now treats the display label and the tracked NPC as the same character throughout the live session (#3681).
 - Increased the final Game setup generation watchdog from 300 to 500 seconds so large GM blueprints have enough time to finish without extending unrelated in-session generation limits (#3684).
 - Fixed merged Roleplay group prompts stripping every historical speaker-tag example. The latest assistant message now keeps its `<speaker>` wrappers while older tags are still trimmed, and the instruction remains inside `<output_format>` when available or otherwise appends to the last user message (#3673).
