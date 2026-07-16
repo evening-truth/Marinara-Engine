@@ -68,7 +68,7 @@ A few terms used below:
 - A CIDR range is a short way to write a whole block of IP addresses, like `192.168.1.0/24`. CIDR stands for Classless Inter-Domain Routing.
 - RFC 1918 ranges are the standard private address ranges used inside home and office networks, such as `10.x.x.x` and `192.168.x.x`.
 
-By default, when you set no password, the server accepts connections only from trusted sources. Those are loopback, any address in `IP_ALLOWLIST`, Tailscale, and the Docker bridge. Every other caller, including your normal home network, gets a `403 Forbidden` until you pick one of the options below.
+By default, when you set no password, the server accepts connections only from trusted sources. Those are loopback, any address in `IP_ALLOWLIST`, Tailscale, and same-host Docker bridge/gateway traffic. Every other caller, including your normal home network, gets a `403 Forbidden` until you pick one of the options below.
 
 The main access-control settings are:
 
@@ -83,7 +83,7 @@ The main access-control settings are:
 | `ALLOW_UNAUTHENTICATED_REMOTE` | `false` | Allows passwordless access from any address, including the public internet. Not recommended. |
 | `TRUSTED_PRIVATE_NETWORKS` | built-in defaults | Replaces the default private-network ranges. Include any defaults you still want. |
 | `BYPASS_AUTH_TAILSCALE` | `true` | Lets Tailscale traffic skip the login and allowlist. |
-| `BYPASS_AUTH_DOCKER` | `true` | Lets Docker bridge traffic skip the login and allowlist. |
+| `BYPASS_AUTH_DOCKER` | `true` | Lets Docker bridge traffic and the exact default gateway detected inside Docker skip the login and allowlist. |
 | `REQUIRE_AUTH_FOR_DOCKER_PROXY` | `false` | Forces normal login for Docker traffic that looks reverse-proxied. |
 | `SSL_CERT` | empty | Path to a TLS certificate file. Set with `SSL_KEY` to serve HTTPS directly. |
 | `SSL_KEY` | empty | Path to the TLS private key file. |
