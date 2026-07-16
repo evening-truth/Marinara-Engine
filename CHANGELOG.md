@@ -9,6 +9,12 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 ### Added
 
 - Added responsive Background library folders, desktop and touch drag-and-drop organization, A-Z/Z-A/Newest/Oldest sorting, and collapsible tag filters without limiting the Background agent's available choices (#3678).
+- Added Conversation, Roleplay, and Game compatibility badges to Download Agents, including catalog search by supported mode (#3676).
+
+### Changed
+
+- Renamed current user-facing Conversation Calls references to **Calls** while preserving package IDs and legacy compatibility symbols (#3676).
+- Moved Hierarchical Maps controls inside its active entry in Chat Settings → Agents instead of displaying a separate top-level settings section (#3679).
 
 ### Fixed
 
