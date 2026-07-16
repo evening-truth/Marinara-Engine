@@ -10,12 +10,19 @@ import { GoogleProvider } from "./providers/google.provider.js";
 import type { BaseLLMProvider } from "./base-provider.js";
 import { withConnectionDefaultParameters } from "./connection-default-provider.js";
 
-function normalizeCohereOpenAIBaseUrl(baseUrl: string): string {
+export function normalizeCohereOpenAIBaseUrl(baseUrl: string): string {
   const trimmed = baseUrl.replace(/\/+$/, "");
   const lower = trimmed.toLowerCase();
 
   if (lower.includes("/compatibility/v1")) return trimmed;
-  if (lower === "https://api.cohere.com/v2" || lower === "https://api.cohere.ai/v2") {
+  if (
+    lower === "https://api.cohere.com" ||
+    lower === "https://api.cohere.ai" ||
+    lower === "https://api.cohere.com/v1" ||
+    lower === "https://api.cohere.ai/v1" ||
+    lower === "https://api.cohere.com/v2" ||
+    lower === "https://api.cohere.ai/v2"
+  ) {
     return "https://api.cohere.ai/compatibility/v1";
   }
 

@@ -55,6 +55,7 @@ class ConnectionDefaultProvider extends BaseLLMProvider {
     private readonly provider: BaseLLMProvider,
     private readonly defaultCustomParameters: Record<string, unknown>,
   ) {
+    // This facade delegates all I/O; keep connection credentials confined to the wrapped provider.
     super("", "", provider.maxContextValue ?? undefined, null, provider.maxTokensOverrideValue);
   }
 

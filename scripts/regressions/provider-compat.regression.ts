@@ -33,7 +33,10 @@ import {
   type ChatOptions,
   type LLMUsage,
 } from "../../packages/server/src/services/llm/base-provider.js";
-import { createLLMProvider } from "../../packages/server/src/services/llm/provider-registry.js";
+import {
+  createLLMProvider,
+  normalizeCohereOpenAIBaseUrl,
+} from "../../packages/server/src/services/llm/provider-registry.js";
 import {
   runWithGenerationFallbackNotifier,
   type GenerationFallbackNotice,
@@ -280,6 +283,11 @@ assert.equal(isOpenRouterApiUrl("https://openrouter.ai/api/v1"), true);
 assert.equal(isOpenRouterApiUrl("https://api.openrouter.ai/v1"), true);
 assert.equal(isOpenRouterApiUrl("https://openrouter.ai.example.com/v1"), false);
 assert.equal(isOpenRouterApiUrl("not a URL"), false);
+assert.equal(normalizeCohereOpenAIBaseUrl("https://api.cohere.com"), "https://api.cohere.ai/compatibility/v1");
+assert.equal(normalizeCohereOpenAIBaseUrl("https://api.cohere.ai/"), "https://api.cohere.ai/compatibility/v1");
+assert.equal(normalizeCohereOpenAIBaseUrl("https://api.cohere.com/v1"), "https://api.cohere.ai/compatibility/v1");
+assert.equal(normalizeCohereOpenAIBaseUrl("https://api.cohere.ai/v2"), "https://api.cohere.ai/compatibility/v1");
+assert.equal(normalizeCohereOpenAIBaseUrl("https://example.com/v1/"), "https://example.com/v1");
 
 const fallbackConnection: FallbackConnection = {
   id: "fallback-connection",
@@ -288,13 +296,25 @@ const fallbackConnection: FallbackConnection = {
   baseUrl: "https://fallback.example/v1",
   apiKey: "test",
   model: "fallback-model",
-  defaultParameters: JSON.stringify({ temperature: 0.35, maxTokens: 512 }),
+  defaultParameters: JSON.stringify({
+    temperature: 0.35,
+    maxTokens: 512,
+    customParameters: {
+      fallback_only: "inherited",
+      nested: { fallback: true, shared: "fallback" },
+    },
+  }),
 };
 const primaryFailure = new RegressionProvider([], new Error("primary unavailable"));
 const successfulFallback = new RegressionProvider(["fallback response"]);
 const fallbackProvider = new ConnectionFallbackProvider(primaryFailure, successfulFallback, fallbackConnection, "main");
 assert.equal(
-  await collectProviderOutput(fallbackProvider, { model: "primary-model", temperature: 0.9, maxTokens: 1024 }),
+  await collectProviderOutput(fallbackProvider, {
+    model: "primary-model",
+    temperature: 0.9,
+    maxTokens: 1024,
+    customParameters: { request_only: "preserved", nested: { request: true, shared: "request" } },
+  }),
   "fallback response",
 );
 assert.equal(primaryFailure.calls, 1);
@@ -302,6 +322,11 @@ assert.equal(successfulFallback.calls, 1);
 assert.equal(successfulFallback.lastOptions?.model, "fallback-model");
 assert.equal(successfulFallback.lastOptions?.temperature, 0.35);
 assert.equal(successfulFallback.lastOptions?.maxTokens, 512);
+assert.deepEqual(successfulFallback.lastOptions?.customParameters, {
+  fallback_only: "inherited",
+  request_only: "preserved",
+  nested: { fallback: true, shared: "request", request: true },
+});
 
 let fallbackNotice: GenerationFallbackNotice | null = null;
 await runWithGenerationFallbackNotifier(

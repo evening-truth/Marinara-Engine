@@ -37,17 +37,23 @@ export function buildNoodleCarryoverBlock(
 ): string | null {
   const selected: string[] = [];
   const itemLimit = Math.max(0, Math.floor(maxItems));
+  const sampleWrappedLength = wrapContent("x", "Recent Social Media Activity", wrapFormat).length;
+  const wrapperOverhead = sampleWrappedLength - 1;
+  let bodyLength = 0;
+  let nonEmptyLineCount = 0;
   for (const digest of newestFirstDigests.slice(0, itemLimit)) {
     const content = digest.content.trim().slice(0, NOODLE_DIGEST_CONTENT_LIMIT);
     if (!content) continue;
-    const candidate = [...selected, content];
-    const lines = candidate
-      .slice()
-      .reverse()
-      .map((item) => `- ${item}`);
-    const wrapped = wrapContent(lines.join("\n"), "Recent Social Media Activity", wrapFormat);
-    if (wrapped.length > NOODLE_CARRYOVER_CHARACTER_BUDGET) break;
+    const line = `- ${content}`;
+    const renderedLineLength = selected.length === 0 ? line.trimEnd().length : line.length;
+    const candidateBodyLength = bodyLength + (selected.length > 0 ? 1 : 0) + renderedLineLength;
+    const candidateNonEmptyLineCount =
+      nonEmptyLineCount + line.split("\n").filter((part) => part.trim().length > 0).length;
+    const xmlIndentLength = wrapFormat === "xml" ? Math.max(0, candidateNonEmptyLineCount - 1) * 4 : 0;
+    if (wrapperOverhead + candidateBodyLength + xmlIndentLength > NOODLE_CARRYOVER_CHARACTER_BUDGET) break;
     selected.push(content);
+    bodyLength = candidateBodyLength;
+    nonEmptyLineCount = candidateNonEmptyLineCount;
   }
   if (selected.length === 0) return null;
   const lines = selected

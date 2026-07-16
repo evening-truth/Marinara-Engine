@@ -655,6 +655,10 @@ assert.ok(boundedCarryoverBlock.length <= NOODLE_CARRYOVER_TOKEN_BUDGET * 4);
 assert.match(boundedCarryoverBlock, /newest-0-/u);
 assert.doesNotMatch(boundedCarryoverBlock, /newest-49-/u);
 assert.ok(boundedCarryoverBlock.indexOf("newest-1-") < boundedCarryoverBlock.indexOf("newest-0-"));
+assert.equal(
+  buildNoodleCarryoverBlock([{ content: "newest" }, { content: "older\nwith detail" }], 2, "none"),
+  "- older\nwith detail\n- newest",
+);
 
 // noodleTimelineVoiceDefaultText(enhanced) feeds the "Noodle Timeline Voice & Tone" prompt
 // override default (NOODLE_TIMELINE_VOICE.defaultBuilder). `enhanced=false` (the setting's

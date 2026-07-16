@@ -717,10 +717,10 @@ function ToggleSetting({
       <span
         className={cn(
           "inline-flex min-w-0 items-center gap-1 font-semibold",
-          compact && "whitespace-nowrap text-[10px] leading-none",
+          compact && "flex-1",
         )}
       >
-        {label}
+        <span className={cn(compact && "min-w-0 truncate text-[10px] leading-none")}>{label}</span>
         {help && <HelpTooltip text={help} side="top" wide />}
       </span>
       <input

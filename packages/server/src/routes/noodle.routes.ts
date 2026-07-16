@@ -268,11 +268,6 @@ function characterGalleryImageUrl(characterId: string, filePath: string) {
   return `/api/characters/${encodeURIComponent(characterId)}/gallery/file/${encodeURIComponent(filename)}`;
 }
 
-function readBoolSetting(settings: Record<string, unknown>, key: string) {
-  const value = settings[key];
-  return value === true || value === "true";
-}
-
 function mentionedCharacterAccounts(accounts: NoodleAccount[], content: string): NoodleAccount[] {
   const mentionedHandles = new Set(extractNoodleMentionHandles(content));
   if (mentionedHandles.size === 0) return [];
