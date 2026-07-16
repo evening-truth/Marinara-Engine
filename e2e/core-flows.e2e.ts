@@ -2011,6 +2011,170 @@ test("Roleplay and Game chat settings link empty agent libraries to Download Age
   }
 });
 
+test("Hierarchical Maps settings stay inside the active agent entry", async ({ page, request }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Hierarchical Maps agent placement is covered on desktop.");
+  test.setTimeout(90_000);
+
+  const errors = collectUnexpectedErrors(page);
+  const chats: Array<{ id: string; mode: "roleplay" | "game" }> = [];
+  for (const mode of ["roleplay", "game"] as const) {
+    const response = await request.post("/api/chats", {
+      data: { name: `${mode} Hierarchical Maps Agent Menu Smoke`, mode, characterIds: [] },
+    });
+    expect(response.ok()).toBeTruthy();
+    const chat = (await response.json()) as { id: string };
+    const metadataResponse = await request.patch(`/api/chats/${chat.id}/metadata`, {
+      data: {
+        enableAgents: true,
+        activeAgentIds: ["hierarchical-maps"],
+        ...(mode === "game"
+          ? {
+              gameId: "hierarchical-maps-agent-menu-smoke",
+              gameSessionStatus: "active",
+              gameSessionNumber: 1,
+              gameIntroPresented: true,
+            }
+          : {}),
+      },
+    });
+    expect(metadataResponse.ok()).toBeTruthy();
+    if (mode === "game") {
+      const messageResponse = await request.post(`/api/chats/${chat.id}/messages`, {
+        data: { role: "assistant", content: "The party studies the map." },
+      });
+      expect(messageResponse.ok()).toBeTruthy();
+    }
+    chats.push({ id: chat.id, mode });
+  }
+
+  const agentManifest = {
+    id: "hierarchical-maps",
+    name: "Hierarchical Maps",
+    description: "Adds persistent hierarchical locations and spatial context.",
+    author: "Pasta Devs",
+    phase: "pre_generation",
+    enabledByDefault: false,
+    category: "tracker",
+    runtimeDisabled: true,
+    modeAllowlist: ["roleplay", "game"],
+    defaultPromptTemplate: "",
+    execution: "feature",
+  };
+  const packageManifest = {
+    schemaVersion: 1,
+    id: "hierarchical-maps",
+    name: "Hierarchical Maps",
+    version: "1.0.6",
+    description: agentManifest.description,
+    engine: { min: "2.3.0", maxExclusive: "2.4.0" },
+    kind: ["agent", "maps"],
+    entrypoints: { agents: "agents.json", client: "client.js" },
+    contributions: { slots: ["chat-settings", "spatial-workspace", "chat-runtime", "game-world-map"] },
+    files: [],
+    permissions: ["ui"],
+    restartRequired: true,
+  };
+
+  await page.route("**/api/capability-packages/agents", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([agentManifest]) });
+  });
+  await page.route("**/api/capability-packages/catalog", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ schemaVersion: 1, generatedAt: "2026-07-16T00:00:00.000Z", packages: [] }),
+    });
+  });
+  await page.route("**/api/capability-packages/installed", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "hierarchical-maps",
+          version: packageManifest.version,
+          manifest: packageManifest,
+          installedAt: "2026-07-16T00:00:00.000Z",
+          status: "active",
+          error: null,
+          legacy: false,
+        },
+      ]),
+    });
+  });
+  await page.route("**/api/capability-packages/hierarchical-maps/client?*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: `
+        class HierarchicalMapsSmokeElement extends HTMLElement {
+          connectedCallback() {
+            this.innerHTML = '<div data-testid="hierarchical-maps-controls">Hierarchical map controls</div>';
+          }
+        }
+        if (!customElements.get('marinara-capability-hierarchical-maps')) {
+          customElements.define('marinara-capability-hierarchical-maps', HierarchicalMapsSmokeElement);
+        }
+        export {};
+      `,
+    });
+  });
+  await page.route("**/api/agents", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+  });
+  await page.route("**/api/lorebooks/scan/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ entries: [], budgetSkippedEntries: [], totalTokens: 0, totalEntries: 0 }),
+    });
+  });
+  await page.route("**/api/game-assets/manifest", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ scannedAt: "2026-07-16T00:00:00.000Z", count: 0, assets: {}, byCategory: {} }),
+    });
+  });
+  await page.route("**/api/backgrounds/file/Black.jpg", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "image/gif",
+      body: Buffer.from(TRANSPARENT_GIF_BASE64, "base64"),
+    });
+  });
+
+  try {
+    await page.goto("/");
+    for (const chat of chats) {
+      await page.evaluate((chatId) => localStorage.setItem("marinara-active-chat-id", chatId), chat.id);
+      await page.reload();
+      await page.getByRole("button", { name: "Chat Settings" }).click();
+      const drawer = page.locator(".mari-chat-settings-drawer");
+      await expect(drawer).toBeVisible();
+      await expect(
+        drawer.locator('[role="button"][aria-expanded]').filter({ hasText: /^Hierarchical map/ }),
+        `${chat.mode} should not expose a top-level Hierarchical map section`,
+      ).toHaveCount(0);
+
+      const agentsSection = drawer.locator('[role="button"][aria-expanded]').filter({ hasText: /^Agents/ });
+      await agentsSection.click();
+      if (chat.mode === "roleplay") {
+        await drawer.getByRole("button", { name: /Tracker Agents/ }).click();
+      }
+
+      const agentEntry = drawer.locator('[data-chat-agent-entry="hierarchical-maps"]');
+      await expect(agentEntry, `${chat.mode} Hierarchical Maps agent entry`).toBeVisible();
+      await expect(agentEntry.getByTestId("hierarchical-maps-controls")).toBeVisible();
+      await expect(drawer.locator("marinara-capability-hierarchical-maps")).toHaveCount(1);
+      await expect(agentEntry.locator("marinara-capability-hierarchical-maps")).toHaveCount(1);
+    }
+    expect(errors).toEqual([]);
+  } finally {
+    await Promise.all(chats.map((chat) => request.delete(`/api/chats/${chat.id}`, { timeout: 10_000 })));
+  }
+});
+
 test("Roleplay setup points empty agent libraries to the Agents tab", async ({ page, request }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "Roleplay setup empty-state regression is covered on desktop.");
 

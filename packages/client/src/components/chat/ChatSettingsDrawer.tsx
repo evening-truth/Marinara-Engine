@@ -741,7 +741,6 @@ const CHAT_SETTINGS_ORDER = {
   scopedRegex: -750,
   connectedChat: -700,
   connectedNotes: -690,
-  spatialMap: -650,
   lorebooks: -600,
   agents: -500,
   widgets: -450,
@@ -6071,15 +6070,6 @@ export function ChatSettingsDrawer({
             </Section>
           )}
 
-          {(chatMode === "roleplay" || chatMode === "game") && mapsPackage && (
-            <CapabilityElement
-              packageId={mapsPackage.id}
-              view="settings"
-              capabilityProps={{ chatId: chat.id, style: { order: CHAT_SETTINGS_ORDER.spatialMap } }}
-              className="contents"
-            />
-          )}
-
           <div style={{ order: CHAT_SETTINGS_ORDER.lorebooks }}>
             <LorebooksSection
               chatId={chat.id}
@@ -8105,7 +8095,7 @@ export function ChatSettingsDrawer({
                                 const active = activeAgentIds.includes(agent.id);
                                 const knowledgeAgentType = isKnowledgeAgentType(agent.id) ? agent.id : null;
                                 return (
-                                  <div key={agent.id} className="space-y-1.5">
+                                  <div key={agent.id} data-chat-agent-entry={agent.id} className="space-y-1.5">
                                     <button
                                       onClick={() => {
                                         const latestActiveAgentIds = readLatestActiveAgentIds();
@@ -8194,6 +8184,14 @@ export function ChatSettingsDrawer({
                                         />
                                       </AgentSettingsCard>
                                     )}
+                                    {active && agent.id === "hierarchical-maps" && mapsPackage && (
+                                      <CapabilityElement
+                                        packageId={mapsPackage.id}
+                                        view="settings"
+                                        capabilityProps={{ chatId: chat.id }}
+                                        className="block overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)]/45"
+                                      />
+                                    )}
                                   </div>
                                 );
                               })}
@@ -8278,6 +8276,7 @@ export function ChatSettingsDrawer({
                                       return (
                                         <div
                                           key={agent.id}
+                                          data-chat-agent-entry={agent.id}
                                           className="rounded-lg bg-[var(--primary)]/10 px-3 py-2 ring-1 ring-[var(--primary)]/30"
                                         >
                                           <div className="flex items-start gap-2.5">
@@ -8311,6 +8310,14 @@ export function ChatSettingsDrawer({
                                               <Trash2 size="0.6875rem" />
                                             </button>
                                           </div>
+                                          {agent.id === "hierarchical-maps" && mapsPackage && (
+                                            <CapabilityElement
+                                              packageId={mapsPackage.id}
+                                              view="settings"
+                                              capabilityProps={{ chatId: chat.id }}
+                                              className="mt-2 block overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)]/45"
+                                            />
+                                          )}
                                         </div>
                                       );
                                     })}
