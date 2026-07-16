@@ -153,12 +153,12 @@ try {
       },
     ],
   });
-  assert.deepEqual(
+  assert.deepStrictEqual(
     forwardCompatibleCatalog.packages[0]?.manifest.contributions?.agentDetail,
     { agentIds: ["hierarchical-maps"] },
     "Capability API 1.3 Engines must parse agent-detail metadata before applying compatibility gates",
   );
-  assert.equal(
+  assert.strictEqual(
     getCapabilityApiCompatibilityIssue(forwardCompatibleCatalog.packages[0]!.manifest),
     null,
     "Capability API 1.3 agent-detail metadata must remain compatible with the 1.3 host",
