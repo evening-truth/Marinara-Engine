@@ -20,6 +20,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Fixed Tic-Tac-Toe failing to render when an installed legacy game client expects React on the global scope (#3675).
 - Kept cropped Character and Persona avatars contained inside the Colors message preview, including cards with additional sprites, instead of letting the preview image cover the editor (#3678).
 - Kept the Roleplay-default star anchored in one place when its selected state changes (#3678).
+- Vertically centered Chibi Professor Mari in her surprise-visit toast (#3678).
 
 ## [2.3.1]
 
