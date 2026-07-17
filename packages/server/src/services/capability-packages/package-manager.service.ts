@@ -109,10 +109,18 @@ async function writeAvailabilityMigration(kind: "fresh" | "legacy") {
   await rename(temporary, AVAILABILITY_MIGRATION);
 }
 
+function hasValidCompletionTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && Number.isFinite(Date.parse(value));
+}
+
 async function readAvailabilityMigrationKind(): Promise<"fresh" | "legacy" | null> {
   try {
     const parsed = JSON.parse(await readFile(AVAILABILITY_MIGRATION, "utf8")) as Record<string, unknown>;
-    return parsed.schemaVersion === 1 && (parsed.kind === "fresh" || parsed.kind === "legacy") ? parsed.kind : null;
+    return parsed.schemaVersion === 1 &&
+      (parsed.kind === "fresh" || parsed.kind === "legacy") &&
+      hasValidCompletionTimestamp(parsed.completedAt)
+      ? parsed.kind
+      : null;
   } catch {
     return null;
   }
@@ -125,6 +133,18 @@ async function writeHierarchicalMapsSelectionCorrection() {
     mode: 0o600,
   });
   await rename(temporary, HIERARCHICAL_MAPS_SELECTION_CORRECTION);
+}
+
+async function readHierarchicalMapsSelectionCorrectionComplete(): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(await readFile(HIERARCHICAL_MAPS_SELECTION_CORRECTION, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    return parsed.schemaVersion === 1 && hasValidCompletionTimestamp(parsed.completedAt);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchBytes(url: string, maximum: number): Promise<Buffer> {
@@ -429,10 +449,11 @@ export const capabilityPackageManager = {
   },
 
   async migrateLegacyAvailability(legacyInstall: boolean) {
-    if (existsSync(AVAILABILITY_MIGRATION)) {
+    const existingMigrationKind = await readAvailabilityMigrationKind();
+    if (existingMigrationKind) {
       return {
         migrated: false,
-        legacy: (await readAvailabilityMigrationKind()) === "legacy",
+        legacy: existingMigrationKind === "legacy",
         complete: true,
       };
     }
@@ -456,8 +477,8 @@ export const capabilityPackageManager = {
     await writeAvailabilityMigration("legacy");
   },
 
-  isHierarchicalMapsSelectionCorrectionComplete() {
-    return existsSync(HIERARCHICAL_MAPS_SELECTION_CORRECTION);
+  async isHierarchicalMapsSelectionCorrectionComplete() {
+    return readHierarchicalMapsSelectionCorrectionComplete();
   },
 
   async completeHierarchicalMapsSelectionCorrection() {

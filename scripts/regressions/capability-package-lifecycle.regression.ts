@@ -330,9 +330,34 @@ try {
   assert.equal(JSON.parse(readFileSync(migrationPath, "utf8")).kind, "legacy");
   assert.equal((await capabilityPackageManager.migrateLegacyAvailability(false)).legacy, true);
   assert.equal(existsSync(mapsCorrectionPath), false);
+  writeFileSync(mapsCorrectionPath, "{corrupted-marker");
+  assert.equal(
+    await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(),
+    false,
+    "A corrupted Maps correction marker must not suppress the corrective migration",
+  );
   await capabilityPackageManager.completeHierarchicalMapsSelectionCorrection();
-  assert.equal(existsSync(mapsCorrectionPath), true);
-  rmSync(migrationPath);
+  assert.equal(await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(), true);
+  writeFileSync(
+    mapsCorrectionPath,
+    JSON.stringify({ schemaVersion: 2, completedAt: new Date().toISOString() }),
+  );
+  assert.equal(
+    await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(),
+    false,
+    "A Maps correction marker with an unsupported schema must not be accepted",
+  );
+  writeFileSync(migrationPath, "{corrupted-marker");
+  const recoveredCorruptedMigration = await capabilityPackageManager.migrateLegacyAvailability(false);
+  assert.deepEqual(
+    recoveredCorruptedMigration,
+    { migrated: false, legacy: false, complete: true },
+    "A corrupted availability marker must be replaced instead of treated as complete",
+  );
+  writeFileSync(
+    migrationPath,
+    JSON.stringify({ schemaVersion: 2, kind: "legacy", completedAt: new Date().toISOString() }),
+  );
   const freshMigration = await capabilityPackageManager.migrateLegacyAvailability(false);
   assert.deepEqual(freshMigration, { migrated: false, legacy: false, complete: true });
   assert.equal(JSON.parse(readFileSync(migrationPath, "utf8")).kind, "fresh");
