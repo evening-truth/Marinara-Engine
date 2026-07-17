@@ -2255,7 +2255,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: "marinara-engine-ui",
-      version: 75,
+      version: 76,
       // Debounce localStorage writes to avoid sync I/O on every state change
       storage: createJSONStorage(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -2801,6 +2801,14 @@ export const useUIStore = create<UIState>()(
         if (version <= 74) {
           persisted.conversationTimeZone = normalizeConversationTimeZone(persisted.conversationTimeZone);
         }
+        if (version <= 75) {
+          delete persisted.characterPanelSearch;
+          delete persisted.characterPanelIncludedTags;
+          delete persisted.characterPanelExcludedTags;
+          delete persisted.characterPanelTagsExpanded;
+          delete persisted.characterPanelFavoriteFilter;
+          delete persisted.characterPanelScrollTop;
+        }
         persisted.appAccentRgbMode = persisted.appAccentRgbMode === true;
         persisted.customCursorEnabled = persisted.customCursorEnabled !== false;
         persisted.professorMariSuggestionsEnabled = persisted.professorMariSuggestionsEnabled !== false;
@@ -2837,12 +2845,6 @@ export const useUIStore = create<UIState>()(
         personaLibrarySelectedId: state.personaLibrarySelectedId,
         characterLibrarySort: state.characterLibrarySort,
         personaLibrarySort: state.personaLibrarySort,
-        characterPanelSearch: state.characterPanelSearch,
-        characterPanelIncludedTags: state.characterPanelIncludedTags,
-        characterPanelExcludedTags: state.characterPanelExcludedTags,
-        characterPanelTagsExpanded: state.characterPanelTagsExpanded,
-        characterPanelFavoriteFilter: state.characterPanelFavoriteFilter,
-        characterPanelScrollTop: state.characterPanelScrollTop,
         characterLibraryScrollTop: state.characterLibraryScrollTop,
         personaLibraryScrollTop: state.personaLibraryScrollTop,
         lorebookPanelCategory: state.lorebookPanelCategory,

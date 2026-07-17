@@ -1080,7 +1080,7 @@ export async function lorebooksRoutes(app: FastifyInstance) {
       logger.debug(err, "[lorebooks] Semantic scan preview failed; falling back to keyword-only preview");
     }
 
-    const ownerSpatialProjection = await resolveOwnerSpatialProjection(chatId);
+    const ownerSpatialProjection = await resolveOwnerSpatialProjection(chatId, {}, chatMeta);
 
     const result = await processLorebooks(app.db, scanMessages, gameStateForScan, {
       chatId,
@@ -1092,8 +1092,7 @@ export async function lorebooksRoutes(app: FastifyInstance) {
       chatEmbedding,
       semanticEmbeddingsByLorebookId,
       semanticSimilarityBaseline,
-      forcedEntryIds:
-        chat?.mode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
+      forcedEntryIds: chat?.mode === "conversation" ? [] : (ownerSpatialProjection?.lorebookEntryIds ?? []),
       tokenBudget: typeof chatMeta.lorebookTokenBudget === "number" ? chatMeta.lorebookTokenBudget : undefined,
       entryStateOverrides,
       entryTimingStates,
@@ -1109,9 +1108,7 @@ export async function lorebooksRoutes(app: FastifyInstance) {
     const semanticScoreById = new Map(result.activatedEntries.map((entry) => [entry.id, entry.semanticScore]));
 
     // Fetch full entry data for the activated IDs
-    const activationSourcesById = new Map(
-      result.activatedEntries.map((entry) => [entry.id, entry.activationSources]),
-    );
+    const activationSourcesById = new Map(result.activatedEntries.map((entry) => [entry.id, entry.activationSources]));
     const activeEntries =
       result.activatedEntryIds.length > 0
         ? await Promise.all(result.activatedEntryIds.map((id) => storage.getEntry(id))).then((entries) =>

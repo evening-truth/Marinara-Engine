@@ -18,7 +18,10 @@ import { createGameStoryboardsStorage } from "../services/storage/game-storyboar
 import { createGameStateStorage } from "../services/storage/game-state.storage.js";
 import { createSpatialContextStorage } from "../services/storage/spatial-context.storage.js";
 import { formatOwnerSpatialBreadcrumb, resolveOwnerSpatialProjection } from "../services/spatial-context/projection.js";
-import { parseStoredSpatialDefinition, resolveEffectiveSpatialState } from "../services/spatial-context/state-resolution.js";
+import {
+  parseStoredSpatialDefinition,
+  resolveEffectiveSpatialState,
+} from "../services/spatial-context/state-resolution.js";
 import {
   GameMapBindingError,
   updateGameMapBinding,
@@ -681,9 +684,7 @@ function compactIllustratorAppearanceLine(value: string): string {
 }
 
 export function buildGameIllustratorAppearanceContextBlock(characterDescriptions: string[]): string {
-  const lines = Array.from(
-    new Set(characterDescriptions.map(compactIllustratorAppearanceLine).filter(Boolean)),
-  )
+  const lines = Array.from(new Set(characterDescriptions.map(compactIllustratorAppearanceLine).filter(Boolean)))
     .slice(0, 16)
     .map(escapeStoryboardXml);
   if (!lines.length) return "";
@@ -4857,8 +4858,7 @@ export function selectStoryboardAppearanceCharacterNames(args: {
       name,
       order,
       mentionIndex: storyboardNormalizedMentionIndex(sourceText, name),
-      isActivePersona:
-        activePersonaName.length > 0 && normalizeAvatarLookupName(name) === activePersonaName,
+      isActivePersona: activePersonaName.length > 0 && normalizeAvatarLookupName(name) === activePersonaName,
     }))
     .filter((candidate) => candidate.isActivePersona || candidate.mentionIndex >= 0)
     .sort(
@@ -6904,7 +6904,7 @@ export async function gameRoutes(app: FastifyInstance) {
       let carriedStateSnapshotId = "";
       if (previousState) {
         try {
-          const previousSpatialState = await resolveEffectiveSpatialState(latestSession.id);
+          const previousSpatialState = await resolveEffectiveSpatialState(latestSession.id, {}, prevMeta);
           if (previousSpatialState.definition?.enabled && previousSpatialState.currentLocationId) {
             await createSpatialContextStorage().replaceBootstrap({
               chatId: newChat.id,
@@ -6915,7 +6915,7 @@ export async function gameRoutes(app: FastifyInstance) {
               transitionPayloadHash: null,
             });
           }
-          const ownerSpatialProjection = await resolveOwnerSpatialProjection(newChat.id);
+          const ownerSpatialProjection = await resolveOwnerSpatialProjection(newChat.id, {}, updatedNewMeta);
           carriedStateSnapshotId = await stateStore.create({
             chatId: newChat.id,
             messageId: recapMessageId,
@@ -8735,8 +8735,7 @@ export async function gameRoutes(app: FastifyInstance) {
         map: updatedMetadata.gameMap as GameMap,
         maps: getGameMapsFromMeta(updatedMetadata),
         activeGameMapId:
-          (updatedMetadata.activeGameMapId as string | null) ??
-          getGameMapId(updatedMetadata.gameMap as GameMap | null),
+          (updatedMetadata.activeGameMapId as string | null) ?? getGameMapId(updatedMetadata.gameMap as GameMap | null),
       };
     } catch (error) {
       if (
@@ -9054,10 +9053,7 @@ export async function gameRoutes(app: FastifyInstance) {
     // violate. Guard against that so a malformed request fails cleanly with a
     // 400 instead of an unhandled 500.
     try {
-      const applied = applyTacticalAction(
-        state as unknown as TacticalCombatState,
-        action as unknown as TacticalAction,
-      );
+      const applied = applyTacticalAction(state as unknown as TacticalCombatState, action as unknown as TacticalAction);
       if (!applied.ok) {
         return reply.status(400).send({ error: applied.error });
       }
@@ -10536,10 +10532,7 @@ export async function gameRoutes(app: FastifyInstance) {
           reason: plannedFrame.narrationBeat || `Storyboard keyframe ${frameIndex + 1}`,
           characters: plannedFrame.characters,
           characterPrompts,
-          slug: storyboardSlug(
-            `${slugPrefix}-${frameIndex + 1}-${plannedFrame.title}`,
-            `storyboard-${frameIndex + 1}`,
-          ),
+          slug: storyboardSlug(`${slugPrefix}-${frameIndex + 1}-${plannedFrame.title}`, `storyboard-${frameIndex + 1}`),
         };
         const illustrationAssets = collectIllustrationCharacterAssets({
           illustration,
@@ -10689,8 +10682,10 @@ export async function gameRoutes(app: FastifyInstance) {
           return { generatedImage: false, generatedVideo: false, imageFailure: true, videoFailure: false };
         }
         await storyboards.updateKeyframe(frame.id, { status: "rendering_image", error: null });
-        const { plannedFrame, characterPrompts, illustration, illustrationAssets } =
-          buildStoryboardFrameIllustration(frame.index, storyboardRow.id.slice(0, 8));
+        const { plannedFrame, characterPrompts, illustration, illustrationAssets } = buildStoryboardFrameIllustration(
+          frame.index,
+          storyboardRow.id.slice(0, 8),
+        );
         await storyboards.updateKeyframe(frame.id, {
           imagePrompt: plannedFrame.imagePrompt,
           mangaPanelPrompt: plannedFrame.mangaPanelPrompt,
@@ -12067,10 +12062,13 @@ export async function gameRoutes(app: FastifyInstance) {
     const checkpoints = createCheckpointService(app.db);
     const stateStore = createGameStateStorage(app.db);
     const spatialStore = createSpatialContextStorage();
+    const chats = createChatsStorage(app.db);
+    const chat = await chats.getById(input.chatId);
+    if (!chat) throw new Error("Chat not found");
 
     const snapshot = await stateStore.getLatest(input.chatId);
     if (!snapshot) throw new Error("No game state snapshot to checkpoint");
-    const spatialState = await resolveEffectiveSpatialState(input.chatId);
+    const spatialState = await resolveEffectiveSpatialState(input.chatId, {}, chat.metadata);
     const spatialSnapshot =
       spatialState.snapshot ??
       (spatialState.definition?.enabled && spatialState.currentLocationId
@@ -12133,6 +12131,8 @@ export async function gameRoutes(app: FastifyInstance) {
     const stateStore = createGameStateStorage(app.db);
     const spatialStore = createSpatialContextStorage();
     const chats = createChatsStorage(app.db);
+    const chat = await chats.getById(input.chatId);
+    if (!chat) throw new Error("Chat not found");
 
     const cp = await checkpointSvc.getById(input.checkpointId);
     if (!cp) throw new Error("Checkpoint not found");
@@ -12186,9 +12186,13 @@ export async function gameRoutes(app: FastifyInstance) {
         transitionPayloadHash: null,
       });
     }
-    const ownerSpatialProjection = await resolveOwnerSpatialProjection(input.chatId, {
-      exactAnchor: { messageId: restoreMsg.id, swipeIndex: 0 },
-    });
+    const ownerSpatialProjection = await resolveOwnerSpatialProjection(
+      input.chatId,
+      {
+        exactAnchor: { messageId: restoreMsg.id, swipeIndex: 0 },
+      },
+      chat.metadata,
+    );
     const manualOverrides = parseJsonField<Record<string, string> | null>(snapshot.manualOverrides, null);
     if (manualOverrides && ownerSpatialProjection?.ownerMode === "game") {
       delete manualOverrides.location;
@@ -12219,8 +12223,7 @@ export async function gameRoutes(app: FastifyInstance) {
     );
 
     // Restore chat metadata fields from checkpoint
-    const chat = await chats.getById(input.chatId);
-    if (chat && cp.gameState) {
+    if (cp.gameState) {
       await chats.patchMetadata(input.chatId, () => ({
         gameActiveState: cp.gameState as GameActiveState,
       }));

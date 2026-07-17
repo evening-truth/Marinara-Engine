@@ -5,14 +5,14 @@ const FONT_AWESOME_D20_SOURCE_URL = "https://github.com/FortAwesome/Font-Awesome
 const CC_BY_4_0_LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/";
 
 const CONTRIBUTORS = [
-  { login: "SpicyMarinara", url: "https://github.com/SpicyMarinara", contributions: 1476 },
+  { login: "SpicyMarinara", url: "https://github.com/SpicyMarinara", contributions: 1520 },
   { login: "cha1latte", url: "https://github.com/cha1latte", contributions: 319 },
   { login: "kolacheee", url: "https://github.com/kolacheee", contributions: 213 },
   { login: "Romuromylus", url: "https://github.com/Romuromylus", contributions: 202 },
-  { login: "thetopham", url: "https://github.com/thetopham", contributions: 116 },
+  { login: "thetopham", url: "https://github.com/thetopham", contributions: 118 },
   { login: "LukaTheHero", url: "https://github.com/LukaTheHero", contributions: 86 },
   { login: "Gunterlie", url: "https://github.com/Gunterlie", contributions: 81 },
-  { login: "Xelvanis", url: "https://github.com/Xelvanis", contributions: 74 },
+  { login: "Xelvanis", url: "https://github.com/Xelvanis", contributions: 75 },
   { login: "TheLonelyDevil9", url: "https://github.com/TheLonelyDevil9", contributions: 69 },
   { login: "Promansis", url: "https://github.com/Promansis", contributions: 64 },
   { login: "coxde", url: "https://github.com/coxde", contributions: 60 },
