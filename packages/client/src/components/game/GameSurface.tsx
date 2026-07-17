@@ -21,11 +21,7 @@ import { toast } from "sonner";
 import { useGameModeStore } from "../../stores/game-mode.store";
 import { useGameAssetStore } from "../../stores/game-asset.store";
 import { gameAssetKeys, useGameAssetManifest, type GameAssetManifest } from "../../hooks/use-game-assets";
-import {
-  cleanNpcAvatarDisplayName,
-  isSameNpcAvatarResource,
-  normalizeNpcAvatarName,
-} from "../../lib/game-npc-avatar";
+import { cleanNpcAvatarDisplayName, isSameNpcAvatarResource, normalizeNpcAvatarName } from "../../lib/game-npc-avatar";
 import { useChatStore } from "../../stores/chat.store";
 import { useUIStore } from "../../stores/ui.store";
 import { useGameStateStore } from "../../stores/game-state.store";
@@ -2368,6 +2364,7 @@ function GameSurfaceComponent({
   // Sync game metadata → store
   useSyncGameState(activeChatId, chatMeta);
   const hierarchicalMapsActive =
+    chatMeta.enableAgents === true &&
     Array.isArray(chatMeta.activeAgentIds) &&
     (chatMeta.activeAgentIds as string[]).includes("hierarchical-maps");
   const spatialContext = useSpatialContext(activeChatId, hierarchicalMapsActive);
@@ -2602,13 +2599,10 @@ function GameSurfaceComponent({
     () => filterGameAssetMap(assetManifest?.assets ?? null, gameAssetExcludedFolders),
     [assetManifest?.assets, gameAssetExcludedFolders],
   );
-  const getScopedAssetMap = useCallback(
-    () => {
-      const manifest = queryClient.getQueryData<GameAssetManifest>(gameAssetKeys.manifest());
-      return filterGameAssetMap(manifest?.assets ?? null, gameAssetExcludedFolders);
-    },
-    [gameAssetExcludedFolders, queryClient],
-  );
+  const getScopedAssetMap = useCallback(() => {
+    const manifest = queryClient.getQueryData<GameAssetManifest>(gameAssetKeys.manifest());
+    return filterGameAssetMap(manifest?.assets ?? null, gameAssetExcludedFolders);
+  }, [gameAssetExcludedFolders, queryClient]);
   const audioMuted = useGameAssetStore((s) => s.audioMuted);
 
   useEffect(() => {
@@ -7868,9 +7862,8 @@ function GameSurfaceComponent({
               : null;
           // `battlefield` is an optional forward-compatible field the encounter blueprint
           // may add for tactical combat; read defensively in case the type lags the schema.
-          const blueprintFormation = (
-            response.combatState as { battlefield?: { formation?: unknown } }
-          ).battlefield?.formation;
+          const blueprintFormation = (response.combatState as { battlefield?: { formation?: unknown } }).battlefield
+            ?.formation;
 
           setPreparedCombatState({
             messageId,

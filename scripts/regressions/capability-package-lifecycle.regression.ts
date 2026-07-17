@@ -9,6 +9,7 @@ process.env.DATA_DIR = dataDir;
 const packagesRoot = join(dataDir, "capability-packages");
 const registryPath = join(packagesRoot, "installed.json");
 const migrationPath = join(packagesRoot, "availability-migration-v1.json");
+const mapsCorrectionPath = join(packagesRoot, "hierarchical-maps-selection-correction-v1.json");
 const modelsRoot = join(dataDir, "models");
 const speechConfigPath = join(modelsRoot, "sidecar-speech-config.json");
 let closeDatabase: (() => Promise<void>) | null = null;
@@ -68,9 +69,7 @@ try {
     getCapabilityApiCompatibilityIssue,
     installedCapabilityPackageSchema,
     supportedCapabilityApi,
-  } = await import(
-    "../../packages/shared/src/schemas/capability-package.schema.js"
-  );
+  } = await import("../../packages/shared/src/schemas/capability-package.schema.js");
   assert.equal(compareCapabilityPackageVersions("1.0.1", "1.0.0"), 1);
   assert.equal(compareCapabilityPackageVersions("1.0.0", "1.0.1"), -1);
   assert.equal(compareCapabilityPackageVersions("1.0.1", "1.0.1"), 0);
@@ -192,20 +191,69 @@ try {
     "https://catalog.example.test/custom.json",
     "An operator catalog override must remain exact and take precedence over Engine lane selection",
   );
-  const { buildLegacyChatCapabilityPatch } = await import(
-    "../../packages/server/src/services/capability-packages/legacy-capability-chat-migration.js"
-  );
-  const { migrateLegacyCapabilities } = await import(
-    "../../packages/server/src/services/capability-packages/legacy-capability-migration.js"
-  );
+  const {
+    buildHierarchicalMapsSelectionCorrectionPatch,
+    buildLegacyChatCapabilityPatch,
+    correctLegacyHierarchicalMapsSelections,
+  } = await import("../../packages/server/src/services/capability-packages/legacy-capability-chat-migration.js");
+  const { migrateLegacyCapabilities } =
+    await import("../../packages/server/src/services/capability-packages/legacy-capability-migration.js");
 
-  assert.deepEqual(
+  assert.equal(
     buildLegacyChatCapabilityPatch({
       mode: "roleplay",
       metadata: { enableAgents: false, activeAgentIds: ["illustrator", "custom-agent"] },
     }),
-    { activeAgentIds: ["illustrator", "custom-agent", "hierarchical-maps"] },
-    "Legacy capability selection must not alter the agent execution master switch",
+    null,
+    "Legacy capability migration must preserve a chat that did not select Hierarchical Maps",
+  );
+  assert.deepEqual(
+    buildLegacyChatCapabilityPatch({ mode: "conversation", metadata: { activeAgentIds: [] } }),
+    {
+      activeAgentIds: ["uno", "chess", "poker", "eightball", "tic-tac-toe", "rock-paper-scissors"],
+    },
+    "The Maps fix must preserve migration of conversation games that were previously implicit",
+  );
+  assert.deepEqual(
+    buildHierarchicalMapsSelectionCorrectionPatch(
+      {
+        mode: "roleplay",
+        metadata: { enableAgents: false, activeAgentIds: ["illustrator", "hierarchical-maps"] },
+      },
+      false,
+    ),
+    { activeAgentIds: ["illustrator"] },
+    "The correction must remove an auto-added Maps selection when the chat has no map data",
+  );
+  assert.equal(
+    buildHierarchicalMapsSelectionCorrectionPatch(
+      {
+        mode: "roleplay",
+        metadata: {
+          activeAgentIds: ["hierarchical-maps"],
+          spatialContext: { locations: [{ id: "existing-location" }] },
+        },
+      },
+      false,
+    ),
+    null,
+    "The correction must preserve Maps when a spatial definition exists",
+  );
+  assert.equal(
+    buildHierarchicalMapsSelectionCorrectionPatch(
+      { mode: "game", metadata: { activeAgentIds: ["hierarchical-maps"] } },
+      true,
+    ),
+    null,
+    "The correction must preserve Maps when spatial snapshots exist",
+  );
+  assert.equal(
+    buildHierarchicalMapsSelectionCorrectionPatch(
+      { mode: "conversation", metadata: { activeAgentIds: ["hierarchical-maps"] } },
+      false,
+    ),
+    null,
+    "The correction must not alter chat modes that the faulty migration did not touch",
   );
 
   const migrationSteps: string[] = [];
@@ -217,14 +265,25 @@ try {
     async migrateChatSelections() {
       migrationSteps.push("chats");
     },
+    async correctHierarchicalMapsSelections() {
+      migrationSteps.push("correction");
+      return 0;
+    },
+    async isHierarchicalMapsCorrectionComplete() {
+      migrationSteps.push("correction-check");
+      return false;
+    },
     async flush() {
       migrationSteps.push("flush");
+    },
+    async completeHierarchicalMapsCorrection() {
+      migrationSteps.push("correction-marker");
     },
     async complete() {
       migrationSteps.push("marker");
     },
   });
-  assert.deepEqual(migrationSteps, ["packages", "chats", "flush", "marker"]);
+  assert.deepEqual(migrationSteps, ["packages", "correction-check", "chats", "flush", "correction-marker", "marker"]);
   assert.equal(completedMigration.complete, true);
 
   const interruptedSteps: string[] = [];
@@ -237,9 +296,20 @@ try {
       async migrateChatSelections() {
         interruptedSteps.push("chats");
       },
+      async correctHierarchicalMapsSelections() {
+        interruptedSteps.push("correction");
+        return 0;
+      },
+      async isHierarchicalMapsCorrectionComplete() {
+        interruptedSteps.push("correction-check");
+        return false;
+      },
       async flush() {
         interruptedSteps.push("flush");
         throw new Error("fixture flush failed");
+      },
+      async completeHierarchicalMapsCorrection() {
+        interruptedSteps.push("correction-marker");
       },
       async complete() {
         interruptedSteps.push("marker");
@@ -247,11 +317,78 @@ try {
     }),
     /fixture flush failed/,
   );
-  assert.deepEqual(interruptedSteps, ["packages", "chats", "flush"]);
+  assert.deepEqual(interruptedSteps, ["packages", "correction-check", "chats", "flush"]);
+
+  const correctionSteps: string[] = [];
+  await migrateLegacyCapabilities({} as never, true, {
+    async migrateAvailability() {
+      correctionSteps.push("packages");
+      return { migrated: false, legacy: true, complete: true };
+    },
+    async migrateChatSelections() {
+      correctionSteps.push("chats");
+    },
+    async correctHierarchicalMapsSelections() {
+      correctionSteps.push("correction");
+      return 1;
+    },
+    async isHierarchicalMapsCorrectionComplete() {
+      correctionSteps.push("correction-check");
+      return false;
+    },
+    async flush() {
+      correctionSteps.push("flush");
+    },
+    async completeHierarchicalMapsCorrection() {
+      correctionSteps.push("correction-marker");
+    },
+    async complete() {
+      correctionSteps.push("marker");
+    },
+  });
+  assert.deepEqual(correctionSteps, ["packages", "correction-check", "correction", "flush", "correction-marker"]);
 
   assert.equal(existsSync(migrationPath), false);
   await capabilityPackageManager.completeLegacyAvailabilityMigration();
   assert.equal(JSON.parse(readFileSync(migrationPath, "utf8")).kind, "legacy");
+  assert.equal((await capabilityPackageManager.migrateLegacyAvailability(false)).legacy, true);
+  assert.equal(existsSync(mapsCorrectionPath), false);
+  writeFileSync(mapsCorrectionPath, "{corrupted-marker");
+  assert.equal(
+    await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(),
+    false,
+    "A corrupted Maps correction marker must not suppress the corrective migration",
+  );
+  await capabilityPackageManager.completeHierarchicalMapsSelectionCorrection();
+  assert.equal(await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(), true);
+  writeFileSync(
+    mapsCorrectionPath,
+    JSON.stringify({ schemaVersion: 2, completedAt: new Date().toISOString() }),
+  );
+  assert.equal(
+    await capabilityPackageManager.isHierarchicalMapsSelectionCorrectionComplete(),
+    false,
+    "A Maps correction marker with an unsupported schema must not be accepted",
+  );
+  writeFileSync(migrationPath, "{corrupted-marker");
+  const recoveredCorruptedMigration = await capabilityPackageManager.migrateLegacyAvailability(false);
+  assert.deepEqual(
+    recoveredCorruptedMigration,
+    { migrated: false, legacy: false, complete: true },
+    "A corrupted availability marker must be replaced instead of treated as complete",
+  );
+  writeFileSync(
+    migrationPath,
+    JSON.stringify({ schemaVersion: 2, kind: "legacy", completedAt: new Date().toISOString() }),
+  );
+  const freshMigration = await capabilityPackageManager.migrateLegacyAvailability(false);
+  assert.deepEqual(freshMigration, { migrated: false, legacy: false, complete: true });
+  assert.equal(JSON.parse(readFileSync(migrationPath, "utf8")).kind, "fresh");
+  assert.equal(
+    (await capabilityPackageManager.migrateLegacyAvailability(true)).legacy,
+    false,
+    "A fresh-install marker must not later be mistaken for the faulty legacy migration",
+  );
   const catalogEntry = (manifest: typeof legacyManifest) => ({
     manifest,
     category: "misc",
@@ -323,6 +460,23 @@ try {
     /requires capability API 2\.0/,
     "Unsupported capability APIs must be blocked before runtime import",
   );
+  for (const version of ["1.0.0", "1.0.3", "1.0.6"]) {
+    const incompatibleMapsRuntime = installedCapabilityPackageSchema.parse({
+      ...installedPackage("hierarchical-maps", ["agent", "spatial-context"]),
+      version,
+      manifest: {
+        ...legacyManifest,
+        id: "hierarchical-maps",
+        name: "Hierarchical Maps",
+        version,
+      },
+    });
+    assert.match(
+      capabilityPackageManager.runtimeBlockReason(incompatibleMapsRuntime) ?? "",
+      /incompatible with file-native storage/,
+      `Hierarchical Maps ${version} must be blocked before its database adapter can crash the Engine`,
+    );
+  }
   const removedCalls = await capabilityPackageManager.uninstall("conversation-calls");
   assert.ok(removedCalls, "Conversation Calls should be removed");
   assert.equal(existsSync(join(modelsRoot, "Xenova", "whisper-tiny")), false);
@@ -398,9 +552,8 @@ try {
     export async function selfCheck() {}`,
   );
 
-  const { capabilityModuleRuntime, prepareCapabilityRuntimeEnvironment } = await import(
-    "../../packages/server/src/services/capability-packages/capability-module-runtime.service.js"
-  );
+  const { capabilityModuleRuntime, prepareCapabilityRuntimeEnvironment } =
+    await import("../../packages/server/src/services/capability-packages/capability-module-runtime.service.js");
   const configuredDataDir = process.env.DATA_DIR;
   delete process.env.DATA_DIR;
   prepareCapabilityRuntimeEnvironment(dataDir);
@@ -410,26 +563,99 @@ try {
     "Downloaded capability runtimes must resolve host-owned models from the host data directory",
   );
   process.env.DATA_DIR = configuredDataDir;
-  const { getCapabilityService } = await import(
-    "../../packages/server/src/services/capability-packages/capability-service-registry.service.js"
-  );
+  const { getCapabilityService } =
+    await import("../../packages/server/src/services/capability-packages/capability-service-registry.service.js");
   const { closeDB, getDB } = await import("../../packages/server/src/db/connection.js");
   closeDatabase = closeDB;
   const db = await getDB();
-  const { createCapabilityPersistenceHost } = await import(
-    "../../packages/server/src/services/capability-packages/capability-persistence.service.js"
-  );
-  const { createCapabilityResourceHost } = await import(
-    "../../packages/server/src/services/capability-packages/capability-resources.service.js"
-  );
+  const { createCapabilityPersistenceHost } =
+    await import("../../packages/server/src/services/capability-packages/capability-persistence.service.js");
+  const { createCapabilityResourceHost } =
+    await import("../../packages/server/src/services/capability-packages/capability-resources.service.js");
   const persistence = createCapabilityPersistenceHost(db);
   const resources = createCapabilityResourceHost(db);
   const { createChatsStorage } = await import("../../packages/server/src/services/storage/chats.storage.js");
-  const { createGameStateStorage } = await import(
-    "../../packages/server/src/services/storage/game-state.storage.js"
-  );
+  const { createGameStateStorage } = await import("../../packages/server/src/services/storage/game-state.storage.js");
   const { createLorebooksStorage } = await import("../../packages/server/src/services/storage/lorebooks.storage.js");
-  const rollbackChat = await createChatsStorage(db).create({
+  const chatsStore = createChatsStorage(db);
+  const autoAddedMapsChat = await chatsStore.create({
+    name: "Auto-added Maps selection fixture",
+    mode: "roleplay",
+    characterIds: [],
+  });
+  assert.ok(autoAddedMapsChat);
+  await chatsStore.patchMetadata(autoAddedMapsChat.id, {
+    enableAgents: false,
+    activeAgentIds: ["illustrator", "hierarchical-maps"],
+  });
+  const autoAddedBeforeCorrection = await chatsStore.getById(autoAddedMapsChat.id);
+  assert.ok(autoAddedBeforeCorrection);
+
+  const definitionMapsChat = await chatsStore.create({
+    name: "Persisted Maps definition fixture",
+    mode: "roleplay",
+    characterIds: [],
+  });
+  assert.ok(definitionMapsChat);
+  await chatsStore.patchMetadata(definitionMapsChat.id, {
+    activeAgentIds: ["hierarchical-maps"],
+    spatialContext: {
+      schemaVersion: 1,
+      ownerMode: "roleplay",
+      enabled: true,
+      locations: [
+        {
+          id: "existing-location",
+          parentId: null,
+          name: "Existing location",
+          kind: "region",
+          description: "A persisted map location.",
+          lorebookEntryIds: [],
+          childPresentation: "list",
+          links: [],
+          status: "active",
+          sortOrder: 0,
+        },
+      ],
+      startingLocationId: "existing-location",
+      revision: 1,
+    },
+  });
+
+  const snapshotMapsChat = await chatsStore.create({
+    name: "Persisted Maps snapshot fixture",
+    mode: "game",
+    characterIds: [],
+  });
+  assert.ok(snapshotMapsChat);
+  await chatsStore.patchMetadata(snapshotMapsChat.id, { activeAgentIds: ["hierarchical-maps"] });
+  await persistence.spatialSnapshots.create({
+    id: "maps-correction-snapshot",
+    chatId: snapshotMapsChat.id,
+    messageId: "",
+    swipeIndex: 0,
+    currentLocationId: "existing-location",
+    definitionRevision: 1,
+    source: "bootstrap",
+    transitionCommandId: null,
+    transitionPayloadHash: null,
+    createdAt: "2026-07-16T00:00:00.000Z",
+  });
+
+  assert.equal(await correctLegacyHierarchicalMapsSelections(db), 1);
+  const correctedMetadata = JSON.parse(String((await chatsStore.getById(autoAddedMapsChat.id))?.metadata));
+  assert.deepEqual(correctedMetadata.activeAgentIds, ["illustrator"]);
+  assert.equal(correctedMetadata.enableAgents, false);
+  assert.equal((await chatsStore.getById(autoAddedMapsChat.id))?.updatedAt, autoAddedBeforeCorrection.updatedAt);
+  assert.deepEqual(JSON.parse(String((await chatsStore.getById(definitionMapsChat.id))?.metadata)).activeAgentIds, [
+    "hierarchical-maps",
+  ]);
+  assert.deepEqual(JSON.parse(String((await chatsStore.getById(snapshotMapsChat.id))?.metadata)).activeAgentIds, [
+    "hierarchical-maps",
+  ]);
+  assert.equal(await correctLegacyHierarchicalMapsSelections(db), 0, "The chat correction must be idempotent");
+
+  const rollbackChat = await chatsStore.create({
     name: "Capability persistence rollback fixture",
     mode: "roleplay",
     characterIds: [],
@@ -661,7 +887,11 @@ try {
       { id: "readiness-success", readiness: "ready", ready: true, issue: null },
     ],
   );
-  assert.equal(JSON.stringify(diagnostics).includes("snapshot read failed"), false, "Health diagnostics must omit errors");
+  assert.equal(
+    JSON.stringify(diagnostics).includes("snapshot read failed"),
+    false,
+    "Health diagnostics must omit errors",
+  );
 
   await capabilityModuleRuntime.stop();
   assert.equal(getCapabilityService("readiness:success"), null, "Runtime stop must remove ready contributions");

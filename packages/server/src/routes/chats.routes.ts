@@ -1743,6 +1743,8 @@ export async function chatsRoutes(app: FastifyInstance) {
     if (!message || message.chatId !== req.params.chatId) {
       return reply.status(404).send({ error: "Message not found" });
     }
+    const chat = await storage.getById(req.params.chatId);
+    if (!chat) return reply.status(404).send({ error: "Chat not found" });
 
     const rawSwipeIndex = req.query.swipeIndex;
     if (typeof rawSwipeIndex === "string" && rawSwipeIndex.trim().length === 0) {
@@ -1763,9 +1765,13 @@ export async function chatsRoutes(app: FastifyInstance) {
     const gameStateStore = createGameStateStorage(app.db);
     const rawRow = await gameStateStore.getByChatAndMessage(req.params.chatId, req.params.messageId, swipeIndex);
     if (!rawRow) return reply.send(null);
-    const ownerSpatialProjection = await resolveOwnerSpatialProjection(req.params.chatId, {
-      exactAnchor: { messageId: req.params.messageId, swipeIndex },
-    });
+    const ownerSpatialProjection = await resolveOwnerSpatialProjection(
+      req.params.chatId,
+      {
+        exactAnchor: { messageId: req.params.messageId, swipeIndex },
+      },
+      chat.metadata,
+    );
     const row = projectGameSnapshotLocation(rawRow, ownerSpatialProjection)!;
     const manualOverrides = parseSnapshotJson<Record<string, string> | null>(row.manualOverrides, null);
     if (manualOverrides && ownerSpatialProjection?.ownerMode === "game") {
@@ -1806,9 +1812,12 @@ export async function chatsRoutes(app: FastifyInstance) {
       visibleAnchor,
     });
     if (!rawRow) return reply.send(null);
+    const chat = await storage.getById(req.params.id);
+    if (!chat) return reply.status(404).send({ error: "Chat not found" });
     const ownerSpatialProjection = await resolveOwnerSpatialProjection(
       req.params.id,
       rawRow.messageId ? { exactAnchor: { messageId: rawRow.messageId, swipeIndex: rawRow.swipeIndex } } : {},
+      chat.metadata,
     );
     const row = projectGameSnapshotLocation(rawRow, ownerSpatialProjection)!;
     const presentCharacters = JSON.parse((row.presentCharacters as string) ?? "[]") as Array<Record<string, unknown>>;
@@ -1830,7 +1839,6 @@ export async function chatsRoutes(app: FastifyInstance) {
       (c) => !c.avatarPath && c.name && !isManualTrackerCharacterId(c.characterId),
     );
     if (charsNeedingAvatar.length > 0) {
-      const chat = await storage.getById(req.params.id);
       const chatCharIds: string[] = (() => {
         try {
           const parsed = JSON.parse((chat?.characterIds as string) ?? "[]");
@@ -1906,7 +1914,9 @@ export async function chatsRoutes(app: FastifyInstance) {
     const gameStateStore = createGameStateStorage(app.db);
     const body = req.body as Record<string, unknown>;
     const manual = body.manual === true;
-    const ownerSpatialProjection = await resolveOwnerSpatialProjection(req.params.id);
+    const chat = await storage.getById(req.params.id);
+    if (!chat) return reply.status(404).send({ error: "Chat not found" });
+    const ownerSpatialProjection = await resolveOwnerSpatialProjection(req.params.id, {}, chat.metadata);
     if (manual && body.location !== undefined && ownerSpatialProjection?.ownerMode === "game") {
       return reply.status(409).send({
         error: "Story location is controlled by the hierarchical map.",
@@ -2157,7 +2167,7 @@ export async function chatsRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: "No exact saved prompt is available for this turn" });
     }
 
-    const ownerSpatialProjection = await resolveOwnerSpatialProjection(req.params.id);
+    const ownerSpatialProjection = await resolveOwnerSpatialProjection(req.params.id, {}, chatMeta);
 
     // ── Fallback: live assembly preview (no generation has happened yet) ──
     // This is a best-effort approximation; it won't include runtime-only
@@ -3485,9 +3495,13 @@ export async function chatsRoutes(app: FastifyInstance) {
       ) => {
         try {
           const overrides = parseSnapshotJson<Record<string, string> | null>(snapshot.manualOverrides, null);
-          const ownerSpatialProjection = await resolveOwnerSpatialProjection(newChat.id, {
-            exactAnchor: { messageId: targetMessageId, swipeIndex: targetSwipeIndex },
-          });
+          const ownerSpatialProjection = await resolveOwnerSpatialProjection(
+            newChat.id,
+            {
+              exactAnchor: { messageId: targetMessageId, swipeIndex: targetSwipeIndex },
+            },
+            sourceMeta,
+          );
           if (overrides && ownerSpatialProjection?.ownerMode === "game") {
             delete overrides.location;
           }

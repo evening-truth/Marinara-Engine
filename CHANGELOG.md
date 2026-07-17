@@ -17,6 +17,20 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 - Accepted dot or comma decimal input for Connection temperature, top-p, and other generation parameters without truncating fractional values (#3713).
 - Kept mobile Game CYOA choices visible between compact widget rails and exposed a direct host action from the world-map surface to the full hierarchical map editor (#3691).
 
+## [2.3.3]
+
+### Changed
+
+- Synchronized the stable release identity as v2.3.3 across the Engine, PWA manifest, Windows installer, Android bootstrap APK, update checks, and Home release link. Android uses `versionName` `2.3.3` with `versionCode` `38` so it updates over every previously published APK.
+
+### Fixed
+
+- Stopped the v2.3.2 capability migration from selecting Hierarchical Maps in every Roleplay, Visual Novel, and Game chat. A one-time correction removes only the accidental selections from chats without existing map definitions or snapshots, preserving intentional Maps usage and all other agent selections (#3723).
+- Made Hierarchical Maps obey each chat's **Enable Agents** master toggle across Roleplay and Game UI, prompt generation, lorebook previews, retries, tracker state patches, session carryover, and checkpoints. Disabled chats no longer initialize or call Maps services.
+- Quarantined incompatible Hierarchical Maps 1.0.x runtimes before their database adapter can load, preventing the recurring `t.select is not a function` crash while leaving compatible package updates available.
+- Prevented pending Game tracker edits from calling Hierarchical Maps in chats where it is inactive, eliminating the **Failed to flush 1 game-state patch callback** error that blocked message sends.
+- Reset stale Character-panel search, tag, favorite, and scroll filters during the v2.3.3 update and made them session-only, so reopening Marinara shows the complete Character collection instead of an old filtered subset. Full Library sorting and position preferences remain preserved.
+
 ## [2.3.2]
 
 ### Added

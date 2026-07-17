@@ -26,6 +26,12 @@ type ReleaseAnnouncement = {
 // Add each release here before its version ships. Versions without a tailored
 // entry still get a one-time update notice and a link to their full release.
 const RELEASE_ANNOUNCEMENTS: Record<string, ReleaseAnnouncement> = {
+  "2.3.3": {
+    headline: "A critical stability update.",
+    intro:
+      "This update repairs Hierarchical Maps activation and upgrade crashes, restores reliable Game message sending, and clears stale Character panel filters so your full library is visible again.",
+    highlights: [],
+  },
   "2.3.2": {
     headline: "A quick patch with bug fixes!",
     highlights: [],

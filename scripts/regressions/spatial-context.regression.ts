@@ -23,13 +23,19 @@ import {
   formatOwnerSpatialBreadcrumb,
   formatOwnerSpatialPrompt,
   injectOwnerSpatialPrompt,
+  isHierarchicalMapsEnabledForChat,
   omitAuthoritativeGameLocation,
   projectGameSnapshotLocation,
+  resolveOwnerSpatialProjection,
 } from "../../packages/server/src/services/spatial-context/projection.js";
 import {
   GameMapBindingError,
   updateGameMapBinding,
 } from "../../packages/server/src/services/spatial-context/game-map-binding.js";
+import {
+  materializeAssistantSpatialState,
+  resolveEffectiveSpatialState,
+} from "../../packages/server/src/services/spatial-context/state-resolution.js";
 import { ensureTimestampAfter } from "../../packages/server/src/services/import/import-timestamps.js";
 import { resolveVisibleGameStateAnchor } from "../../packages/server/src/routes/generate/generate-route-utils.js";
 
@@ -431,8 +437,13 @@ assert.equal(omitAuthoritativeGameLocation(fallbackPatch, fallbackProjection), f
 
 const delegatedProjection = { ...fallbackProjection, description: "Delegated package projection." };
 const delegatedMessages = [{ role: "system" as const, content: "<delegated />" }];
+let delegatedResolutionCount = 0;
 const removeProjectionService = registerCapabilityService("hierarchical-maps:projection", {
   buildOwnerSpatialProjection: () => delegatedProjection,
+  resolveOwnerSpatialProjection: async () => {
+    delegatedResolutionCount += 1;
+    return delegatedProjection;
+  },
   formatOwnerSpatialBreadcrumb: () => "Delegated > Breadcrumb",
   formatOwnerSpatialPrompt: () => "<delegated-spatial-context />",
   injectOwnerSpatialPrompt: () => delegatedMessages,
@@ -451,6 +462,28 @@ const removeGameMapBindingService = registerCapabilityService("hierarchical-maps
 });
 
 assert.equal(buildOwnerSpatialProjection("chat-roleplay", validDefinition, "tower_library"), delegatedProjection);
+assert.equal(isHierarchicalMapsEnabledForChat(null), false);
+assert.equal(isHierarchicalMapsEnabledForChat("not-json"), false);
+assert.equal(isHierarchicalMapsEnabledForChat({ enableAgents: false, activeAgentIds: ["hierarchical-maps"] }), false);
+assert.equal(isHierarchicalMapsEnabledForChat({ enableAgents: true, activeAgentIds: ["hierarchical-maps"] }), true);
+assert.equal(
+  await resolveOwnerSpatialProjection(
+    "chat-roleplay",
+    {},
+    { enableAgents: false, activeAgentIds: ["hierarchical-maps"] },
+  ),
+  null,
+);
+assert.equal(delegatedResolutionCount, 0, "The master Agents toggle must prevent package spatial resolution");
+assert.equal(
+  await resolveOwnerSpatialProjection(
+    "chat-roleplay",
+    {},
+    { enableAgents: true, activeAgentIds: ["hierarchical-maps"] },
+  ),
+  delegatedProjection,
+);
+assert.equal(delegatedResolutionCount, 1);
 assert.equal(formatOwnerSpatialBreadcrumb(delegatedProjection), "Delegated > Breadcrumb");
 assert.equal(formatOwnerSpatialPrompt(delegatedProjection), "<delegated-spatial-context />");
 assert.equal(injectOwnerSpatialPrompt(fallbackMessages, delegatedProjection), delegatedMessages);
@@ -459,6 +492,62 @@ assert.deepEqual(projectGameSnapshotLocation(fallbackSnapshot, delegatedProjecti
   weather: "Rain",
 });
 assert.deepEqual(omitAuthoritativeGameLocation(fallbackPatch, delegatedProjection), { time: "Noon" });
+
+let delegatedStateResolutionCount = 0;
+let delegatedMaterializationCount = 0;
+const delegatedState = {
+  definition: null,
+  snapshot: null,
+  currentLocationId: "tower_library",
+  definitionRevision: 4,
+  visibleAnchor: null,
+  virtual: true,
+};
+const removeStateResolutionService = registerCapabilityService("hierarchical-maps:state-resolution", {
+  resolveEffectiveSpatialState: async () => {
+    delegatedStateResolutionCount += 1;
+    return delegatedState;
+  },
+  materializeAssistantSpatialState: async () => {
+    delegatedMaterializationCount += 1;
+    return null;
+  },
+});
+const disabledMapsMetadata = { enableAgents: false, activeAgentIds: ["hierarchical-maps"] };
+const enabledMapsMetadata = { enableAgents: true, activeAgentIds: ["hierarchical-maps"] };
+assert.equal((await resolveEffectiveSpatialState("chat-roleplay", {}, disabledMapsMetadata)).currentLocationId, null);
+assert.equal(
+  await materializeAssistantSpatialState(
+    {
+      chatId: "chat-roleplay",
+      messageId: "assistant-disabled",
+      swipeIndex: 0,
+      regenerate: false,
+      continuation: false,
+    },
+    disabledMapsMetadata,
+  ),
+  null,
+);
+assert.equal(delegatedStateResolutionCount, 0);
+assert.equal(delegatedMaterializationCount, 0);
+assert.equal(
+  (await resolveEffectiveSpatialState("chat-roleplay", {}, enabledMapsMetadata)).currentLocationId,
+  "tower_library",
+);
+await materializeAssistantSpatialState(
+  {
+    chatId: "chat-roleplay",
+    messageId: "assistant-enabled",
+    swipeIndex: 0,
+    regenerate: false,
+    continuation: false,
+  },
+  enabledMapsMetadata,
+);
+assert.equal(delegatedStateResolutionCount, 1);
+assert.equal(delegatedMaterializationCount, 1);
+removeStateResolutionService();
 assert.deepEqual(
   updateGameMapBinding(
     { existing: true },

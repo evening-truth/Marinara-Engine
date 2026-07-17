@@ -1,5 +1,6 @@
 import type { SpatialContextDefinition, SpatialContextSnapshot } from "@marinara-engine/shared";
 import { getCapabilityService } from "../capability-packages/capability-service-registry.service.js";
+import { isHierarchicalMapsEnabledForChat } from "./activation.js";
 
 export interface SpatialMessageAnchor {
   messageId: string;
@@ -41,8 +42,19 @@ export function parseStoredSpatialDefinition(rawMetadata: unknown): SpatialConte
 
 export async function resolveEffectiveSpatialState(
   chatId: string,
-  options: ResolveSpatialStateOptions = {},
+  options: ResolveSpatialStateOptions,
+  chatMetadata: unknown,
 ): Promise<EffectiveSpatialState> {
+  if (!isHierarchicalMapsEnabledForChat(chatMetadata)) {
+    return {
+      definition: null,
+      snapshot: null,
+      currentLocationId: null,
+      definitionRevision: 0,
+      visibleAnchor: null,
+      virtual: false,
+    };
+  }
   return (
     service()?.resolveEffectiveSpatialState(chatId, options) ?? {
       definition: null,
@@ -57,6 +69,8 @@ export async function resolveEffectiveSpatialState(
 
 export async function materializeAssistantSpatialState(
   input: { chatId: string; messageId: string; swipeIndex: number; regenerate: boolean; continuation: boolean },
+  chatMetadata: unknown,
 ): Promise<SpatialContextSnapshot | null> {
+  if (!isHierarchicalMapsEnabledForChat(chatMetadata)) return null;
   return service()?.materializeAssistantSpatialState(input) ?? null;
 }

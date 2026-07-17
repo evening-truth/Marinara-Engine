@@ -610,11 +610,11 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     const ownerSpatialProjection = await resolveOwnerSpatialProjection(
       chatId,
       regenerateMessageId ? { beforeMessageId: regenerateMessageId } : {},
+      chatMeta,
     );
     const promptSpatialProjection =
       (ownerSpatialProjection?.ownerMode === "game" && chatMode === "game") ||
-      (ownerSpatialProjection?.ownerMode === "roleplay" &&
-        (chatMode === "roleplay" || chatMode === "visual_novel"))
+      (ownerSpatialProjection?.ownerMode === "roleplay" && (chatMode === "roleplay" || chatMode === "visual_novel"))
         ? ownerSpatialProjection
         : null;
     const ownerSpatialLorebookEntryIds = promptSpatialProjection?.lorebookEntryIds ?? [];
@@ -805,9 +805,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
       personaDescription,
       personaFields,
       variables: {
-        gameStoryboardKeyframeCount: String(
-          normalizeGameStoryboardKeyframeCount(chatMeta.gameStoryboardKeyframeCount),
-        ),
+        gameStoryboardKeyframeCount: String(normalizeGameStoryboardKeyframeCount(chatMeta.gameStoryboardKeyframeCount)),
       },
       groupScenarioOverrideText:
         typeof chatMeta.groupScenarioText === "string" && (chatMeta.groupScenarioText as string).trim()
@@ -1432,11 +1430,7 @@ export async function registerDryRunRoute(app: FastifyInstance) {
     }
 
     if (usePromptParts || !effectivePresetId) {
-      const characterAdvancedPromptIds = resolveCharacterAdvancedPromptIds(
-        promptCharacterIds,
-        chatMode,
-        chatMeta,
-      );
+      const characterAdvancedPromptIds = resolveCharacterAdvancedPromptIds(promptCharacterIds, chatMode, chatMeta);
       const characterAdvancedPromptEntries = await collectCharacterAdvancedPromptEntries(
         app.db,
         characterAdvancedPromptIds,

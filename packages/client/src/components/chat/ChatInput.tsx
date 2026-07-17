@@ -318,7 +318,8 @@ export const ChatInput = memo(function ChatInput({
   );
   const narrativeDirectorActive =
     mode === "roleplay" && chatMetadata.enableAgents === true && activeAgentIds.includes("director");
-  const hierarchicalMapsActive = mode === "roleplay" && activeAgentIds.includes("hierarchical-maps");
+  const hierarchicalMapsActive =
+    mode === "roleplay" && chatMetadata.enableAgents === true && activeAgentIds.includes("hierarchical-maps");
   const combatActionActive =
     mode === "roleplay" && combatAgentEnabled === true && typeof onStartEncounter === "function";
   const showRoleplayAgentActions = narrativeDirectorActive || combatActionActive;
@@ -511,13 +512,14 @@ export const ChatInput = memo(function ChatInput({
   const messagesData = qc.getQueryData<InfiniteData<Message[]>>(chatKeys.messages(activeChatId ?? ""));
   const isProfessorMariChat = activeChatCharacters?.some((character) => character.id === PROFESSOR_MARI_ID) ?? false;
   const hasMessages = (messagesData?.pages ?? []).some((page) => page.length > 0);
-  const visibleMariChips = isProfessorMariChat && professorMariSuggestionsEnabled
-    ? mariChipsChatId === activeChatId && mariChips.length > 0
-      ? mariChips
-      : !hasMessages
-        ? MARI_STARTER_CHIPS
-        : []
-    : [];
+  const visibleMariChips =
+    isProfessorMariChat && professorMariSuggestionsEnabled
+      ? mariChipsChatId === activeChatId && mariChips.length > 0
+        ? mariChips
+        : !hasMessages
+          ? MARI_STARTER_CHIPS
+          : []
+      : [];
 
   const mariPlan = useAgentStore((s) => s.mariPlan);
   const mariPlanChatId = useAgentStore((s) => s.mariPlanChatId);
@@ -1412,7 +1414,6 @@ export const ChatInput = memo(function ChatInput({
   useEffect(() => {
     if (hasInput && feedback) setFeedback(null);
   }, [hasInput, feedback]);
-
 
   const handleEmojiSelect = useCallback(
     (emoji: string) => {

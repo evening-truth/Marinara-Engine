@@ -24,6 +24,7 @@ const ROOT = join(DATA_DIR, "capability-packages");
 const VERSIONS = join(ROOT, "versions");
 const REGISTRY = join(ROOT, "installed.json");
 const AVAILABILITY_MIGRATION = join(ROOT, "availability-migration-v1.json");
+const HIERARCHICAL_MAPS_SELECTION_CORRECTION = join(ROOT, "hierarchical-maps-selection-correction-v1.json");
 const NON_DOWNLOADABLE_CORE_PACKAGE_IDS = new Set(["about-me-keeper"]);
 const OFFICIAL_CATALOG_ROOT = "https://raw.githubusercontent.com/Pasta-Devs/Marinara-Agents/main/catalog";
 const ENGINE_RELEASE_VERSION_PATTERN = /^v?(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
@@ -42,11 +43,14 @@ const CATALOG_URL = resolveCapabilityCatalogUrl();
 const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 250 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
-const KNOWN_INCOMPATIBLE_RUNTIMES = new Map([
-  [
-    "hierarchical-maps@1.0.0",
-    "Hierarchical Maps 1.0.0 is incompatible with file-native storage. Update the package before using maps.",
-  ],
+const KNOWN_INCOMPATIBLE_RUNTIMES = new Map<string, string>([
+  ...["1.0.0", "1.0.3", "1.0.6"].map(
+    (version) =>
+      [
+        `hierarchical-maps@${version}`,
+        `Hierarchical Maps ${version} is incompatible with file-native storage. Update the package before using maps.`,
+      ] as const,
+  ),
 ]);
 
 function normalizeArchivePath(value: string): string {
@@ -61,7 +65,7 @@ function normalizeArchivePath(value: string): string {
 }
 
 function isSymlink(entry: AdmZip.IZipEntry): boolean {
-  return (((entry.attr >>> 16) & 0o170000) === 0o120000);
+  return ((entry.attr >>> 16) & 0o170000) === 0o120000;
 }
 
 function inside(root: string, candidate: string): string {
@@ -72,9 +76,11 @@ function inside(root: string, candidate: string): string {
 }
 
 function runtimeBlockReason(installed: InstalledCapabilityPackage): string | null {
-  return getCapabilityApiCompatibilityIssue(installed.manifest) ??
+  return (
+    getCapabilityApiCompatibilityIssue(installed.manifest) ??
     KNOWN_INCOMPATIBLE_RUNTIMES.get(`${installed.id}@${installed.version}`) ??
-    null;
+    null
+  );
 }
 
 function assertNotDowngrade(current: InstalledCapabilityPackage | undefined, nextVersion: string) {
@@ -104,10 +110,52 @@ async function writeRegistry(packages: InstalledCapabilityPackage[]) {
 async function writeAvailabilityMigration(kind: "fresh" | "legacy") {
   await mkdir(ROOT, { recursive: true });
   const temporary = `${AVAILABILITY_MIGRATION}.tmp-${process.pid}-${Date.now()}`;
-  await writeFile(temporary, JSON.stringify({ schemaVersion: 1, kind, completedAt: new Date().toISOString() }, null, 2), {
+  await writeFile(
+    temporary,
+    JSON.stringify({ schemaVersion: 1, kind, completedAt: new Date().toISOString() }, null, 2),
+    {
+      mode: 0o600,
+    },
+  );
+  await rename(temporary, AVAILABILITY_MIGRATION);
+}
+
+function hasValidCompletionTimestamp(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && Number.isFinite(Date.parse(value));
+}
+
+async function readAvailabilityMigrationKind(): Promise<"fresh" | "legacy" | null> {
+  try {
+    const parsed = JSON.parse(await readFile(AVAILABILITY_MIGRATION, "utf8")) as Record<string, unknown>;
+    return parsed.schemaVersion === 1 &&
+      (parsed.kind === "fresh" || parsed.kind === "legacy") &&
+      hasValidCompletionTimestamp(parsed.completedAt)
+      ? parsed.kind
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeHierarchicalMapsSelectionCorrection() {
+  await mkdir(ROOT, { recursive: true });
+  const temporary = `${HIERARCHICAL_MAPS_SELECTION_CORRECTION}.tmp-${process.pid}-${Date.now()}`;
+  await writeFile(temporary, JSON.stringify({ schemaVersion: 1, completedAt: new Date().toISOString() }, null, 2), {
     mode: 0o600,
   });
-  await rename(temporary, AVAILABILITY_MIGRATION);
+  await rename(temporary, HIERARCHICAL_MAPS_SELECTION_CORRECTION);
+}
+
+async function readHierarchicalMapsSelectionCorrectionComplete(): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(await readFile(HIERARCHICAL_MAPS_SELECTION_CORRECTION, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    return parsed.schemaVersion === 1 && hasValidCompletionTimestamp(parsed.completedAt);
+  } catch {
+    return false;
+  }
 }
 
 async function fetchBytes(url: string, maximum: number): Promise<Buffer> {
@@ -179,7 +227,8 @@ async function installCatalogPackage(entry: CapabilityCatalogPackage, activateDu
     throw new Error("Artifact manifest does not match the catalog");
   }
   const declaredFiles = new Map(installedManifest.files.map((file) => [normalizeArchivePath(file.path), file]));
-  if (declaredFiles.size !== installedManifest.files.length) throw new Error("Package manifest declares duplicate files");
+  if (declaredFiles.size !== installedManifest.files.length)
+    throw new Error("Package manifest declares duplicate files");
   const payloadEntries = entries.filter((item) => item.entryName !== "manifest.json");
   if (payloadEntries.length !== declaredFiles.size) throw new Error("Package contains undeclared or missing files");
   const verifiedFiles = new Map<string, Buffer>();
@@ -337,12 +386,7 @@ export const capabilityPackageManager = {
         installed,
         serverEntrypoint: inside(
           VERSIONS,
-          join(
-            VERSIONS,
-            installed.id,
-            installed.version,
-            normalizeArchivePath(installed.manifest.entrypoints.server!),
-          ),
+          join(VERSIONS, installed.id, installed.version, normalizeArchivePath(installed.manifest.entrypoints.server!)),
         ),
       }));
   },
@@ -354,14 +398,15 @@ export const capabilityPackageManager = {
     if (!entrypoint) return null;
     return {
       installed,
-      file: inside(
-        VERSIONS,
-        join(VERSIONS, installed.id, installed.version, normalizeArchivePath(entrypoint)),
-      ),
+      file: inside(VERSIONS, join(VERSIONS, installed.id, installed.version, normalizeArchivePath(entrypoint))),
     };
   },
 
-  async markRuntimeStatus(packageId: string, status: InstalledCapabilityPackage["status"], error: string | null = null) {
+  async markRuntimeStatus(
+    packageId: string,
+    status: InstalledCapabilityPackage["status"],
+    error: string | null = null,
+  ) {
     const registry = await readRegistry();
     const index = registry.packages.findIndex((installed) => installed.id === packageId);
     if (index < 0) return;
@@ -386,10 +431,7 @@ export const capabilityPackageManager = {
     const index = registry.packages.findIndex((installed) => installed.id === packageId);
     const current = index >= 0 ? registry.packages[index] : undefined;
     if (!current?.previousVersion) return null;
-    const previousManifestFile = inside(
-      VERSIONS,
-      join(VERSIONS, current.id, current.previousVersion, "manifest.json"),
-    );
+    const previousManifestFile = inside(VERSIONS, join(VERSIONS, current.id, current.previousVersion, "manifest.json"));
     if (!existsSync(previousManifestFile)) return null;
     const manifest = capabilityPackageManifestSchema.parse(JSON.parse(await readFile(previousManifestFile, "utf8")));
     const restored: InstalledCapabilityPackage = {
@@ -409,13 +451,23 @@ export const capabilityPackageManager = {
     return server
       ? {
           installed: restored,
-          serverEntrypoint: inside(VERSIONS, join(VERSIONS, restored.id, restored.version, normalizeArchivePath(server))),
+          serverEntrypoint: inside(
+            VERSIONS,
+            join(VERSIONS, restored.id, restored.version, normalizeArchivePath(server)),
+          ),
         }
       : null;
   },
 
   async migrateLegacyAvailability(legacyInstall: boolean) {
-    if (existsSync(AVAILABILITY_MIGRATION)) return { migrated: false, legacy: legacyInstall, complete: true };
+    const existingMigrationKind = await readAvailabilityMigrationKind();
+    if (existingMigrationKind) {
+      return {
+        migrated: false,
+        legacy: existingMigrationKind === "legacy",
+        complete: true,
+      };
+    }
     if (!legacyInstall) {
       await writeAvailabilityMigration("fresh");
       return { migrated: false, legacy: false, complete: true };
@@ -434,6 +486,14 @@ export const capabilityPackageManager = {
 
   async completeLegacyAvailabilityMigration() {
     await writeAvailabilityMigration("legacy");
+  },
+
+  async isHierarchicalMapsSelectionCorrectionComplete() {
+    return readHierarchicalMapsSelectionCorrectionComplete();
+  },
+
+  async completeHierarchicalMapsSelectionCorrection() {
+    await writeHierarchicalMapsSelectionCorrection();
   },
 
   async updateInstalledPackagesToLatest() {

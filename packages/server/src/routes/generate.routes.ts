@@ -66,6 +66,7 @@ import {
   projectGameSnapshotLocation,
   resolveOwnerSpatialProjection,
 } from "../services/spatial-context/projection.js";
+import { isHierarchicalMapsEnabledForChat } from "../services/spatial-context/activation.js";
 import { materializeAssistantSpatialState } from "../services/spatial-context/state-resolution.js";
 import { createConnectionsStorage } from "../services/storage/connections.storage.js";
 import { createPromptsStorage } from "../services/storage/prompts.storage.js";
@@ -761,9 +762,11 @@ export async function generateRoutes(app: FastifyInstance) {
     const discordWebhookUrl = typeof earlyMeta.discordWebhookUrl === "string" ? earlyMeta.discordWebhookUrl : "";
     let pendingUserDiscordMsg = "";
     let currentTurnUserMessageId: string | null = null;
-    let committedSpatialTransition:
-      | { commandId: string; currentLocationId: string | null; definitionRevision: number }
-      | null = null;
+    let committedSpatialTransition: {
+      commandId: string;
+      currentLocationId: string | null;
+      definitionRevision: number;
+    } | null = null;
 
     // Save user message — skip for impersonate (no real user message to save)
     if (!input.impersonate && (input.userMessage || input.attachments?.length || input.pendingSpatialTransition)) {
@@ -1158,6 +1161,7 @@ export async function generateRoutes(app: FastifyInstance) {
         excludeMessageId: input.regenerateMessageId ?? null,
         fallbackMessageIds: resolveRegenerationGameStateFallbackMessageIds(scopedMessages, input.regenerateMessageId),
       };
+      const hierarchicalMapsEnabledForChat = isHierarchicalMapsEnabledForChat(chatMeta);
       const ownerSpatialProjectionPromise = resolveOwnerSpatialProjection(
         input.chatId,
         input.regenerateMessageId
@@ -1165,6 +1169,7 @@ export async function generateRoutes(app: FastifyInstance) {
           : input.continueMessageId
             ? { throughMessageId: input.continueMessageId }
             : {},
+        chatMeta,
       );
       const rawSelectedGameStateSnapshotPromise = gameStateStore.getForGeneration(
         input.chatId,
@@ -2316,7 +2321,8 @@ export async function generateRoutes(app: FastifyInstance) {
             characterIds: promptCharacterIds,
             personaId,
             activeLorebookIds: chatActiveLorebookIds,
-            forcedEntryIds: ownerSpatialProjection?.ownerMode === "roleplay" ? ownerSpatialProjection.lorebookEntryIds : [],
+            forcedEntryIds:
+              ownerSpatialProjection?.ownerMode === "roleplay" ? ownerSpatialProjection.lorebookEntryIds : [],
             excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
             excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
             tokenBudget: resolveLorebookTokenBudget(chatMeta),
@@ -2675,7 +2681,8 @@ export async function generateRoutes(app: FastifyInstance) {
                 characterIds,
                 personaId,
                 activeLorebookIds: chatActiveLorebookIds,
-                forcedEntryIds: ownerSpatialProjection?.ownerMode === "game" ? ownerSpatialProjection.lorebookEntryIds : [],
+                forcedEntryIds:
+                  ownerSpatialProjection?.ownerMode === "game" ? ownerSpatialProjection.lorebookEntryIds : [],
                 excludedLorebookIds: lorebookScopeExclusions.excludedLorebookIds,
                 excludedSourceAgentIds: lorebookScopeExclusions.excludedSourceAgentIds,
                 tokenBudget: resolveLorebookTokenBudget(chatMeta),
@@ -5707,15 +5714,19 @@ export async function generateRoutes(app: FastifyInstance) {
                 : savedMsg;
               if (
                 anchoredMsg?.id &&
+                hierarchicalMapsEnabledForChat &&
                 (requestChatMode === "roleplay" || requestChatMode === "game")
               ) {
-                await materializeAssistantSpatialState({
-                  chatId: input.chatId,
-                  messageId: anchoredMsg.id,
-                  swipeIndex: anchoredMsg.activeSwipeIndex ?? 0,
-                  regenerate: false,
-                  continuation: false,
-                });
+                await materializeAssistantSpatialState(
+                  {
+                    chatId: input.chatId,
+                    messageId: anchoredMsg.id,
+                    swipeIndex: anchoredMsg.activeSwipeIndex ?? 0,
+                    regenerate: false,
+                    continuation: false,
+                  },
+                  chatMeta,
+                );
               }
               if (markGenerationCommitted && anchoredMsg?.id) {
                 generationComplete = true;
@@ -5769,15 +5780,19 @@ export async function generateRoutes(app: FastifyInstance) {
             savedMsg?.id &&
             savedSwipeIndex !== null &&
             !input.impersonate &&
+            hierarchicalMapsEnabledForChat &&
             (requestChatMode === "roleplay" || requestChatMode === "game")
           ) {
-            await materializeAssistantSpatialState({
-              chatId: input.chatId,
-              messageId: savedMsg.id,
-              swipeIndex: savedSwipeIndex,
-              regenerate: Boolean(input.regenerateMessageId),
-              continuation: Boolean(input.continueMessageId),
-            });
+            await materializeAssistantSpatialState(
+              {
+                chatId: input.chatId,
+                messageId: savedMsg.id,
+                swipeIndex: savedSwipeIndex,
+                regenerate: Boolean(input.regenerateMessageId),
+                continuation: Boolean(input.continueMessageId),
+              },
+              chatMeta,
+            );
           }
           if (markGenerationCommitted && savedMsg?.id) {
             generationComplete = true;
