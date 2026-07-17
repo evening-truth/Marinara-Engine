@@ -31,22 +31,30 @@ export interface CompileImagePromptInput {
 }
 
 export function compileImagePrompt(input: CompileImagePromptInput): CompiledImagePrompt {
-  const initial = compileImagePromptPass(input, false);
+  const initial = compileImagePromptPass(input, false, false);
   const generatedStyle = input.generatedStyle?.trim() ?? "";
-  if (!generatedStyle) return initial;
+  const userPositive = input.userPositive?.trim() ?? "";
+  if (!generatedStyle && !userPositive) return initial;
 
   // Only trust deduplication after transformation and compaction. If they removed the
-  // source copy, rebuild with the explicit style protected from the compacting budget.
+  // source copy, rebuild with explicit inputs protected from the compacting budget.
   const { fragmentMode } = resolveImagePromptCompilationMode(input, initial.profile);
   const providerVisiblePrompt = [initial.prompt, input.dedupeAgainstPrompt].filter(Boolean).join("\n");
-  if (promptContainsPositiveNormalizedValue(providerVisiblePrompt, generatedStyle, fragmentMode)) return initial;
+  const protectGeneratedStyle =
+    Boolean(generatedStyle) &&
+    !promptContainsPositiveNormalizedValue(providerVisiblePrompt, generatedStyle, fragmentMode);
+  const protectUserPositive =
+    Boolean(userPositive) &&
+    !promptContainsPositiveNormalizedValue(providerVisiblePrompt, userPositive, fragmentMode);
+  if (!protectGeneratedStyle && !protectUserPositive) return initial;
 
-  return compileImagePromptPass(input, true);
+  return compileImagePromptPass(input, protectGeneratedStyle, protectUserPositive);
 }
 
 function compileImagePromptPass(
   input: CompileImagePromptInput,
   protectGeneratedStyle: boolean,
+  protectUserPositive: boolean,
 ): CompiledImagePrompt {
   const profile = findImageStyleProfile(
     input.styleProfiles,
@@ -68,12 +76,9 @@ function compileImagePromptPass(
   const generatedStylePart = protectGeneratedStyle
     ? generatedStyle
     : omitPromptValueAlreadyPresent(generatedStyle, duplicateComparisonPrompt, fragmentMode, positiveDiagnostics);
-  const userPositivePart = omitPromptValueAlreadyPresent(
-    userPositive,
-    duplicateComparisonPrompt,
-    fragmentMode,
-    positiveDiagnostics,
-  );
+  const userPositivePart = protectUserPositive
+    ? userPositive
+    : omitPromptValueAlreadyPresent(userPositive, duplicateComparisonPrompt, fragmentMode, positiveDiagnostics);
   const promptPrefix = imagePromptPrefixFromDefaults(input.imageDefaults);
   const negativePromptPrefix = imageNegativePromptPrefixFromDefaults(input.imageDefaults);
   const sourceCueText = [input.prompt, input.userPositive].filter(Boolean).join("\n");
@@ -98,7 +103,11 @@ function compileImagePromptPass(
           hardPrefix: protectGeneratedStyle,
         },
         { value: input.prompt, sourcePrompt: true },
-        { value: userPositivePart, sourcePrompt: true },
+        {
+          value: userPositivePart,
+          sourcePrompt: !protectUserPositive,
+          hardPrefix: protectUserPositive,
+        },
         { value: profileSubjectTags, sourcePrompt: false },
         { value: profile.positiveTags, sourcePrompt: false },
       ]
@@ -109,7 +118,7 @@ function compileImagePromptPass(
         { value: profileStyleText, sourcePrompt: false },
         { value: generatedStylePart, sourcePrompt: false },
         { value: input.prompt, sourcePrompt: true },
-        { value: userPositivePart, sourcePrompt: true },
+        { value: userPositivePart, sourcePrompt: !protectUserPositive },
       ];
   const negativeParts = [
     negativePromptPrefix,

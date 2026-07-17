@@ -2648,14 +2648,33 @@ Use HTML sparingly and diegetically. Do not replace normal prose/dialogue unless
           styleProfiles,
           styleProfileId: profile.id,
         });
-        assert.ok(
-          countValue(sprite.prompt, appearance) <= 1,
+        assert.equal(
+          countValue(sprite.prompt, appearance),
+          1,
           `${profile.id}/sprite repeated the supplied appearance: ${sprite.prompt}`,
         );
         assert.match(sprite.prompt, /silver-furred/i);
         assert.match(sprite.prompt, /persimmon kimono/i);
         assert.match(sprite.prompt, /debt-scroll/i);
-        assert.ok(sprite.diagnostics.removedPositiveDuplicates.includes(appearance));
+        if (profile.id === "anime") {
+          const compactAppearance = "natural expression";
+          const compactBudgetPrompt = [
+            ...Array.from({ length: 40 }, (_, index) => `forest detail ${index}`),
+            compactAppearance,
+          ].join(", ");
+          const compactSprite = compileImagePrompt({
+            kind: "sprite",
+            prompt: compactBudgetPrompt,
+            userPositive: compactAppearance,
+            styleProfiles,
+            styleProfileId: profile.id,
+          });
+          assert.equal(
+            countValue(compactSprite.prompt, compactAppearance),
+            1,
+            `compact sprite lost the supplied appearance: ${compactSprite.prompt}`,
+          );
+        }
 
         const preservedPrompt = `Art direction: ${generatedStyle}. Lyra raises a lantern in the graveyard.`;
         const preservedPrefix = compileImagePrompt({
