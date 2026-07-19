@@ -139,7 +139,7 @@ import {
   validateSpriteExpressionEntries,
 } from "./expression-agent-utils.js";
 import {
-  isNovelAiImageConnection,
+  suppressesReferencePromptLine,
   mergeIllustratorNegativePrompt,
   resolveIllustratorCharacterReferences,
 } from "./illustrator-references.js";
@@ -3026,14 +3026,17 @@ async function applyRetryResultEffects(args: {
             const imgApiKey = imgConnFull.apiKey || "";
             const imgSource = (imgConnFull as any).imageGenerationSource || imgModel;
             const imgServiceHint = imgConnFull.imageService || imgSource;
-            const suppressReferencePromptLine = isNovelAiImageConnection({
-              model: imgModel,
-              baseUrl: imgBaseUrl,
-              imageService: imgServiceHint,
-              imageGenerationSource: imgSource,
-            });
-            const imageDefaults = resolveConnectionImageDefaults(imgConnFull);
             const imageFallback = await resolveImageConnectionFallback(conns, imgConnFull.id);
+            const suppressReferencePromptLine = suppressesReferencePromptLine(
+              {
+                model: imgModel,
+                baseUrl: imgBaseUrl,
+                imageService: imgServiceHint,
+                imageGenerationSource: imgSource,
+              },
+              imageFallback,
+            );
+            const imageDefaults = resolveConnectionImageDefaults(imgConnFull);
             const imageSettings = await loadImageGenerationUserSettings(app.db);
 
             const chatMeta = typeof chat.metadata === "string" ? JSON.parse(chat.metadata) : (chat.metadata ?? {});
