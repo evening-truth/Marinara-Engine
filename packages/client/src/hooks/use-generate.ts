@@ -1751,9 +1751,12 @@ export function useGenerate() {
 
               // Apply background change — validate the resolved background URL before applying
               if (result.success && result.resultType === "background_change" && result.data) {
-                const bg = result.data as { chosen?: string | null };
+                const bg = result.data as { chosen?: string | null; generated?: boolean };
                 if (bg.chosen) {
                   applyAgentBackgroundChoice(bg.chosen);
+                }
+                if (bg.generated) {
+                  qc.invalidateQueries({ queryKey: ["backgrounds"] });
                 }
               }
 
@@ -3156,9 +3159,12 @@ export function useGenerate() {
                   }
                 }
                 if (result.resultType === "background_change") {
-                  const bg = result.data as { chosen?: string | null };
+                  const bg = result.data as { chosen?: string | null; generated?: boolean };
                   if (bg.chosen) {
                     applyAgentBackgroundChoice(bg.chosen);
+                  }
+                  if (bg.generated) {
+                    qc.invalidateQueries({ queryKey: ["backgrounds"] });
                   }
                 }
                 // Apply quest updates directly so the widget updates immediately
