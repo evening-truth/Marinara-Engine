@@ -3,30 +3,37 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  Coins,
   Eye,
   Loader2,
   Lock,
+  Minus,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Sparkles,
   Trash2,
   UserRound,
-  Users,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type {
   NoodleIdentityDisclosure,
   NoodleAccount,
+  NoodleInteraction,
   NoodlePostAccess,
+  NoodlerPostView,
   NoodleStageProfileInput,
   NoodlerManagedStageProfile,
   NoodlerStageProfile,
   Persona,
 } from "@marinara-engine/shared";
 import {
+  useCreateNoodlerInteraction,
   useCreateNoodlerStageProfile,
+  useDeleteNoodlerPost,
   useDeleteNoodlerStageProfile,
   useGeneratePrivateNoodlePost,
   useGenerateNoodlerStageProfileDraft,
@@ -35,16 +42,32 @@ import {
   useNoodlerEligibleAccounts,
   useNoodlerPosts,
   useNoodlerViewer,
+  useRemoveNoodlerInteraction,
   useToggleNoodlerSubscription,
   useUnlockNoodlerPost,
+  useUpdateNoodlerPost,
   useUpdateNoodlerAccess,
   useUpdateNoodleSettings,
   useUpdateNoodlerStageProfile,
 } from "../../hooks/use-noodle";
 import { useActivePersona, usePersonas } from "../../hooks/use-characters";
+import { useConnections } from "../../hooks/use-connections";
+import { cn } from "../../lib/utils";
 import { useUIStore } from "../../stores/ui.store";
 import { GuidedPostModal } from "./GuidedPostModal";
-import { NoodleShell, NOODLE_PERSONA_SWITCHER_PAGE_SIZE } from "./NoodleShell";
+import {
+  BrowserChrome,
+  formatTime,
+  NoodleAnchoredPopover,
+  NoodleComposerShell,
+  NoodleComposerToolRow,
+  NoodlePostCard,
+  NoodleToolButton,
+  type NoodlePostCardModel,
+  useNoodlePostCardController,
+} from "./NoodleHome";
+import { ConversationMediaPickerPanel, type ConversationMediaPickerTabId } from "../chat/ConversationMediaPickerPanel";
+import { NoodleShell, NOODLE_PERSONA_SWITCHER_PAGE_SIZE, NOODLE_PINK, useNoodleAccent } from "./NoodleShell";
 import { Modal } from "../ui/Modal";
 import type { NoodleNavigationState } from "./noodle-navigation.types";
 
@@ -58,6 +81,34 @@ export type NoodlerNotificationItem = {
 interface NoodlerHomeProps {
   navigation: Extract<NoodleNavigationState, { mode: "private" | "verification" }>;
   onNavigate: (destination: NoodleNavigationState) => void;
+}
+
+interface PrivatePostSubmission {
+  profileId: string;
+  direction: string;
+  access: NoodlePostAccess;
+  ppvPrice: number | null;
+  onSuccess?: () => void;
+}
+
+function toNoodlePostCardModel(view: NoodlerPostView, profile: NoodlerStageProfile): NoodlePostCardModel {
+  return {
+    id: view.id,
+    authorAccountId: view.authorAccountId,
+    content: view.content ?? "",
+    imageUrl: view.imageUrl,
+    imagePrompt: view.imagePrompt,
+    metadata: view.metadata ?? {},
+    authorSnapshot: {
+      id: profile.id,
+      handle: profile.handle,
+      displayName: profile.displayName,
+      avatarUrl: profile.avatarUrl,
+      avatarCrop: profile.avatarCrop,
+    },
+    createdAt: view.createdAt,
+    interactions: view.interactions,
+  };
 }
 
 const DISCLOSURE_OPTIONS: Array<{
@@ -108,7 +159,7 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
-  const { data } = useNoodle();
+  const { data, isError, refetch } = useNoodle();
   const updateSettings = useUpdateNoodleSettings();
   const enabled = data?.settings.enableNoodler === true;
   const accountsQuery = useNoodlerAccounts(navigation.mode === "private" && enabled);
@@ -131,6 +182,9 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
   const accountSwitcherRef = useRef<HTMLDivElement | null>(null);
   const visiblePersonaAccounts = viewerAccounts.slice(0, personaAccountLimit);
   const switchViewerPersona = (account: NoodleAccount, mobile: boolean) => {
+    // A reply/edit composed as the previous persona must not carry over and submit as the
+    // newly-selected one, so discard in-flight composer, tool, and post-menu state first.
+    postCardController.reset();
     setStoredPersonaId(account.entityId);
     if (mobile) setMobileDrawerOpen(false);
     else setAccountSwitcherOpen(false);
@@ -167,10 +221,19 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     };
   }, [accountSwitcherOpen]);
   const exitToPublic = () => onNavigate({ mode: "public", view: "home" });
-  const [showManageProfiles, setShowManageProfiles] = useState(false);
+  const [feedSearch, setFeedSearch] = useState("");
+  const [feedTab, setFeedTab] = useState<"all" | "subscribed">("all");
   const viewerQuery = useNoodlerViewer(viewerPersonaId, enabled);
   const toggleSubscription = useToggleNoodlerSubscription();
   const unlockPost = useUnlockNoodlerPost();
+  const createInteraction = useCreateNoodlerInteraction();
+  const removeInteraction = useRemoveNoodlerInteraction();
+  // NoodleR is a roleplay sandbox — the user owns every stage profile, so they
+  // can edit/delete creator posts just like their own Noodle timeline. NoodleR
+  // posts are private, so these route through the private-only endpoints; the
+  // viewer feed is refetched on success.
+  const updatePost = useUpdateNoodlerPost();
+  const deletePost = useDeleteNoodlerPost();
   const updateAccess = useUpdateNoodlerAccess();
   const [sourceSearch, setSourceSearch] = useState("");
   const [sourceKind, setSourceKind] = useState<"all" | "character" | "persona">("all");
@@ -184,18 +247,121 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
   const updateProfile = useUpdateNoodlerStageProfile();
   const generatePost = useGeneratePrivateNoodlePost();
   const generateProfileDraft = useGenerateNoodlerStageProfileDraft();
+  const connectionsQuery = useConnections();
+  const connections = (connectionsQuery.data ?? []) as Array<{ id: string; name: string; model?: string }>;
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  // Keep the posting identity above ViewerHub: profile management unmounts the inline
+  // composer, but it must not reset the author to the most recently edited profile.
+  const [postingProfileId, setPostingProfileId] = useState<string | null>(null);
   const [profileDraft, setProfileDraft] = useState<NoodleStageProfileInput | null>(null);
   const [draftPublicAccountId, setDraftPublicAccountId] = useState<string | null>(null);
   const [creationStep, setCreationStep] = useState<"source" | "disclosure" | "draft" | null>(null);
   const [creationDisclosure, setCreationDisclosure] = useState<NoodleIdentityDisclosure>("hinted");
   const [draftGuidance, setDraftGuidance] = useState("");
+  const [draftConnectionId, setDraftConnectionId] = useState("");
   const [previousDraft, setPreviousDraft] = useState<NoodleStageProfileInput | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [guidedProfile, setGuidedProfile] = useState<NoodlerStageProfile | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  useEffect(() => {
+    const profiles = accountsQuery.data;
+    if (!profiles) return;
+    const currentStillExists = postingProfileId && profiles.some((profile) => profile.id === postingProfileId);
+    if (!currentStillExists) setPostingProfileId(profiles[0]?.id ?? null);
+  }, [accountsQuery.data, postingProfileId]);
+  // Returns false (and blocks navigation) when there is an unsaved create/edit draft the
+  // user chose to keep. Covers both new drafts and changed edits so no surface silently
+  // discards work.
+  const confirmDiscardProfileDraft = (): boolean => {
+    if (!profileDraft) return true;
+    const editing = editingProfileId
+      ? accountsQuery.data?.find((profile) => profile.id === editingProfileId) ?? null
+      : null;
+    if (editing) {
+      const savedDraft: NoodleStageProfileInput = {
+        displayName: editing.displayName,
+        handle: editing.handle,
+        bio: editing.bio,
+        stagePersonality: editing.stagePersonality,
+        disclosureMode: editing.disclosureMode ?? "hinted",
+      };
+      if (JSON.stringify(profileDraft) === JSON.stringify(savedDraft)) return true;
+    }
+    return window.confirm("Discard unsaved profile changes?");
+  };
+  const goToHub = () => {
+    if (!confirmDiscardProfileDraft()) return;
+    setSelectedProfileId(null);
+    setCreationStep(null);
+    setProfileDraft(null);
+    setGuidedProfile(null);
+    setEditingProfileId(null);
+    if (enabled) {
+      onNavigate({ mode: "private", view: "hub" });
+      setMobileDrawerOpen(false);
+    }
+  };
+  const reactToPost = (post: NoodlePostCardModel, type: "like" | "repost", active = false) => {
+    if (!viewerPersonaId) return;
+    const onError = (error: unknown) =>
+      toast.error(errorMessage(error, active ? "Could not undo that reaction." : "Could not react to this post."));
+    if (active) removeInteraction.mutate({ postId: post.id, personaId: viewerPersonaId, type }, { onError });
+    else createInteraction.mutate({ postId: post.id, personaId: viewerPersonaId, type }, { onError });
+  };
+  const reactToReply = (post: NoodlePostCardModel, reply: NoodleInteraction, active: boolean) => {
+    if (!viewerPersonaId) return;
+    const payload = { postId: post.id, personaId: viewerPersonaId, type: "like" as const, parentInteractionId: reply.id };
+    const onError = (error: unknown) => toast.error(errorMessage(error, "Could not react to this reply."));
+    if (active) removeInteraction.mutate(payload, { onError });
+    else createInteraction.mutate(payload, { onError });
+  };
+  const submitReply = async (
+    post: NoodlePostCardModel,
+    input: { content: string; parentInteractionId: string | null },
+  ) => {
+    if (!viewerPersonaId) return;
+    await createInteraction.mutateAsync(
+      {
+        postId: post.id,
+        personaId: viewerPersonaId,
+        type: "reply",
+        content: input.content,
+        ...(input.parentInteractionId ? { parentInteractionId: input.parentInteractionId } : {}),
+      },
+      {
+        onError: (error) => toast.error(errorMessage(error, "Could not post this reply.")),
+      },
+    );
+  };
+  const savePost = async (post: NoodlePostCardModel, content: string) => {
+    await updatePost.mutateAsync(
+      { id: post.id, content },
+      {
+        onSuccess: () => void viewerQuery.refetch(),
+        onError: (error) => toast.error(errorMessage(error, "Could not update this post.")),
+      },
+    );
+  };
+  const deleteNoodlePost = (post: NoodlePostCardModel) => {
+    if (!window.confirm("Delete this NoodleR post along with its likes, reposts, and replies?")) return;
+    deletePost.mutate(post.id, {
+      onSuccess: () => void viewerQuery.refetch(),
+      onError: (error) => toast.error(errorMessage(error, "Could not delete this post.")),
+    });
+  };
+  const postCardController = useNoodlePostCardController({
+    personaAccount: shellPersonaAccount,
+    savePost,
+    deletePost: deleteNoodlePost,
+    reactToPost,
+    reactToReply,
+    submitReply,
+    reactionPendingFor: () => false,
+    createInteractionPendingFor: (_postId, type) => type === "reply" && createInteraction.isPending,
+    updatePostPending: updatePost.isPending,
+  });
+  const postCardCtx = postCardController.ctx;
   const selectedProfile = accountsQuery.data?.find((profile) => profile.id === selectedProfileId) ?? null;
-  const editingProfile = accountsQuery.data?.find((profile) => profile.id === editingProfileId) ?? null;
   const postsQuery = useNoodlerPosts(selectedProfile?.id ?? null);
   const eligiblePublicAccounts = eligibleAccountsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const selectedSource = eligiblePublicAccounts.find((account) => account.id === draftPublicAccountId) ?? null;
@@ -227,6 +393,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     setCreationStep("source");
     setCreationDisclosure("hinted");
     setDraftGuidance("");
+    setDraftConnectionId("");
     setPreviousDraft(null);
     setSourceSearch("");
     setSourceKind("all");
@@ -238,6 +405,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     setCreationDisclosure(profile.disclosureMode ?? "hinted");
     setCreationStep("draft");
     setDraftGuidance("");
+    setDraftConnectionId("");
     setPreviousDraft(null);
     setProfileDraft({
       displayName: profile.displayName,
@@ -249,21 +417,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
   };
 
   const closeProfileEditor = () => {
-    if (editingProfileId && profileDraft && editingProfile) {
-      const savedDraft: NoodleStageProfileInput = {
-        displayName: editingProfile.displayName,
-        handle: editingProfile.handle,
-        bio: editingProfile.bio,
-        stagePersonality: editingProfile.stagePersonality,
-        disclosureMode: editingProfile.disclosureMode ?? "hinted",
-      };
-      if (
-        JSON.stringify(profileDraft) !== JSON.stringify(savedDraft) &&
-        !window.confirm("Discard unsaved profile changes?")
-      ) {
-        return;
-      }
-    }
+    if (!confirmDiscardProfileDraft()) return;
     setProfileDraft(null);
     setPreviousDraft(null);
     setEditingProfileId(null);
@@ -277,12 +431,17 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
 
   const generateDraft = () => {
     if (!draftPublicAccountId && !editingProfileId) return;
+    if (connections.length === 0) {
+      toast.error("No connections configured. Add one in Settings → Connections.");
+      return;
+    }
     generateProfileDraft.mutate(
       {
         ...(editingProfileId ? { privateAccountId: editingProfileId } : { publicAccountId: draftPublicAccountId! }),
         disclosureMode: creationDisclosure,
         guidance: draftGuidance,
         currentDraft: profileDraft ?? undefined,
+        connectionId: draftConnectionId || undefined,
       },
       {
         onSuccess: (draft) => {
@@ -318,28 +477,25 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     }
   };
 
-  const submitGuidedPost = ({
+  const generatePrivatePost = ({
+    profileId,
     direction,
     access,
     ppvPrice,
-  }: {
-    direction: string;
-    access: NoodlePostAccess;
-    ppvPrice: number | null;
-  }) => {
-    if (!guidedProfile) return;
+    onSuccess,
+  }: PrivatePostSubmission) => {
     setGenerationError(null);
     generatePost.mutate(
       {
         mode: "private",
-        targetAccountId: guidedProfile.id,
+        targetAccountId: profileId,
         privatePostGuide: direction.trim(),
         access,
         ...(access === "ppv" ? { ppvPrice } : {}),
       },
       {
         onSuccess: () => {
-          setGuidedProfile(null);
+          onSuccess?.();
           toast.success("Private post generated.");
         },
         onError: (error) => setGenerationError(errorMessage(error, "Could not generate this post.")),
@@ -347,8 +503,38 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     );
   };
 
+  const submitGuidedPost = ({ direction, access, ppvPrice }: Omit<PrivatePostSubmission, "profileId">) => {
+    if (!guidedProfile) return;
+    generatePrivatePost({
+      profileId: guidedProfile.id,
+      direction,
+      access,
+      ppvPrice,
+      onSuccess: () => setGuidedProfile(null),
+    });
+  };
+
+  const submitInlinePost = ({ profileId, direction, access, ppvPrice, onSuccess }: PrivatePostSubmission) => {
+    generatePrivatePost({
+      profileId,
+      direction,
+      access,
+      ppvPrice,
+      // The visible feed reads the viewer query, not the profile-post query the mutation
+      // invalidates, so refetch it here or the new post won't appear until manual refresh.
+      // Only clear the composer after success so a failed generation keeps the draft.
+      onSuccess: () => {
+        onSuccess?.();
+        void viewerQuery.refetch();
+      },
+    });
+  };
+
   const shellProps = {
-    activeView: null,
+    activeView: "noodler" as const,
+    homeActive: navigation.mode === "private" && navigation.view === "hub",
+    accent: NOODLE_PINK,
+    enableNoodler: enabled,
     personaAccount: shellPersonaAccount,
     sortedPersonaAccounts: viewerAccounts,
     visiblePersonaAccounts,
@@ -365,17 +551,47 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     notificationCount: 0,
     onOpenHome: exitToPublic,
     onOpenMobileHome: exitToPublic,
-    onOpenSearch: exitToPublic,
-    onOpenNotifications: exitToPublic,
-    onOpenProfile: exitToPublic,
+    onOpenNoodler: goToHub,
     onOpenSettings: () => onNavigate({ mode: "settings" }),
-    onCompose: exitToPublic,
+    overlays: (
+      <BrowserChrome
+        badgeLabel="Private"
+        url="https://noodler.local"
+        mobileUrl="noodle.marinara.local/noodler"
+      />
+    ),
   } as const;
 
-  if (navigation.mode === "verification" || !enabled) {
+  // Reserve the same rail width as the feed view (see NoodleHome's "settings" rail) so
+  // non-feed screens don't stretch the shell wider and look like a different layout.
+  const emptyRightRail = <aside className="hidden w-[22rem] shrink-0 px-4 py-3 xl:block" aria-hidden="true" />;
+
+  if (!data && !isError) {
     return (
-      <NoodleShell {...shellProps}>
-      <NoodlerFrame onBack={() => onNavigate({ mode: "public", view: "home" })} title="About NoodleR">
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
+        <NoodlerFrame onBack={exitToPublic} title="NoodleR">
+          <div className="flex justify-center py-16">
+            <Loader2 size={24} className="animate-spin text-[var(--noodle-blue)]" />
+          </div>
+        </NoodlerFrame>
+      </NoodleShell>
+    );
+  }
+
+  if (!data && isError) {
+    return (
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
+        <NoodlerFrame onBack={exitToPublic} title="NoodleR">
+          <EmptyState title="NoodleR could not be loaded." action="Try again" onAction={() => void refetch()} />
+        </NoodlerFrame>
+      </NoodleShell>
+    );
+  }
+
+  if (navigation.mode === "verification" || (data && !enabled)) {
+    return (
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
+      <NoodlerFrame onBack={exitToPublic} title="About NoodleR">
         <div className="mx-auto flex max-w-xl flex-col items-center px-6 py-16 text-center">
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--noodle-blue)]/15 text-[var(--noodle-blue)]">
             <Lock size={28} />
@@ -389,7 +605,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
             type="button"
             onClick={enableNoodler}
             disabled={!data?.settings || updateSettings.isPending}
-            className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-6 text-sm font-bold text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-6 text-sm font-bold text-zinc-950 [&_svg]:!text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {updateSettings.isPending ? <Loader2 size={17} className="animate-spin" /> : <Check size={17} />}
             {updateSettings.isPending ? "Enabling..." : "I am 18+ and want to enable NoodleR"}
@@ -402,7 +618,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
 
   if (creationStep === "source") {
     return (
-      <NoodleShell {...shellProps}>
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
       <NoodlerFrame onBack={() => setCreationStep(null)} title="Create stage profile" hideBack>
         <StageProfileSourcePicker
           accounts={eligiblePublicAccounts}
@@ -428,7 +644,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
 
   if (creationStep === "disclosure") {
     return (
-      <NoodleShell {...shellProps}>
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
       <NoodlerFrame onBack={() => setCreationStep("source")} title="Set identity disclosure" hideBack>
         <DisclosureStep
           source={selectedSource}
@@ -444,7 +660,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
 
   if (profileDraft || creationStep === "draft") {
     return (
-      <NoodleShell {...shellProps}>
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
       <NoodlerFrame
         onBack={editingProfileId ? closeProfileEditor : () => setCreationStep("disclosure")}
         title={editingProfileId ? "Edit stage profile" : "Create stage profile"}
@@ -457,6 +673,9 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
           onDisclosureChange={changeDisclosure}
           guidance={draftGuidance}
           onGuidanceChange={setDraftGuidance}
+          connections={connections}
+          connectionId={draftConnectionId}
+          onConnectionChange={setDraftConnectionId}
           onGenerate={generateDraft}
           isGenerating={generateProfileDraft.isPending}
           previousDraft={previousDraft}
@@ -484,7 +703,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
 
   if (selectedProfile) {
     return (
-      <NoodleShell {...shellProps}>
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
       <NoodlerFrame onBack={() => setSelectedProfileId(null)} title={selectedProfile.displayName}>
         <StageProfileView
           profile={selectedProfile}
@@ -539,10 +758,55 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
     );
   }
 
-  if (showManageProfiles) {
+  // A viewer persona linked to the creator's own public account cannot subscribe (the
+  // server rejects it), so pass current-subscribed state through and let the toggle flip it.
+  const toggleCreatorSubscription = (creatorAccountId: string, subscribed: boolean) => {
+    if (!viewerPersonaId) return;
+    toggleSubscription.mutate(
+      { creatorAccountId, personaId: viewerPersonaId, subscribed },
+      { onError: (error) => toast.error(errorMessage(error, "Could not update your subscription.")) },
+    );
+  };
+
+  // Creator discovery stays in the wide-screen rail. Narrow layouts omit it so the
+  // timeline remains the primary surface instead of stacking sidebar content above it.
+  const feedRightRail = (
+    <aside className="hidden w-[22rem] shrink-0 px-4 py-3 xl:block">
+      <div className="sticky top-3 space-y-4">
+        <label className="flex h-11 items-center gap-2 rounded-full border border-[var(--noodle-divider)] bg-[var(--background)] px-4 text-sm transition-colors focus-within:border-[var(--noodle-blue)]">
+          <Search size={17} className="shrink-0 text-[var(--noodle-blue)]" />
+          <input
+            value={feedSearch}
+            onChange={(event) => setFeedSearch(event.target.value)}
+            placeholder="Search posts or @creators"
+            className="min-w-0 flex-1 border-0 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+          />
+          {feedSearch.trim() && (
+            <button
+              type="button"
+              onClick={() => setFeedSearch("")}
+              className="flex h-6 w-6 items-center justify-center rounded-full text-[var(--noodle-blue)] hover:bg-[var(--noodle-blue)]/10"
+              title="Clear search"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </label>
+
+        <SubscriptionSections
+          creators={viewerQuery.data?.creators ?? []}
+          onToggleSubscription={toggleCreatorSubscription}
+          togglePending={toggleSubscription.isPending}
+        />
+      </div>
+    </aside>
+  );
+
+  if (navigation.mode === "private" && navigation.view === "profiles") {
     return (
-      <NoodleShell {...shellProps}>
-        <NoodlerFrame onBack={() => setShowManageProfiles(false)} title="Manage profiles">
+      <NoodleShell {...shellProps} rightRail={emptyRightRail}>
+        <div className="flex h-full min-h-0 flex-col">
+          <main className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex min-h-14 items-center gap-3 border-b border-[var(--noodle-divider)] px-4 py-3">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold">Stage profiles</p>
@@ -561,7 +825,7 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
                       ? "Every eligible account already has a stage profile"
                       : undefined
               }
-              className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 [&_svg]:!text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus size={15} />
               New profile
@@ -608,48 +872,43 @@ export function NoodlerHome({ navigation, onNavigate }: NoodlerHomeProps) {
               onAction={eligiblePublicAccounts.length > 0 ? beginCreate : undefined}
             />
           )}
-        </NoodlerFrame>
+          </main>
+        </div>
       </NoodleShell>
     );
   }
 
   return (
-    <NoodleShell {...shellProps}>
-      <NoodlerFrame
-        onBack={() => onNavigate({ mode: "public", view: "home" })}
-        title="NoodleR"
-        action={
-          <button
-            type="button"
-            onClick={() => setShowManageProfiles(true)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--noodle-blue)] hover:bg-[var(--noodle-blue)]/10"
-            title="Manage profiles"
-            aria-label="Manage stage profiles"
-          >
-            <Users size={18} />
-          </button>
-        }
-      >
-        <ViewerHub
-          personas={personas}
-          personaId={viewerPersonaId}
-          onPersonaChange={setStoredPersonaId}
-          scope={viewerQuery.data}
-          isLoading={viewerQuery.isLoading}
-          isError={viewerQuery.isError}
-          onRetry={() => void viewerQuery.refetch()}
-          subscriptionPending={toggleSubscription.isPending}
-          unlockPending={unlockPost.isPending}
-          onToggleSubscription={(creatorAccountId, subscribed) => {
-            if (!viewerPersonaId) return;
-            toggleSubscription.mutate({ creatorAccountId, personaId: viewerPersonaId, subscribed });
-          }}
-          onUnlock={(postId) => {
-            if (!viewerPersonaId) return;
-            unlockPost.mutate({ postId, personaId: viewerPersonaId });
-          }}
-        />
-      </NoodlerFrame>
+    <NoodleShell {...shellProps} rightRail={feedRightRail}>
+      <ViewerHub
+        personas={personas}
+        scope={viewerQuery.data}
+        isLoading={viewerQuery.isLoading}
+        isError={viewerQuery.isError}
+        onRetry={() => void viewerQuery.refetch()}
+        onRefresh={() => void viewerQuery.refetch()}
+        isRefreshing={viewerQuery.isFetching}
+        unlockPending={unlockPost.isPending}
+        postCardCtx={postCardCtx}
+        onUnlock={(postId) => {
+          if (!viewerPersonaId) return;
+          unlockPost.mutate(
+            { postId, personaId: viewerPersonaId },
+            { onError: (error) => toast.error(errorMessage(error, "Could not unlock this post.")) },
+          );
+        }}
+        search={feedSearch}
+        tab={feedTab}
+        onTabChange={setFeedTab}
+        managedProfiles={accountsQuery.data ?? []}
+        postingProfileId={postingProfileId}
+        onPostingProfileChange={setPostingProfileId}
+        onSubmitPost={submitInlinePost}
+        isPosting={generatePost.isPending}
+        postError={generationError}
+        onToggleSubscription={toggleCreatorSubscription}
+        togglePending={toggleSubscription.isPending}
+      />
     </NoodleShell>
   );
 }
@@ -661,6 +920,9 @@ function StageProfileForm({
   onDisclosureChange,
   guidance,
   onGuidanceChange,
+  connections,
+  connectionId,
+  onConnectionChange,
   onGenerate,
   isGenerating,
   previousDraft,
@@ -678,6 +940,9 @@ function StageProfileForm({
   onDisclosureChange: (value: NoodleIdentityDisclosure) => void;
   guidance: string;
   onGuidanceChange: (value: string) => void;
+  connections: Array<{ id: string; name: string; model?: string }>;
+  connectionId: string;
+  onConnectionChange: (value: string) => void;
   onGenerate: () => void;
   isGenerating: boolean;
   previousDraft: NoodleStageProfileInput | null;
@@ -694,8 +959,8 @@ function StageProfileForm({
     !isPending &&
     !isGenerating;
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:py-6">
+    <div className="mx-auto flex w-full max-w-4xl flex-col">
+      <div className="px-4 py-5 sm:px-6 lg:py-6">
         <div className="rounded-lg border border-[var(--noodle-divider)] bg-[var(--accent)]/40 p-4">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--noodle-blue)]/15 text-[var(--noodle-blue)]">
@@ -737,11 +1002,34 @@ function StageProfileForm({
                 className={`${textareaClass} min-h-20`}
               />
             </label>
+            {connections.length > 0 && (
+              <label className="mt-3 block space-y-2">
+                <span className="text-xs font-semibold">Model</span>
+                <select
+                  value={connectionId}
+                  disabled={isGenerating || isPending}
+                  onChange={(event) => onConnectionChange(event.target.value)}
+                  className={fieldClass}
+                >
+                  <option value="">Default connection</option>
+                  {connections.map((connection) => (
+                    <option key={connection.id} value={connection.id}>
+                      {connection.model ? `${connection.name} — ${connection.model}` : connection.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {connections.length === 0 && (
+              <p className="mt-3 rounded-md border border-[var(--destructive)]/30 bg-[var(--destructive)]/5 p-3 text-xs leading-5">
+                No connections configured. Add one in Settings → Connections.
+              </p>
+            )}
             <button
               type="button"
               onClick={onGenerate}
-              disabled={isGenerating || isPending}
-              className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-4 text-sm font-bold text-zinc-950 hover:opacity-90 disabled:opacity-50"
+              disabled={isGenerating || isPending || connections.length === 0}
+              className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-4 text-sm font-bold text-zinc-950 [&_svg]:!text-zinc-950 hover:opacity-90 disabled:opacity-50"
             >
               {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}{" "}
               {isGenerating
@@ -840,7 +1128,7 @@ function StageProfileForm({
             type="button"
             onClick={onSave}
             disabled={!canSave}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-5 text-sm font-bold text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--noodle-blue)] px-5 text-sm font-bold text-zinc-950 [&_svg]:!text-zinc-950 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isPending ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
             {isPending ? "Saving..." : isEditing ? "Save changes" : "Create stage profile"}
@@ -892,8 +1180,8 @@ function StageProfileSourcePicker({
   onContinue: () => void;
 }) {
   return (
-    <div className="mx-auto flex h-full w-full max-w-2xl flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:py-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col">
+      <div className="px-4 py-5 sm:px-6 lg:py-6">
         <h2 className="text-xl font-black">Choose a source character or persona</h2>
         <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted-foreground)]">
           NoodleR will create a separate stage identity from this character or persona. You will choose exactly how much
@@ -1023,8 +1311,8 @@ function DisclosureStep({
   onContinue: () => void;
 }) {
   return (
-    <div className="mx-auto flex h-full w-full max-w-2xl flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:py-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col">
+      <div className="px-4 py-5 sm:px-6 lg:py-6">
         <h2 className="text-xl font-black">How connected should this feel?</h2>
         <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
           Choose the relationship between this private stage identity and the character or persona you selected. This is
@@ -1047,7 +1335,7 @@ function DisclosureStep({
               <span
                 className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${value === option.value ? "border-[var(--noodle-blue)] bg-[var(--noodle-blue)]" : "border-[var(--noodle-divider)]"}`}
               >
-                {value === option.value && <Check size={13} className="text-zinc-950" />}
+                {value === option.value && <Check size={13} className="!text-zinc-950" />}
               </span>
               <span>
                 <span className="block text-sm font-bold">{option.label}</span>
@@ -1084,7 +1372,7 @@ function WizardFooter({
 }) {
   const labels = ["Source", "Disclosure", "Profile"];
   return (
-    <div className="z-10 shrink-0 border-t border-[var(--noodle-divider)] bg-[var(--background)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
+    <div className="sticky bottom-0 z-[60] shrink-0 border-t border-[var(--noodle-divider)] bg-[var(--background)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
       {showProgress && (
         <div
           className="mb-3 flex items-center justify-center gap-1.5"
@@ -1118,7 +1406,7 @@ function WizardFooter({
             type="button"
             onClick={onNext}
             disabled={nextDisabled || disabled}
-            className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-5 text-sm font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-5 text-sm font-bold text-zinc-950 [&_svg]:!text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Continue <ArrowRight size={16} />
           </button>
@@ -1156,6 +1444,7 @@ function StageProfileView({
   onAccessChange: (access: NoodlerManagedStageProfile["access"]) => void;
 }) {
   const [accessSettingsOpen, setAccessSettingsOpen] = useState(false);
+  const accent = useNoodleAccent();
   return (
     <>
       <section className="border-b border-[var(--noodle-divider)] px-5 py-6">
@@ -1179,7 +1468,7 @@ function StageProfileView({
           <button
             type="button"
             onClick={onGuide}
-            className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 hover:opacity-90"
+            className="inline-flex min-h-11 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 [&_svg]:!text-zinc-950 hover:opacity-90"
           >
             <Sparkles size={15} />
             Guide post
@@ -1216,7 +1505,7 @@ function StageProfileView({
         onClose={() => setAccessSettingsOpen(false)}
         title="Subscriber access"
         width="max-w-md"
-        panelStyle={{ "--noodle-blue": "#7EA7FF" } as React.CSSProperties}
+        panelStyle={{ "--noodle-blue": accent } as React.CSSProperties}
       >
         <div className="space-y-4">
           <div className="flex items-start justify-between gap-4">
@@ -1309,28 +1598,48 @@ function StageProfileView({
 
 function ViewerHub({
   personas,
-  personaId,
-  onPersonaChange,
   scope,
   isLoading,
   isError,
   onRetry,
-  subscriptionPending,
+  onRefresh,
+  isRefreshing,
   unlockPending,
-  onToggleSubscription,
+  postCardCtx,
   onUnlock,
+  search,
+  tab,
+  onTabChange,
+  managedProfiles,
+  postingProfileId,
+  onPostingProfileChange,
+  onSubmitPost,
+  isPosting,
+  postError,
+  onToggleSubscription,
+  togglePending,
 }: {
   personas: Persona[];
-  personaId: string | null;
-  onPersonaChange: (id: string | null) => void;
   scope: ReturnType<typeof useNoodlerViewer>["data"];
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
-  subscriptionPending: boolean;
+  onRefresh: () => void;
+  isRefreshing: boolean;
   unlockPending: boolean;
-  onToggleSubscription: (creatorAccountId: string, subscribed: boolean) => void;
+  postCardCtx: ReturnType<typeof useNoodlePostCardController>["ctx"];
   onUnlock: (postId: string) => void;
+  search: string;
+  tab: "all" | "subscribed";
+  onTabChange: (tab: "all" | "subscribed") => void;
+  managedProfiles: NoodlerManagedStageProfile[];
+  postingProfileId: string | null;
+  onPostingProfileChange: (profileId: string) => void;
+  onSubmitPost: (input: PrivatePostSubmission) => void;
+  isPosting: boolean;
+  postError: string | null;
+  onToggleSubscription: (creatorAccountId: string, subscribed: boolean) => void;
+  togglePending: boolean;
 }) {
   if (personas.length === 0) {
     return (
@@ -1340,24 +1649,75 @@ function ViewerHub({
       />
     );
   }
+  const searchTerm = search.trim().toLowerCase();
+  const feed = (scope?.creators ?? [])
+    .filter((creator) => tab === "all" || creator.subscribed)
+    .flatMap((creator) => creator.posts.map((post) => ({ post, creator })))
+    .filter(
+      ({ post, creator }) =>
+        !searchTerm ||
+        (post.content ?? "").toLowerCase().includes(searchTerm) ||
+        creator.profile.handle.toLowerCase().includes(searchTerm) ||
+        creator.profile.displayName.toLowerCase().includes(searchTerm),
+    )
+    .sort((a, b) => new Date(b.post.createdAt).getTime() - new Date(a.post.createdAt).getTime());
   return (
-    <div>
-      <div className="border-b border-[var(--noodle-divider)] px-4 py-3">
-        <label className="block text-xs font-bold" htmlFor="noodler-viewer-persona">
-          Viewer persona
-        </label>
-        <select
-          id="noodler-viewer-persona"
-          value={personaId ?? ""}
-          onChange={(event) => onPersonaChange(event.target.value || null)}
-          className={`${fieldClass} mt-2`}
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="grid grid-cols-2 border-b border-[var(--noodle-divider)]">
+        {(
+          [
+            { id: "all", label: "All creators" },
+            { id: "subscribed", label: "Subscribed" },
+          ] as const
+        ).map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onTabChange(option.id)}
+            className={cn(
+              "relative flex h-12 items-center justify-center text-sm font-bold text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]",
+              tab === option.id && "text-[var(--foreground)]",
+            )}
+            aria-pressed={tab === option.id}
+          >
+            {option.label}
+            {tab === option.id && (
+              <span className="absolute bottom-0 left-1/2 h-1 w-14 -translate-x-1/2 rounded-full bg-[var(--noodle-blue)]" />
+            )}
+          </button>
+        ))}
+      </div>
+      <div className="hidden border-b border-[var(--noodle-divider)] px-4 py-3 lg:block xl:hidden">
+        <SubscriptionSections
+          creators={scope?.creators ?? []}
+          onToggleSubscription={onToggleSubscription}
+          togglePending={togglePending}
+        />
+      </div>
+      <InlineGuidedComposer
+        managedProfiles={managedProfiles}
+        selectedProfileId={postingProfileId}
+        onSelectedProfileChange={onPostingProfileChange}
+        onSubmit={onSubmitPost}
+        isPosting={isPosting}
+        error={postError}
+      />
+      <div className="border-b border-[var(--noodle-divider)] px-4 py-2">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="flex h-9 w-full items-center justify-center gap-2 rounded-full text-sm font-bold text-[var(--noodle-blue)] transition-colors hover:bg-[var(--noodle-blue)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+          title="Refresh timeline"
+          aria-label="Refresh timeline"
         >
-          {personas.map((persona) => (
-            <option key={persona.id} value={persona.id}>
-              {persona.name || persona.convoDisplayName || "Persona"}
-            </option>
-          ))}
-        </select>
+          {isRefreshing ? (
+            <Loader2 size={17} className="!text-[var(--noodle-blue)] animate-spin" />
+          ) : (
+            <RefreshCw size={17} className="!text-[var(--noodle-blue)]" />
+          )}
+          {isRefreshing ? "Refreshing" : "Refresh timeline"}
+        </button>
       </div>
       {isLoading ? (
         <div className="flex justify-center py-16">
@@ -1366,29 +1726,23 @@ function ViewerHub({
       ) : isError ? (
         <EmptyState title="NoodleR could not be loaded for this persona." action="Try again" onAction={onRetry} />
       ) : scope && scope.creators.length > 0 ? (
-        <div className="divide-y divide-[var(--noodle-divider)]">
-          {scope.creators.map((creator) => (
-            <section key={creator.profile.id} className="px-4 py-5">
-              <div className="flex items-center gap-3">
-                <ProfileInitial profile={creator.profile} />
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-sm font-bold">{creator.profile.displayName}</h3>
-                  <p className="truncate text-xs text-[var(--muted-foreground)]">@{creator.profile.handle}</p>
-                </div>
-                <button
-                  type="button"
-                  disabled={subscriptionPending}
-                  onClick={() => onToggleSubscription(creator.profile.id, creator.subscribed)}
-                  className={`inline-flex min-h-10 items-center gap-2 rounded-md px-3 text-xs font-bold ${creator.subscribed ? "border border-[var(--noodle-divider)]" : "bg-[var(--noodle-blue)] text-zinc-950"}`}
-                >
-                  <Users size={14} /> {creator.subscribed ? "Subscribed" : "Subscribe"}
-                </button>
-              </div>
-              <div className="mt-4 space-y-3">
-                {creator.posts.map((post) => (
-                  <article key={post.id} className="rounded-md border border-[var(--noodle-divider)] p-4">
-                    {post.locked ? (
-                      <div className="flex items-center gap-3">
+        <>
+          {feed.length === 0 ? (
+            <p className="px-4 py-8 text-xs text-[var(--muted-foreground)]">No posts yet.</p>
+          ) : (
+            <div>
+              {feed.map(({ post, creator }) =>
+                post.locked ? (
+                  <article key={post.id} className="flex gap-3 border-b border-[var(--noodle-divider)] px-4 py-4">
+                    <ProfileInitial profile={creator.profile} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold">
+                        {creator.profile.displayName}{" "}
+                        <span className="font-normal text-[var(--muted-foreground)]">
+                          @{creator.profile.handle} · {formatTime(post.createdAt)}
+                        </span>
+                      </p>
+                      <div className="mt-2 flex items-center gap-3 rounded-md border border-[var(--noodle-divider)] p-3">
                         <Lock size={18} className="shrink-0 text-[var(--noodle-blue)]" />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-bold">
@@ -1400,31 +1754,253 @@ function ViewerHub({
                               : "Subscribe to reveal this post."}
                           </p>
                         </div>
-                        {post.access === "ppv" && (
+                        {post.access === "ppv" ? (
                           <button
                             type="button"
                             disabled={unlockPending}
                             onClick={() => onUnlock(post.id)}
-                            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950"
+                            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 [&_svg]:!text-zinc-950"
                           >
                             <Eye size={14} /> Unlock
                           </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={togglePending}
+                            onClick={() => onToggleSubscription(creator.profile.id, creator.subscribed)}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-[var(--noodle-blue)] px-3 text-xs font-bold text-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Subscribe
+                          </button>
                         )}
                       </div>
-                    ) : (
-                      <p className="whitespace-pre-wrap text-sm leading-6">{post.content}</p>
-                    )}
+                    </div>
                   </article>
-                ))}
-                {creator.posts.length === 0 && <p className="text-xs text-[var(--muted-foreground)]">No posts yet.</p>}
-              </div>
-            </section>
-          ))}
-        </div>
+                ) : (
+                  <NoodlePostCard
+                    key={post.id}
+                    post={toNoodlePostCardModel(post, creator.profile)}
+                    ctx={postCardCtx}
+                  />
+                ),
+              )}
+            </div>
+          )}
+        </>
       ) : (
         <EmptyState title="No stage profiles are visible to this persona." />
       )}
     </div>
+  );
+}
+
+type InlineComposerTool = "media" | "coin";
+
+function InlineGuidedComposer({
+  managedProfiles,
+  selectedProfileId,
+  onSelectedProfileChange,
+  onSubmit,
+  isPosting,
+  error,
+}: {
+  managedProfiles: NoodlerManagedStageProfile[];
+  selectedProfileId: string | null;
+  onSelectedProfileChange: (profileId: string) => void;
+  onSubmit: (input: PrivatePostSubmission) => void;
+  isPosting: boolean;
+  error: string | null;
+}) {
+  const [direction, setDirection] = useState("");
+  const [access, setAccess] = useState<NoodlePostAccess>("public");
+  const [ppvPrice, setPpvPrice] = useState("5");
+  const [activeTool, setActiveTool] = useState<InlineComposerTool | null>(null);
+  const [mediaPickerTab, setMediaPickerTab] = useState<ConversationMediaPickerTabId>("emoji");
+  const mediaToolRef = useRef<HTMLDivElement | null>(null);
+  const coinToolRef = useRef<HTMLDivElement | null>(null);
+  const parsedPrice = Number(ppvPrice);
+
+  const activeProfile = managedProfiles.find((profile) => profile.id === selectedProfileId) ?? managedProfiles[0];
+
+  if (managedProfiles.length === 0) return null;
+
+  const submit = () => {
+    if (!activeProfile || direction.trim().length === 0) return;
+    if (access === "ppv" && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) return;
+    onSubmit({
+      profileId: activeProfile.id,
+      direction,
+      access,
+      ppvPrice: access === "ppv" ? parsedPrice : null,
+      onSuccess: () => setDirection(""),
+    });
+  };
+
+  const toggleTool = (tool: InlineComposerTool) => setActiveTool((current) => (current === tool ? null : tool));
+
+  return (
+    <NoodleComposerShell
+      dataComponent="NoodlerHome.InlineComposer"
+      avatar={activeProfile ? <ProfileInitial profile={activeProfile} /> : null}
+      tools={
+        <NoodleComposerToolRow
+          image={{ disabled: true }}
+          poll={{ disabled: true }}
+          media={{ ref: mediaToolRef, active: activeTool === "media", onClick: () => toggleTool("media") }}
+          trailing={
+            <div ref={coinToolRef} className="relative">
+              <NoodleToolButton
+                title="Post visibility & price"
+                active={activeTool === "coin" || access !== "public"}
+                onClick={() => toggleTool("coin")}
+              >
+                <Coins size={18} />
+              </NoodleToolButton>
+            </div>
+          }
+        />
+      }
+      action={
+        <button
+          type="button"
+          onClick={submit}
+          disabled={isPosting || direction.trim().length === 0}
+          className="inline-flex h-8 items-center gap-2 rounded-full bg-[var(--noodle-blue)] px-4 text-xs font-bold text-zinc-950 [&_svg]:!text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isPosting ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          {isPosting ? "Generating..." : "Post"}
+        </button>
+      }
+      popovers={
+        <>
+          {activeTool === "media" && (
+            <NoodleAnchoredPopover anchorRef={mediaToolRef} wide>
+              <ConversationMediaPickerPanel
+                tabs={[{ id: "emoji", label: "Emoji" }]}
+                activeTab={mediaPickerTab}
+                onActiveTabChange={setMediaPickerTab}
+                onClose={() => setActiveTool(null)}
+                onEmojiSelect={(emoji) => setDirection((current) => current + emoji)}
+                onGifSelect={() => {}}
+                onStickerSelect={(name) => setDirection((current) => `${current}sticker:${name}:`)}
+                className="w-full !border-[var(--marinara-chat-chrome-panel-border)] !bg-[var(--background)] !text-[var(--foreground)] shadow-2xl shadow-black/35"
+              />
+            </NoodleAnchoredPopover>
+          )}
+          {activeTool === "coin" && (
+            <NoodleAnchoredPopover anchorRef={coinToolRef}>
+              <div className="marinara-chat-popover space-y-3 rounded-xl border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--background)] p-3 text-[var(--foreground)] shadow-2xl shadow-black/35">
+                <p className="text-xs font-bold">Who can see this post</p>
+                <div className="grid grid-cols-3 gap-1 rounded-md bg-[var(--accent)] p-1">
+                  {(["public", "subscriber", "ppv"] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={access === option}
+                      onClick={() => setAccess(option)}
+                      className={`min-h-8 rounded px-2 text-xs font-bold capitalize ${access === option ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+                    >
+                      {option === "subscriber" ? "Subscribers" : option.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                {access === "ppv" && (
+                  <label className="block space-y-1">
+                    <span className="text-[0.68rem] font-semibold uppercase tracking-normal text-[var(--marinara-chat-chrome-panel-muted)]">
+                      Unlock price (credits)
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="999999"
+                      step="0.01"
+                      value={ppvPrice}
+                      onChange={(event) => setPpvPrice(event.target.value)}
+                      aria-label="PPV price"
+                      className="mari-chrome-field h-9 w-full rounded-md border border-[var(--marinara-chat-chrome-panel-border)] bg-[var(--background)] px-3 text-sm text-[var(--foreground)] outline-none focus:border-[var(--noodle-blue)]"
+                    />
+                  </label>
+                )}
+              </div>
+            </NoodleAnchoredPopover>
+          )}
+        </>
+      }
+      footer={error && <p className="mt-2 pl-14 text-xs text-[var(--destructive)]">{error}</p>}
+    >
+      {managedProfiles.length > 1 && (
+        <label className="mb-1 flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
+          <span className="font-semibold">Posting as</span>
+          <select
+            value={activeProfile?.id ?? ""}
+            onChange={(event) => onSelectedProfileChange(event.target.value)}
+            aria-label="Posting stage profile"
+            className="min-w-0 flex-1 rounded-md border border-[var(--noodle-divider)] bg-[var(--background)] px-2 py-1 text-xs font-semibold text-[var(--foreground)] outline-none focus:border-[var(--noodle-blue)]"
+          >
+            {managedProfiles.map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.displayName} · @{profile.handle}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <textarea
+        value={direction}
+        onChange={(event) => setDirection(event.target.value)}
+        maxLength={2000}
+        placeholder="What's simmering, privately?"
+        className="min-h-20 w-full resize-none border-0 bg-transparent py-2 text-[1rem] leading-6 text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
+      />
+    </NoodleComposerShell>
+  );
+}
+
+// Creator subscribe/unsubscribe suggestions for desktop layouts.
+function SubscriptionSections({
+  creators,
+  onToggleSubscription,
+  togglePending,
+}: {
+  creators: NonNullable<ReturnType<typeof useNoodlerViewer>["data"]>["creators"];
+  onToggleSubscription: (creatorAccountId: string, subscribed: boolean) => void;
+  togglePending: boolean;
+}) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[var(--noodle-divider)] bg-[var(--background)]">
+      <div className="border-b border-[var(--noodle-divider)] px-4 py-3">
+        <h3 className="text-lg font-bold">Creators</h3>
+      </div>
+      {creators.length > 0 ? (
+        <div className="divide-y divide-[var(--noodle-divider)]">
+          {creators.map((creator) => (
+            <div key={creator.profile.id} className="flex items-center gap-3 px-4 py-3">
+              <ProfileInitial profile={creator.profile} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{creator.profile.displayName}</span>
+                <span className="block truncate text-xs text-[var(--muted-foreground)]">@{creator.profile.handle}</span>
+              </span>
+              <button
+                type="button"
+                disabled={togglePending}
+                onClick={() => onToggleSubscription(creator.profile.id, creator.subscribed)}
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full px-4 text-xs font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50",
+                  creator.subscribed
+                    ? "border border-[var(--noodle-divider)] text-[var(--foreground)]"
+                    : "bg-[var(--foreground)] text-[var(--background)] [&_svg]:!text-[var(--background)]",
+                )}
+              >
+                {creator.subscribed ? <Minus size={14} /> : <Plus size={14} />}
+                {creator.subscribed ? "Unsubscribe" : "Subscribe"}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="px-4 py-5 text-sm text-[var(--muted-foreground)]">No creators are visible to this persona yet.</p>
+      )}
+    </section>
   );
 }
 

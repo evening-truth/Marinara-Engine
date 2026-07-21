@@ -208,6 +208,7 @@ export const noodleStageProfileDraftRequestSchema = z
     disclosureMode: noodleIdentityDisclosureSchema,
     guidance: z.string().trim().max(2000).default(""),
     currentDraft: noodleStageProfileSchema.partial().optional(),
+    connectionId: z.string().min(1).optional(),
   })
   .strict()
   .refine((input) => Boolean(input.publicAccountId || input.privateAccountId), {
@@ -268,6 +269,40 @@ const noodlerPersonaIdSchema = z.object({ personaId: z.string().min(1) }).strict
 export const noodlerViewerPersonaSchema = noodlerPersonaIdSchema;
 export const noodlerSubscriptionSchema = noodlerPersonaIdSchema;
 export const noodlerUnlockSchema = noodlerPersonaIdSchema;
+
+export const noodlerCreateInteractionSchema = noodlerPersonaIdSchema
+  .extend({
+    type: z.enum(["like", "repost", "reply"]),
+    content: z.string().max(2000).nullable().optional(),
+    parentInteractionId: z.string().min(1).nullable().optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.type === "reply" && !input.content?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["content"], message: "Replies need text." });
+    }
+    if (input.type === "repost" && input.parentInteractionId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["parentInteractionId"],
+        message: "Reposts cannot target a reply.",
+      });
+    }
+  });
+
+export const noodlerRemoveInteractionSchema = noodlerPersonaIdSchema
+  .extend({
+    type: z.enum(["like", "repost"]),
+    parentInteractionId: z.string().min(1).nullable().optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.type === "repost" && input.parentInteractionId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["parentInteractionId"],
+        message: "Reposts cannot target a reply.",
+      });
+    }
+  });
 
 export const noodlePostUpdateSchema = z.object({
   content: z.string().trim().min(1).max(4000).optional(),
@@ -516,6 +551,8 @@ export type NoodleCreateInteractionInput = z.infer<typeof noodleCreateInteractio
 export type NoodleRemoveInteractionInput = z.infer<typeof noodleRemoveInteractionSchema>;
 export type NoodleInteractionOwnerInput = z.infer<typeof noodleInteractionOwnerSchema>;
 export type NoodleInteractionUpdateInput = z.infer<typeof noodleInteractionUpdateSchema>;
+export type NoodlerCreateInteractionInput = z.infer<typeof noodlerCreateInteractionSchema>;
+export type NoodlerRemoveInteractionInput = z.infer<typeof noodlerRemoveInteractionSchema>;
 type InferredNoodlePublicGenerationRequest = z.infer<typeof noodlePublicGenerationRequestSchema>;
 type AssertNoKeys<T extends never> = T;
 export type NoodlePublicGenerationRequest = InferredNoodlePublicGenerationRequest &

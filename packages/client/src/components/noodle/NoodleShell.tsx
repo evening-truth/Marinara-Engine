@@ -5,14 +5,22 @@
 // ──────────────────────────────────────────────
 import { AtSign, Bell, Home, MoreHorizontal, Pencil, Search, Settings2, User, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { type CSSProperties, type ReactNode, type RefObject, useRef } from "react";
+import { createContext, type CSSProperties, type ReactNode, type RefObject, useContext, useRef } from "react";
 import type { NoodleAccount } from "@marinara-engine/shared";
 import { cn, getAvatarCropStyle, type AvatarCropValue } from "../../lib/utils";
 import { useDialogFocusScope } from "../../hooks/use-dialog-focus-scope";
 
 export const NOODLE_BLUE = "#7EA7FF";
-export const NOODLE_ICON_SCOPE_CLASS = "[&_svg]:!text-[var(--noodle-blue)]";
+export const NOODLE_PINK = "#FF7EC1";
+
+// The accent hex that drives `--noodle-blue` for every reused Noodle surface.
+// Provided at the shell root so descendants inherit via CSS var, and read here
+// so portaled popovers/modals (which escape the shell's CSS scope) can re-apply it.
+const NoodleAccentContext = createContext<string>(NOODLE_BLUE);
+export const useNoodleAccent = () => useContext(NoodleAccentContext);
+export const NOODLE_ICON_SCOPE_CLASS = "[&_:where(svg)]:text-[var(--noodle-blue)]";
 export const NOODLE_LOGO_SRC = "/noodle-klusek.png";
+const NOODLER_LOGO_SRC = "/noodler-klusek.png";
 export const NOODLE_PERSONA_SWITCHER_PAGE_SIZE = 5;
 
 const labelClass = "text-[0.68rem] font-semibold uppercase tracking-normal text-[var(--marinara-chat-chrome-panel-muted)]";
@@ -28,8 +36,43 @@ export function initials(name: string) {
   );
 }
 
-export function NoodleLogo({ className }: { className?: string }) {
-  return <img src={NOODLE_LOGO_SRC} alt="" className={cn("object-contain", className)} />;
+export function NoodleLogo({ className, src = NOODLE_LOGO_SRC }: { className?: string; src?: string }) {
+  return <img src={src} alt="" className={cn("object-contain", className)} />;
+}
+
+// Two-way switch between the Noodle and NoodleR apps — reads as picking one of two
+// exclusive modes, not another item in the vertical nav list.
+function NoodleModeToggle({
+  activeView,
+  onOpenHome,
+  onOpenNoodler,
+}: {
+  activeView: NoodleShellView;
+  onOpenHome: () => void;
+  onOpenNoodler: () => void;
+}) {
+  const noodler = activeView === "noodler";
+  const segment = (active: boolean) =>
+    cn(
+      "flex min-h-9 items-center justify-center gap-1.5 rounded-full px-2 text-sm font-bold transition-colors",
+      active
+        ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm"
+        : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
+    );
+  return (
+    <div
+      className="grid grid-cols-2 gap-1 rounded-full bg-[var(--accent)] p-1"
+      role="tablist"
+      aria-label="Switch between Noodle and NoodleR"
+    >
+      <button type="button" role="tab" aria-selected={!noodler} onClick={onOpenHome} className={segment(!noodler)}>
+        Noodle
+      </button>
+      <button type="button" role="tab" aria-selected={noodler} onClick={onOpenNoodler} className={segment(noodler)}>
+        NoodleR
+      </button>
+    </div>
+  );
 }
 
 export function Avatar({
@@ -69,10 +112,12 @@ export function Avatar({
   );
 }
 
-export type NoodleShellView = "home" | "search" | "notifications" | "profile" | "settings" | null;
+export type NoodleShellView = "home" | "noodler" | "search" | "notifications" | "profile" | "settings" | null;
 
 export interface NoodleShellProps {
   activeView: NoodleShellView;
+  /** Overrides whether the Home/Hub destination is selected when app mode and subview are separate. */
+  homeActive?: boolean;
   personaAccount: NoodleAccount | null;
   sortedPersonaAccounts: NoodleAccount[];
   visiblePersonaAccounts: NoodleAccount[];
@@ -87,22 +132,33 @@ export interface NoodleShellProps {
   onMobileAccountSwitcherOpenChange: (open: boolean) => void;
   notificationCount: number;
   onOpenHome: () => void;
-  /** Mobile bottom-nav "Home" tap — distinct from onOpenHome because it also clears any active post search. */
+  /** Mobile bottom-nav home/hub tap — distinct from onOpenHome because it also clears any active post search. */
   onOpenMobileHome: () => void;
-  onOpenSearch: () => void;
-  onOpenNotifications: () => void;
-  onOpenProfile: () => void;
+  /** "NoodleR" nav item — a peer to Home, not a sub-page reached through Home. */
+  onOpenNoodler: () => void;
+  /** Omit on surfaces with no scoped equivalent (e.g. NoodleR has no search) — renders disabled instead of navigating. */
+  onOpenSearch?: () => void;
+  /** Omit on surfaces with no scoped equivalent — renders disabled instead of navigating. */
+  onOpenNotifications?: () => void;
+  /** Omit on surfaces with no scoped equivalent — renders disabled instead of navigating. */
+  onOpenProfile?: () => void;
   onOpenSettings: () => void;
-  onCompose: (opener: HTMLElement) => void;
+  /** Omit on surfaces with no scoped equivalent — renders disabled instead of navigating. */
+  onCompose?: (opener: HTMLElement) => void;
+  /** Shows the Noodle/NoodleR mode toggle only once the user has turned NoodleR on in settings. */
+  enableNoodler?: boolean;
   /** Optional right-hand rail (search box, suggestions, etc). Omitted entirely on surfaces that don't need one. */
   rightRail?: ReactNode;
   /** Theme-dependent overlays (browser chrome strip, lightboxes, modals) that must render inside the token scope. */
   overlays?: ReactNode;
+  /** Accent hex driving `--noodle-blue` for every reused surface. NoodleR passes NOODLE_PINK; defaults to Noodle blue. */
+  accent?: string;
   children: ReactNode;
 }
 
 export function NoodleShell({
   activeView,
+  homeActive: homeActiveOverride,
   personaAccount,
   sortedPersonaAccounts,
   visiblePersonaAccounts,
@@ -118,13 +174,16 @@ export function NoodleShell({
   notificationCount,
   onOpenHome,
   onOpenMobileHome,
+  onOpenNoodler,
   onOpenSearch,
   onOpenNotifications,
   onOpenProfile,
   onOpenSettings,
   onCompose,
+  enableNoodler = false,
   rightRail,
   overlays,
+  accent = NOODLE_BLUE,
   children,
 }: NoodleShellProps) {
   const mobileDrawerRef = useRef<HTMLElement | null>(null);
@@ -132,9 +191,14 @@ export function NoodleShell({
   const prefersReducedMotion = Boolean(useReducedMotion());
   const hasMorePersonaAccounts = visiblePersonaAccounts.length < sortedPersonaAccounts.length;
   const notificationBadgeLabel = notificationCount > 99 ? "99+" : String(notificationCount);
+  const homeLabel = activeView === "noodler" ? "Hub" : "Home";
+  const homeActive = homeActiveOverride ?? (activeView === "home" || activeView === "noodler");
+  const onOpenHomeDestination = activeView === "noodler" ? onOpenNoodler : onOpenHome;
+  const onOpenMobileHomeDestination = activeView === "noodler" ? onOpenNoodler : onOpenMobileHome;
   useDialogFocusScope(mobileDrawerOpen, mobileDrawerRef, mobileDrawerCloseRef);
 
   return (
+    <NoodleAccentContext.Provider value={accent}>
     <div
       className={cn(
         "mari-chrome-token-scope relative flex h-full min-h-0 flex-col bg-[var(--background)] text-[var(--foreground)]",
@@ -143,7 +207,7 @@ export function NoodleShell({
       data-component="NoodleView"
       style={
         {
-          "--noodle-blue": NOODLE_BLUE,
+          "--noodle-blue": accent,
           "--noodle-divider": "var(--marinara-chat-chrome-panel-divider)",
         } as CSSProperties
       }
@@ -166,16 +230,7 @@ export function NoodleShell({
               aria-modal="true"
               aria-label="Noodle account menu"
               tabIndex={-1}
-              className={cn(
-                "mari-chrome-token-scope flex h-full w-full flex-col overflow-y-auto bg-[var(--background)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-5 text-[var(--foreground)]",
-                NOODLE_ICON_SCOPE_CLASS,
-              )}
-              style={
-                {
-                  "--noodle-blue": NOODLE_BLUE,
-                  "--noodle-divider": "var(--marinara-chat-chrome-panel-divider)",
-                } as CSSProperties
-              }
+              className="mari-chrome-token-scope flex h-full w-full flex-col overflow-y-auto bg-[var(--background)] px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-5 text-[var(--foreground)]"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -203,19 +258,29 @@ export function NoodleShell({
                 </button>
               </div>
 
-              <nav className="mt-7 space-y-1" aria-label="Noodle account navigation">
+              {enableNoodler && (
+                <div className="mt-7">
+                  <NoodleModeToggle activeView={activeView} onOpenHome={onOpenHome} onOpenNoodler={onOpenNoodler} />
+                </div>
+              )}
+              <nav className="mt-3 space-y-1" aria-label="Noodle account navigation">
                 <button
                   type="button"
-                  onClick={onOpenHome}
-                  className="flex min-h-12 w-full items-center gap-4 rounded-xl px-2 text-left text-base font-bold transition-colors hover:bg-[var(--accent)]"
+                  onClick={onOpenHomeDestination}
+                  aria-current={homeActive ? "page" : undefined}
+                  className={cn(
+                    "flex min-h-12 w-full items-center gap-4 rounded-xl px-2 text-left text-base font-bold transition-colors hover:bg-[var(--accent)]",
+                    homeActive && "bg-[var(--noodle-blue)]/10",
+                  )}
                 >
                   <Home size={23} />
-                  Home
+                  {homeLabel}
                 </button>
                 <button
                   type="button"
                   onClick={onOpenProfile}
-                  className="flex min-h-12 w-full items-center gap-4 rounded-xl px-2 text-left text-base font-bold transition-colors hover:bg-[var(--accent)]"
+                  disabled={!onOpenProfile}
+                  className="flex min-h-12 w-full items-center gap-4 rounded-xl px-2 text-left text-base font-bold transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   <User size={23} />
                   Profile
@@ -230,8 +295,9 @@ export function NoodleShell({
                 </button>
                 <button
                   type="button"
-                  onClick={(event) => onCompose(event.currentTarget)}
-                  className="flex min-h-12 w-full items-center gap-4 rounded-xl px-2 text-left text-base font-bold transition-colors hover:bg-[var(--accent)]"
+                  onClick={(event) => onCompose?.(event.currentTarget)}
+                  disabled={!onCompose}
+                  className="flex min-h-12 w-full items-center gap-4 rounded-xl px-2 text-left text-base font-bold transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   <Pencil size={23} />
                   Post
@@ -303,28 +369,38 @@ export function NoodleShell({
       </AnimatePresence>
       <div className="flex min-h-0 flex-1 justify-center overflow-hidden">
         <div className="flex min-h-0 w-full max-w-[1264px] justify-center">
-          <aside className="hidden w-[17rem] shrink-0 border-r border-[var(--noodle-divider)] bg-[var(--background)] lg:flex lg:flex-col [&_svg]:!text-[var(--noodle-blue)]">
+          <aside className="hidden w-[17rem] shrink-0 border-r border-[var(--noodle-divider)] bg-[var(--background)] lg:flex lg:flex-col">
             <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
               <div className="mb-5 flex h-12 items-center">
-                <NoodleLogo className="h-10 w-16" />
+                <NoodleLogo
+                  src={activeView === "noodler" ? NOODLER_LOGO_SRC : NOODLE_LOGO_SRC}
+                  className="h-10 w-16"
+                />
               </div>
+              {enableNoodler && (
+                <div className="mb-3">
+                  <NoodleModeToggle activeView={activeView} onOpenHome={onOpenHome} onOpenNoodler={onOpenNoodler} />
+                </div>
+              )}
               <nav className="space-y-1">
                 <button
                   type="button"
-                  onClick={onOpenHome}
+                  onClick={onOpenHomeDestination}
+                  aria-current={homeActive ? "page" : undefined}
                   className={cn(
                     "flex min-h-11 w-full items-center gap-4 rounded-full px-3 text-left text-[0.95rem] font-semibold hover:bg-[var(--accent)]",
-                    activeView === "home" && "bg-[var(--noodle-blue)]/10",
+                    homeActive && "bg-[var(--noodle-blue)]/10",
                   )}
                 >
                   <Home size={22} className="!text-[var(--noodle-blue)]" />
-                  Home
+                  {homeLabel}
                 </button>
                 <button
                   type="button"
                   onClick={onOpenNotifications}
+                  disabled={!onOpenNotifications}
                   className={cn(
-                    "flex min-h-11 w-full items-center gap-4 rounded-full px-3 text-left text-[0.95rem] font-semibold hover:bg-[var(--accent)]",
+                    "flex min-h-11 w-full items-center gap-4 rounded-full px-3 text-left text-[0.95rem] font-semibold hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                     activeView === "notifications" && "bg-[var(--noodle-blue)]/10",
                   )}
                 >
@@ -344,8 +420,9 @@ export function NoodleShell({
                 <button
                   type="button"
                   onClick={onOpenProfile}
+                  disabled={!onOpenProfile}
                   className={cn(
-                    "flex min-h-11 w-full items-center gap-4 rounded-full px-3 text-left text-[0.95rem] font-semibold hover:bg-[var(--accent)]",
+                    "flex min-h-11 w-full items-center gap-4 rounded-full px-3 text-left text-[0.95rem] font-semibold hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
                     activeView === "profile" && "bg-[var(--noodle-blue)]/10",
                   )}
                 >
@@ -366,8 +443,9 @@ export function NoodleShell({
               </nav>
               <button
                 type="button"
-                onClick={(event) => onCompose(event.currentTarget)}
-                className="mt-5 h-12 rounded-full bg-[var(--noodle-blue)] px-6 text-sm font-bold text-zinc-950 transition-opacity hover:opacity-90"
+                onClick={(event) => onCompose?.(event.currentTarget)}
+                disabled={!onCompose}
+                className="mt-5 h-12 rounded-full bg-[var(--noodle-blue)] px-6 text-sm font-bold text-zinc-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Post
               </button>
@@ -440,7 +518,9 @@ export function NoodleShell({
             </div>
           </aside>
 
-          <main className="flex min-h-0 w-full flex-1 flex-col lg:max-w-[640px]">{children}</main>
+          <main className="flex min-h-0 w-full flex-1 flex-col pb-[calc(52px+env(safe-area-inset-bottom))] lg:max-w-[640px] lg:pb-0">
+            {children}
+          </main>
           {rightRail}
         </div>
       </div>
@@ -467,20 +547,21 @@ export function NoodleShell({
           </button>
           <button
             type="button"
-            onClick={onOpenMobileHome}
-            aria-label="Noodle home"
-            aria-current={activeView === "home" ? "page" : undefined}
+            onClick={onOpenMobileHomeDestination}
+            aria-label={`Noodle ${homeLabel.toLowerCase()}`}
+            aria-current={homeActive ? "page" : undefined}
             className="relative flex items-center justify-center transition-colors hover:bg-[var(--accent)]"
           >
-            <Home size={22} strokeWidth={activeView === "home" ? 2.8 : 2} />
-            {activeView === "home" && <span className="absolute top-1 h-1 w-1 rounded-full bg-[var(--noodle-blue)]" />}
+            <Home size={22} strokeWidth={homeActive ? 2.8 : 2} />
+            {homeActive && <span className="absolute top-1 h-1 w-1 rounded-full bg-[var(--noodle-blue)]" />}
           </button>
           <button
             type="button"
             onClick={onOpenSearch}
+            disabled={!onOpenSearch}
             aria-label="Search Noodle"
             aria-current={activeView === "search" ? "page" : undefined}
-            className="relative flex items-center justify-center transition-colors hover:bg-[var(--accent)]"
+            className="relative flex items-center justify-center transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <Search size={22} strokeWidth={activeView === "search" ? 2.8 : 2} />
             {activeView === "search" && <span className="absolute top-1 h-1 w-1 rounded-full bg-[var(--noodle-blue)]" />}
@@ -488,9 +569,10 @@ export function NoodleShell({
           <button
             type="button"
             onClick={onOpenNotifications}
+            disabled={!onOpenNotifications}
             aria-label="Noodle notifications"
             aria-current={activeView === "notifications" ? "page" : undefined}
-            className="relative flex items-center justify-center transition-colors hover:bg-[var(--accent)]"
+            className="relative flex items-center justify-center transition-colors hover:bg-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <span className="relative flex h-6 w-6 items-center justify-center">
               <Bell size={22} strokeWidth={activeView === "notifications" ? 2.8 : 2} />
@@ -510,5 +592,6 @@ export function NoodleShell({
         </div>
       </nav>
     </div>
+    </NoodleAccentContext.Provider>
   );
 }

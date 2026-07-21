@@ -19,6 +19,8 @@ import {
   noodleInteractionUpdateSchema,
   noodlePostUpdateSchema,
   noodlePrivateAccountCreateSchema,
+  noodlerCreateInteractionSchema,
+  noodlerRemoveInteractionSchema,
   noodlerSubscriptionSchema,
   noodlerUnlockSchema,
   noodlerViewerPersonaSchema,
@@ -142,6 +144,28 @@ export async function noodleRoutes(app: FastifyInstance) {
       visibleAccounts.map((account) => account.id),
       40,
     );
+    const viewablePostIds = new Set<string>();
+    for (const account of visibleAccounts) {
+      const subscribed = subscribedIds.has(account.id);
+      for (const post of postsByAccount.get(account.id) ?? []) {
+        if (
+          canViewNoodlerPost({
+            post,
+            subscribed,
+            unlockedPostIds: unlockedIds,
+            subscriptionIncludesPpv: account.settings.privacy.access.subscriptionIncludesPpv,
+          })
+        ) {
+          viewablePostIds.add(post.id);
+        }
+      }
+    }
+    const interactionsByPostId = new Map<string, NoodlerPostView["interactions"]>();
+    for (const interaction of await noodle.listPrivateInteractions([...viewablePostIds])) {
+      const existing = interactionsByPostId.get(interaction.postId) ?? [];
+      existing.push(interaction);
+      interactionsByPostId.set(interaction.postId, existing);
+    }
     const creators = visibleAccounts.map((account) => {
       const subscribed = subscribedIds.has(account.id);
       const posts = postsByAccount.get(account.id) ?? [];
@@ -149,12 +173,7 @@ export async function noodleRoutes(app: FastifyInstance) {
         profile: profileById.get(account.id)!,
         subscribed,
         posts: posts.map((post): NoodlerPostView => {
-          const locked = !canViewNoodlerPost({
-            post,
-            subscribed,
-            unlockedPostIds: unlockedIds,
-            subscriptionIncludesPpv: account.settings.privacy.access.subscriptionIncludesPpv,
-          });
+          const locked = !viewablePostIds.has(post.id);
           return {
             id: post.id,
             authorAccountId: post.authorAccountId,
@@ -166,11 +185,99 @@ export async function noodleRoutes(app: FastifyInstance) {
             imagePrompt: locked ? null : post.imagePrompt,
             metadata: locked ? null : post.metadata,
             createdAt: post.createdAt,
+            interactions: locked ? [] : interactionsByPostId.get(post.id) ?? [],
           };
         }),
       };
     });
     return { viewer, creators };
+  });
+
+  async function resolveGatedPrivatePost(personaId: string, postId: string) {
+    const viewer = await resolveViewerPersona(personaId);
+    const post = viewer ? await noodle.getPrivatePostById(postId) : null;
+    const creator = post ? await noodle.getPrivateAccountById(post.authorAccountId) : null;
+    // Mirror the feed/subscribe/unlock rule: a viewer persona linked to the creator's own
+    // public account is not an audience member and must not persist self-interactions.
+    if (
+      !viewer ||
+      !post ||
+      !creator ||
+      creator.publicAccountId === viewer.id ||
+      isNoodlerHiddenFromViewer(creator, viewer.id)
+    )
+      return null;
+    const [subscriptions, unlocks] = await Promise.all([
+      noodle.listSubscriptionsForViewer(viewer.id),
+      noodle.listPostUnlocksForViewer(viewer.id),
+    ]);
+    const subscribed = subscriptions.some((item) => item.creatorAccountId === creator.id);
+    const locked = !canViewNoodlerPost({
+      post,
+      subscribed,
+      unlockedPostIds: new Set(unlocks.map((item) => item.postId)),
+      subscriptionIncludesPpv: creator.settings.privacy.access.subscriptionIncludesPpv,
+    });
+    if (locked) return null;
+    return { viewer, post };
+  }
+
+  app.post("/noodler/posts/:id/interactions", async (req, reply) => {
+    const settings = await noodle.getSettings();
+    if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
+    const parsed = noodlerCreateInteractionSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const { id } = req.params as { id: string };
+    const gated = await resolveGatedPrivatePost(parsed.data.personaId, id);
+    if (!gated) return reply.code(404).send({ error: "NoodleR post not found" });
+    const interaction = await noodle.createPrivateInteraction(id, {
+      actorAccountId: gated.viewer.id,
+      type: parsed.data.type,
+      content: parsed.data.content ?? null,
+      parentInteractionId: parsed.data.parentInteractionId ?? null,
+    });
+    if (!interaction) return reply.code(400).send({ error: "Could not add that NoodleR interaction." });
+    return reply.code(201).send(interaction);
+  });
+
+  app.delete("/noodler/posts/:id/interactions", async (req, reply) => {
+    const settings = await noodle.getSettings();
+    if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
+    const parsed = noodlerRemoveInteractionSchema.safeParse(req.query);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const { id } = req.params as { id: string };
+    const gated = await resolveGatedPrivatePost(parsed.data.personaId, id);
+    if (!gated) return reply.code(404).send({ error: "NoodleR post not found" });
+    const interaction = await noodle.deletePrivateInteraction(id, {
+      actorAccountId: gated.viewer.id,
+      type: parsed.data.type,
+      parentInteractionId: parsed.data.parentInteractionId ?? null,
+    });
+    if (!interaction) return reply.code(404).send({ error: "NoodleR interaction not found" });
+    return interaction;
+  });
+
+  // NoodleR posts are private stage-profile posts the user fully owns, so edit/delete
+  // route through the private-only storage methods (getPrivatePostById) rather than the
+  // public /posts endpoints, which reject any post whose author is not a public account.
+  app.patch("/noodler/posts/:id", async (req, reply) => {
+    const settings = await noodle.getSettings();
+    if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
+    const parsed = noodlePostUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const { id } = req.params as { id: string };
+    const post = await noodle.updatePrivatePost(id, parsed.data);
+    if (!post) return reply.code(404).send({ error: "NoodleR post not found" });
+    return post;
+  });
+
+  app.delete("/noodler/posts/:id", async (req, reply) => {
+    const settings = await noodle.getSettings();
+    if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
+    const { id } = req.params as { id: string };
+    const deleted = await noodle.deletePrivatePost(id);
+    if (!deleted) return reply.code(404).send({ error: "NoodleR post not found" });
+    return deleted;
   });
 
   app.post("/noodler/accounts/:id/subscribe", async (req, reply) => {
@@ -273,7 +380,7 @@ export async function noodleRoutes(app: FastifyInstance) {
     if (!settings.enableNoodler) return reply.code(404).send({ error: "Not Found" });
     const parsed = noodleStageProfileDraftRequestSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
-    const connectionId = settings.generationConnectionId;
+    const connectionId = parsed.data.connectionId || settings.generationConnectionId;
     if (!connectionId) return reply.code(400).send({ error: "Select a Noodle generation connection first." });
     const connection = await connections.getWithKey(connectionId);
     if (!connection) return reply.code(404).send({ error: "Noodle generation connection not found" });

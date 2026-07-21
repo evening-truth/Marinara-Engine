@@ -29,6 +29,8 @@ import type {
   NoodlerStageProfile,
   NoodlerManagedStageProfile,
   NoodlerViewerScope,
+  NoodlerCreateInteractionInput,
+  NoodlerRemoveInteractionInput,
 } from "@marinara-engine/shared";
 import { mergeNoodlePollVoteInteractions } from "@marinara-engine/shared";
 import type { ImagePromptOverride, ImagePromptReviewItem } from "../components/ui/ImagePromptReviewModal";
@@ -140,8 +142,16 @@ export function useDeleteNoodlerStageProfile() {
 
 export function useGenerateNoodlerStageProfileDraft() {
   return useMutation({
-    mutationFn: (input: NoodleStageProfileDraftRequest) =>
-      api.post<NoodleStageProfileInput>("/noodle/noodler/stage-profile-draft", input),
+    mutationFn: (input: NoodleStageProfileDraftRequest) => {
+      const controller = new AbortController();
+      // ponytail: fixed 60s ceiling, no per-provider tuning — raise if real drafts routinely take longer
+      const timer = setTimeout(() => controller.abort(), 60_000);
+      return api
+        .post<NoodleStageProfileInput>("/noodle/noodler/stage-profile-draft", input, {
+          signal: controller.signal,
+        })
+        .finally(() => clearTimeout(timer));
+    },
   });
 }
 
@@ -193,6 +203,45 @@ export function useUnlockNoodlerPost() {
     mutationFn: ({ postId, personaId }: { postId: string; personaId: string }) =>
       api.post(`/noodle/noodler/posts/${encodeURIComponent(postId)}/unlock`, { personaId }),
     onSuccess: (_result, input) => qc.invalidateQueries({ queryKey: noodleKeys.viewer(input.personaId) }),
+  });
+}
+
+export function useCreateNoodlerInteraction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ postId, ...input }: { postId: string } & NoodlerCreateInteractionInput) =>
+      api.post<NoodleInteraction>(`/noodle/noodler/posts/${encodeURIComponent(postId)}/interactions`, input),
+    onSuccess: (_result, input) => qc.invalidateQueries({ queryKey: noodleKeys.viewer(input.personaId) }),
+  });
+}
+
+export function useRemoveNoodlerInteraction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ postId, ...input }: { postId: string } & NoodlerRemoveInteractionInput) => {
+      const params = new URLSearchParams({ personaId: input.personaId, type: input.type });
+      if (input.parentInteractionId) params.set("parentInteractionId", input.parentInteractionId);
+      return api.delete<NoodleInteraction>(
+        `/noodle/noodler/posts/${encodeURIComponent(postId)}/interactions?${params}`,
+      );
+    },
+    onSuccess: (_result, input) => qc.invalidateQueries({ queryKey: noodleKeys.viewer(input.personaId) }),
+  });
+}
+
+/** Edit a NoodleR (private stage-profile) post. Hits the private-only endpoint; the
+ * caller refetches the affected viewer feed on success. */
+export function useUpdateNoodlerPost() {
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & NoodlePostUpdateInput) =>
+      api.patch<NoodlePost>(`/noodle/noodler/posts/${encodeURIComponent(id)}`, input),
+  });
+}
+
+/** Delete a NoodleR (private stage-profile) post. */
+export function useDeleteNoodlerPost() {
+  return useMutation({
+    mutationFn: (id: string) => api.delete<NoodlePost>(`/noodle/noodler/posts/${encodeURIComponent(id)}`),
   });
 }
 
