@@ -112,7 +112,11 @@ export function ConversationSoundSetting() {
   const browserNotificationHelp =
     browserPermission === "insecure"
       ? "Browser notifications require HTTPS or localhost."
-      : "Uses your browser's notification permission.";
+      : browserPermission === "denied"
+        ? "Browser notifications are blocked. Reset this site's notification permission, then try again."
+        : browserPermission === "unsupported"
+          ? "Browser notifications are not available in this environment."
+          : "Uses your browser's notification permission.";
 
   useEffect(() => {
     let cancelled = false;

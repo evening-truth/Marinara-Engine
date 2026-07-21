@@ -162,16 +162,46 @@ try {
     reasoningEffort: "high",
     customParameters: {
       min_p: 0.01,
+      top_k: 21,
+      frequency_penalty: 0.4,
+      presence_penalty: -0.2,
       top_n_sigma: 1.5,
       chat_template_kwargs: { enable_thinking: true },
     },
   });
   assert.ok(customParametersRequestBody);
   assert.equal(customParametersRequestBody.min_p, 0.01);
+  assert.equal(customParametersRequestBody.top_k, 21);
+  assert.equal(customParametersRequestBody.frequency_penalty, 0.4);
+  assert.equal(customParametersRequestBody.presence_penalty, -0.2);
   assert.equal(customParametersRequestBody.top_n_sigma, 1.5);
   assert.deepEqual(customParametersRequestBody.chat_template_kwargs, { enable_thinking: true });
   assert.equal("temperature" in customParametersRequestBody, false);
   assert.equal("top_p" in customParametersRequestBody, false);
+
+  customParametersRequestBody = null;
+  await provider.chatComplete([{ role: "user", content: "test inferred samplers" }], {
+    model: "gpt-5.6-local",
+    stream: false,
+    temperature: 0.7,
+    topP: 0.8,
+    topK: 44,
+    minP: 0.25,
+    frequencyPenalty: 0.5,
+    presencePenalty: 0.3,
+    reasoningEffort: "high",
+    enabledParameters: {
+      temperature: true,
+      topP: true,
+      topK: true,
+      frequencyPenalty: true,
+      presencePenalty: true,
+    },
+  });
+  assert.ok(customParametersRequestBody);
+  for (const key of ["temperature", "top_p", "top_k", "min_p", "frequency_penalty", "presence_penalty"]) {
+    assert.equal(key in customParametersRequestBody, false);
+  }
 } finally {
   await new Promise<void>((resolve, reject) =>
     customParametersServer.close((error) => (error ? reject(error) : resolve())),

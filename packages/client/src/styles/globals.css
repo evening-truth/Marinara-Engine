@@ -2623,7 +2623,6 @@ strong {
     overflow-x: hidden;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
-    word-break: break-word;
   }
 
   .mari-message-content .mari-md-codeblock code {

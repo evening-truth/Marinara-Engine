@@ -2854,41 +2854,46 @@ test("Conversation Chat Settings can attach and retain custom agents", async ({ 
 
   const suffix = Date.now().toString(36);
   const agentName = `Conversation Custom Agent ${suffix}`;
-  const agentResponse = await request.post("/api/agents", {
-    data: {
-      type: `conversation-custom-agent-${suffix}`,
-      name: agentName,
-      description: "Conversation custom-agent regression fixture.",
-      phase: "post_processing",
-      connectionId: null,
-      promptTemplate: "Return the original text.",
-      settings: {},
-    },
-  });
-  expect(agentResponse.ok()).toBeTruthy();
-  const agent = (await agentResponse.json()) as { id: string; type: string };
-
-  const chatResponse = await request.post("/api/chats", {
-    data: { name: `Conversation Custom Agent Smoke ${suffix}`, mode: "conversation", characterIds: [] },
-  });
-  expect(chatResponse.ok()).toBeTruthy();
-  const chat = (await chatResponse.json()) as { id: string };
-
-  const readAgentState = async () => {
-    const response = await request.get(`/api/chats/${chat.id}`);
-    if (!response.ok()) return null;
-    const current = (await response.json()) as { metadata?: unknown };
-    const metadata =
-      typeof current.metadata === "string"
-        ? (JSON.parse(current.metadata) as Record<string, unknown>)
-        : ((current.metadata ?? {}) as Record<string, unknown>);
-    return {
-      enabled: metadata.enableAgents === true,
-      active: Array.isArray(metadata.activeAgentIds) && metadata.activeAgentIds.includes(agent.type),
-    };
-  };
+  let agentId: string | null = null;
+  let chatId: string | null = null;
 
   try {
+    const agentResponse = await request.post("/api/agents", {
+      data: {
+        type: `conversation-custom-agent-${suffix}`,
+        name: agentName,
+        description: "Conversation custom-agent regression fixture.",
+        phase: "post_processing",
+        connectionId: null,
+        promptTemplate: "Return the original text.",
+        settings: {},
+      },
+    });
+    expect(agentResponse.ok()).toBeTruthy();
+    const agent = (await agentResponse.json()) as { id: string; type: string };
+    agentId = agent.id;
+
+    const chatResponse = await request.post("/api/chats", {
+      data: { name: `Conversation Custom Agent Smoke ${suffix}`, mode: "conversation", characterIds: [] },
+    });
+    expect(chatResponse.ok()).toBeTruthy();
+    const chat = (await chatResponse.json()) as { id: string };
+    chatId = chat.id;
+
+    const readAgentState = async () => {
+      const response = await request.get(`/api/chats/${chat.id}`);
+      if (!response.ok()) return null;
+      const current = (await response.json()) as { metadata?: unknown };
+      const metadata =
+        typeof current.metadata === "string"
+          ? (JSON.parse(current.metadata) as Record<string, unknown>)
+          : ((current.metadata ?? {}) as Record<string, unknown>);
+      return {
+        enabled: metadata.enableAgents === true,
+        active: Array.isArray(metadata.activeAgentIds) && metadata.activeAgentIds.includes(agent.type),
+      };
+    };
+
     await page.goto("/");
     await page.evaluate((chatId) => localStorage.setItem("marinara-active-chat-id", chatId), chat.id);
     await page.reload();
@@ -2910,22 +2915,25 @@ test("Conversation Chat Settings can attach and retain custom agents", async ({ 
     await expect(reloadedDrawer.getByText(agentName, { exact: true }).first()).toBeVisible();
     await expect.poll(readAgentState).toEqual({ enabled: true, active: true });
   } finally {
-    await request.delete(`/api/chats/${chat.id}`);
-    await request.delete(`/api/agents/${agent.id}`);
+    if (chatId) await request.delete(`/api/chats/${chatId}`);
+    if (agentId) await request.delete(`/api/agents/${agentId}`);
   }
 });
 
 test("mobile Roleplay code formatting stays inside the message width", async ({ page, request }, testInfo) => {
   test.skip(!testInfo.project.name.includes("mobile"), "Mobile markdown containment regression.");
 
-  const chatResponse = await request.post("/api/chats", {
-    data: { name: "Mobile Markdown Containment Smoke", mode: "roleplay", characterIds: [] },
-  });
-  expect(chatResponse.ok()).toBeTruthy();
-  const chat = (await chatResponse.json()) as { id: string };
   const longCode = "unbroken_mobile_code_".repeat(20);
+  let chatId: string | null = null;
 
   try {
+    const chatResponse = await request.post("/api/chats", {
+      data: { name: "Mobile Markdown Containment Smoke", mode: "roleplay", characterIds: [] },
+    });
+    expect(chatResponse.ok()).toBeTruthy();
+    const chat = (await chatResponse.json()) as { id: string };
+    chatId = chat.id;
+
     const messageResponse = await request.post(`/api/chats/${chat.id}/messages`, {
       data: {
         role: "assistant",
@@ -2944,15 +2952,17 @@ test("mobile Roleplay code formatting stays inside the message width", async ({ 
       const rect = element.getBoundingClientRect();
       return {
         clientWidth: element.clientWidth,
+        left: rect.left,
         right: rect.right,
         scrollWidth: element.scrollWidth,
         viewportWidth: document.documentElement.clientWidth,
       };
     });
     expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth + 1);
+    expect(bounds.left).toBeGreaterThanOrEqual(-1);
     expect(bounds.right).toBeLessThanOrEqual(bounds.viewportWidth + 1);
   } finally {
-    await request.delete(`/api/chats/${chat.id}`);
+    if (chatId) await request.delete(`/api/chats/${chatId}`);
   }
 });
 

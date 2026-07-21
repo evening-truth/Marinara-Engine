@@ -53,19 +53,15 @@ export async function seedDefaultBackgrounds(backgroundDir = BG_DIR) {
   if (installedBlackBackground) {
     writeFileSync(blackBackgroundPath, BLACK_BACKGROUND_JPEG);
   }
-  if (hasExistingCollection) {
-    if (installedBlackBackground) logger.info("[seed] Restored default Black.jpg background");
-    return;
-  }
 
-  // Check that bundled assets exist
-  if (!existsSync(ASSETS_DIR)) {
+  // Existing collections only need the fallback; fresh installs also receive
+  // the scenic bundled backgrounds.
+  let assetFiles: string[] = [];
+  if (!hasExistingCollection && existsSync(ASSETS_DIR)) {
+    assetFiles = readdirSync(ASSETS_DIR).filter((f) => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
+  } else if (!hasExistingCollection) {
     logger.warn("[seed] Default backgrounds assets not found — skipping");
-    return;
   }
-
-  const assetFiles = readdirSync(ASSETS_DIR).filter((f) => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
-  if (assetFiles.length === 0) return;
 
   // Copy each background file
   let copied = installedBlackBackground ? 1 : 0;
@@ -94,6 +90,11 @@ export async function seedDefaultBackgrounds(backgroundDir = BG_DIR) {
     }
   }
   writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf-8");
+
+  if (hasExistingCollection) {
+    if (installedBlackBackground) logger.info("[seed] Restored default Black.jpg background");
+    return;
+  }
 
   if (copied > 0) {
     logger.info(`[seed] Installed ${copied} default background${copied > 1 ? "s" : ""}`);
