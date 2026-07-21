@@ -33,6 +33,16 @@ assert.equal(
   undefined,
   "legacy unscoped Illustrator failures must retain the full retry path",
 );
+assert.equal(
+  illustratorRetryTargetsForFailures(
+    mergeAgentFailures(
+      [illustrationFailure],
+      [toAgentFailure({ agentType: "illustrator", error: "Legacy failure" })],
+    ),
+  ),
+  undefined,
+  "mixed scoped and legacy failures must retain the full retry path",
+);
 
 const backgroundOnly = parseIllustratorRetryTargets(["background"]);
 assert.deepEqual(backgroundOnly, ["background"]);

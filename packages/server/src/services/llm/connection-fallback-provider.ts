@@ -150,6 +150,7 @@ export class ConnectionFallbackProvider extends BaseLLMProvider {
       if (emittedUsableOutput || isAbortFailure(error, options.signal)) throw error;
       await this.logFallback(error);
     }
+    options.signal?.throwIfAborted();
     return yield* this.fallback.chat(messages, fallbackOptions(options, this.connection));
   }
 
@@ -163,6 +164,7 @@ export class ConnectionFallbackProvider extends BaseLLMProvider {
       if (isAbortFailure(error, options.signal)) throw error;
       await this.logFallback(error);
     }
+    options.signal?.throwIfAborted();
     return this.fallback.chatComplete(messages, fallbackOptions(options, this.connection));
   }
 

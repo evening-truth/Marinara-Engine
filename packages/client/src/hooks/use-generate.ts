@@ -68,8 +68,11 @@ function withIllustratorFailureTargets(
   options: RetryAgentsOptions | undefined,
   failures: AgentFailure[],
 ): RetryAgentsOptions | undefined {
+  const baseOptions: RetryAgentsOptions = { ...options };
+  delete baseOptions.illustratorRetryTargets;
   const illustratorRetryTargets = illustratorRetryTargetsForFailures(failures);
-  return illustratorRetryTargets ? { ...options, illustratorRetryTargets } : options;
+  if (illustratorRetryTargets) return { ...baseOptions, illustratorRetryTargets };
+  return Object.keys(baseOptions).length > 0 ? baseOptions : undefined;
 }
 
 /** Show a persistent, copyable error toast and log to console */
