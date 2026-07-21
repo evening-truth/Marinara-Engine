@@ -140,12 +140,13 @@ export function buildIllustratorBackgroundPlanUserPrompt(args: {
     .map((message) => `${message.role}: ${message.content.replace(/\s+/gu, " ").trim().slice(0, 1_500)}`)
     .filter((line) => !line.endsWith(": "))
     .join("\n");
+  const currentTrackerSummary = trackerSummary(args.gameState);
   return [
     args.chatName ? `Chat: ${args.chatName}` : "",
     args.currentBackground
       ? `Currently active background: ${args.currentBackground}`
       : "Currently active background: none",
-    trackerSummary(args.gameState) ? `Current tracker state: ${JSON.stringify(trackerSummary(args.gameState))}` : "",
+    currentTrackerSummary ? `Current tracker state: ${JSON.stringify(currentTrackerSummary)}` : "",
     previousTrackedLocations.length > 0
       ? `Recent committed tracker locations: ${previousTrackedLocations.join(" -> ")}`
       : "",

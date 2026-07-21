@@ -8052,15 +8052,15 @@ export async function generateRoutes(app: FastifyInstance) {
               const negativePrompt = ((illData.negativePrompt as string) ?? "").trim();
               const style = ((illData.style as string) ?? "").trim();
               const illCharacters = Array.isArray(illData.characters) ? (illData.characters as string[]) : [];
-              const illustratorAgent = resolvedAgents.find(
-                (agent) => agent.id === result.agentId || agent.type === "illustrator",
-              );
+              const resultAgent = resolvedAgents.find((agent) => agent.id === result.agentId);
+              const fallbackIllustratorAgent = resolvedAgents.find((agent) => agent.type === "illustrator");
+              const illustratorAgent = resultAgent ?? fallbackIllustratorAgent;
               const illustratorBackgroundAgent =
-                result.agentType === "illustrator"
-                  ? resolvedAgents.find((agent) => agent.id === result.agentId || agent.type === "illustrator")
-                  : resolvedAgents.find(
-                      (agent) => agent.id === result.agentId && agent.type === "illustrator",
-                    );
+                resultAgent?.type === "illustrator"
+                  ? resultAgent
+                  : result.agentType === "illustrator"
+                    ? fallbackIllustratorAgent
+                    : undefined;
               const requestedBackground = illustratorRequestedBackground(illData.generateBackground);
               const automaticBackgroundsEnabled = illustratorBackgroundGenerationEnabled(chatMode, chatMeta);
 

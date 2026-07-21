@@ -3371,11 +3371,13 @@ async function applyRetryResultEffects(args: {
       (result.agentType === "illustrator" ||
         resolvedAgents.some((entry) => entry.resolved.id === result.agentId && entry.resolved.type === "illustrator")),
   );
+  const resultEntry = illustratorResult
+    ? resolvedAgents.find((entry) => entry.resolved.id === illustratorResult.agentId)
+    : null;
   const illustratorEntry = illustratorResult
-    ? resolvedAgents.find(
-        (entry) =>
-          entry.resolved.id === illustratorResult.agentId || entry.resolved.type === "illustrator",
-      )
+    ? resultEntry?.resolved.type === "illustrator"
+      ? resultEntry
+      : resolvedAgents.find((entry) => entry.resolved.type === "illustrator")
     : null;
   if (
     illustratorResult &&
