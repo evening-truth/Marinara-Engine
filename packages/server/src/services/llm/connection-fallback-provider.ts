@@ -126,13 +126,13 @@ export class ConnectionFallbackProvider extends BaseLLMProvider {
   }
 
   async *chat(messages: ChatMessage[], options: ChatOptions): AsyncGenerator<string, LLMUsage | void, unknown> {
-    let emittedOutput = false;
+    let emittedUsableOutput = false;
     try {
       const primaryOptions = options.onToken
         ? {
             ...options,
             onToken: async (chunk: string) => {
-              emittedOutput ||= chunk.length > 0;
+              emittedUsableOutput ||= chunk.trim().length > 0;
               await options.onToken?.(chunk);
             },
           }
@@ -140,24 +140,25 @@ export class ConnectionFallbackProvider extends BaseLLMProvider {
       const generation = this.primary.chat(messages, primaryOptions);
       let result = await generation.next();
       while (!result.done) {
-        emittedOutput ||= result.value.length > 0;
+        emittedUsableOutput ||= result.value.trim().length > 0;
         yield result.value;
         result = await generation.next();
       }
-      return result.value;
+      if (emittedUsableOutput || options.signal?.aborted) return result.value;
+      await this.logFallback(new Error("Primary provider returned an empty completion"));
     } catch (error) {
-      if (emittedOutput || isAbortFailure(error, options.signal)) throw error;
+      if (emittedUsableOutput || isAbortFailure(error, options.signal)) throw error;
       await this.logFallback(error);
-      return yield* this.fallback.chat(messages, fallbackOptions(options, this.connection));
     }
+    return yield* this.fallback.chat(messages, fallbackOptions(options, this.connection));
   }
 
   async chatComplete(messages: ChatMessage[], options: ChatOptions): Promise<ChatCompletionResult> {
     try {
       const result = await this.primary.chatComplete(messages, options);
-      const hasUsableOutput = Boolean(result.content) || result.toolCalls.length > 0;
-      if (result.finishReason !== "error" || hasUsableOutput || options.signal?.aborted) return result;
-      await this.logFallback(new Error("Primary provider returned an empty error completion"));
+      const hasUsableOutput = Boolean(result.content?.trim()) || result.toolCalls.length > 0;
+      if (hasUsableOutput || options.signal?.aborted) return result;
+      await this.logFallback(new Error("Primary provider returned an empty completion"));
     } catch (error) {
       if (isAbortFailure(error, options.signal)) throw error;
       await this.logFallback(error);

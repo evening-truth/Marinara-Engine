@@ -485,6 +485,26 @@ assert.deepEqual(fallbackNotice, {
   model: "fallback-model",
 });
 
+const emptyStreamFallback = new RegressionProvider(["fallback after empty stream"]);
+assert.equal(
+  await collectProviderOutput(
+    new ConnectionFallbackProvider(new RegressionProvider(["  "]), emptyStreamFallback, fallbackConnection, "main"),
+    { model: "primary-model" },
+  ),
+  "  fallback after empty stream",
+);
+assert.equal(emptyStreamFallback.calls, 1, "an empty successful stream must activate the fallback");
+
+const emptyCompletionFallback = new RegressionProvider(["fallback after empty completion"]);
+const emptyCompletionResult = await new ConnectionFallbackProvider(
+  new RegressionProvider([]),
+  emptyCompletionFallback,
+  fallbackConnection,
+  "main",
+).chatComplete([{ role: "user", content: "test" }], { model: "primary-model", stream: false });
+assert.equal(emptyCompletionResult.content, "fallback after empty completion");
+assert.equal(emptyCompletionFallback.calls, 1, "an empty successful completion must activate the fallback");
+
 const partialPrimary = new RegressionProvider(["partial"], new Error("stream interrupted"));
 const unusedFallback = new RegressionProvider(["must not be appended"]);
 await assert.rejects(
