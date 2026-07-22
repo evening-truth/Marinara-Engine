@@ -156,14 +156,13 @@ const DOC_ORDER: Record<string, string[]> = {
   noodle: ["overview.md", "settings.md"],
   appearance: ["appearance-settings.md", "fonts.md", "chat-backgrounds.md", "custom-css-themes.md", "card-css-theming.md"],
   data: ["importing-from-sillytavern.md", "backup-and-restore.md", "where-data-is-stored.md", "clearing-data.md"],
-  extending: ["regex-scripts.md", "custom-tools.md", "extensions.md"],
+  extending: ["regex-scripts.md", "custom-tools.md"],
   integrations: ["home-assistant.md", "discord-mirror.md", "message-translation.md", "haptic-feedback.md"],
   development: [
     "architecture-map.md",
     "frontend.md",
     "file-storage.md",
     "noodle-internals.md",
-    "writing-extensions.md",
     "ios-pwa-safe-area.md",
   ],
 };

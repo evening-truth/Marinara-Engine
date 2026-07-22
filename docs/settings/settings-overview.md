@@ -13,7 +13,7 @@ The panel has six tabs. The table below shows what each tab controls.
 | **General** | App behavior, notifications, responses, input, text rules, and game playback. |
 | **Appearance** | Theme, colors, fonts, chat layout, motion, and backgrounds. |
 | **Generations** | Image and video defaults, and reusable prompt templates. |
-| **Addons** | Custom themes and extensions. |
+| **Addons** | Custom themes and cleanup of retired add-on records. |
 | **Imports** | Restore full profiles and import from other apps. |
 | **Advanced** | Admin access, updates, message tools, backups, and destructive resets. |
 
@@ -22,7 +22,7 @@ Here is where to read more about each tab:
 - **General**: covered on this page (see the sections below).
 - **Appearance**: see [Appearance Settings](../appearance/appearance-settings.md).
 - **Generations**: see [Style Profiles](../media/style-profiles.md) and [Scene Video](../media/scene-video.md).
-- **Addons**: see [Custom CSS Themes](../appearance/custom-css-themes.md) and [Extensions](../extending/extensions.md).
+- **Addons**: see [Custom CSS Themes](../appearance/custom-css-themes.md).
 - **Imports**: see [Importing from SillyTavern](../data/importing-from-sillytavern.md) and [Backup and Restore](../data/backup-and-restore.md).
 - **Advanced**: see the **Message Tools** section below, plus [Upgrading Marinara Engine](../UPGRADING.md), [Remote Access](../REMOTE_ACCESS.md), and [Clearing Your Data](../data/clearing-data.md).
 

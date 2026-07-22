@@ -89,7 +89,7 @@ Current top-level shape:
 - `services/game`: GM prompts, dice, combat, state machine, party prompts, maps, weather, time, sessions, checkpoints, reputation, assets.
 - `services/sidecar`: local runtime, model management, scene analysis, scene postprocessing.
 - `services/agents`: agent execution and knowledge routing.
-- Feature foundations: `services/import`, `services/lorebook`, `services/image`, `services/haptic`, `services/tools`, `services/extensions`, `services/regex`, `services/professor-mari`, `services/mari-db`, `services/turn-games`, `services/spotify`, `services/video`, `services/generation`, `services/chat-summary`, `services/achievements`, `services/prompt-overrides`, `services/setup`, `services/noodle`, `services/memory-recall`, and `discord-webhook.ts`.
+- Feature foundations: `services/import`, `services/lorebook`, `services/image`, `services/haptic`, `services/tools`, `services/regex`, `services/professor-mari`, `services/mari-db`, `services/turn-games`, `services/spotify`, `services/video`, `services/generation`, `services/chat-summary`, `services/achievements`, `services/prompt-overrides`, `services/setup`, `services/noodle`, `services/memory-recall`, `services/extensions` (retirement-only legacy cleanup), and `discord-webhook.ts`.
 - `db/schema`: file-table definitions for data stored under `DATA_DIR/storage`.
 - `db/file-schema.ts`, `db/file-query.ts`: native table metadata and query expressions.
 - `db/file-backed-store.ts`: in-memory table store, transaction boundary, crash recovery, and JSON snapshot persistence. See [File-Native Storage (Developers)](file-storage.md).
@@ -262,7 +262,7 @@ The old flat `types`, `schemas`, and `constants` layout is no longer the whole s
 4. If only the server needs it, keep it out of `packages/shared`.
 5. Route files should validate HTTP input and call services. Domain decisions should move into services.
 6. Stores should be either global (`ui`, `chat`, `sidecar`) or mode-specific (`game-mode`, `encounter`). Avoid one store quietly owning multiple modes.
-7. Metadata should become discriminated by `ChatMode`: base metadata plus conversation, roleplay, and game extensions.
+7. Metadata should become discriminated by `ChatMode`: base metadata plus conversation, roleplay, and game fields.
 8. Move one feature at a time. Leave compatibility exports or wrappers when a broad import path would otherwise churn the repo.
 9. After each move, run lint:
 

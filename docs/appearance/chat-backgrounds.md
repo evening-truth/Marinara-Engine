@@ -63,7 +63,7 @@ The **Background** agent still sees every available background, including backgr
 You can only rename images with the **Library** label.
 
 1. Hover over the image row and click the pencil icon (**Rename**).
-2. Type the new name. You do not need to type the file extension.
+2. Type the new name. You do not need to type the file suffix.
 3. Click **Save**.
 
 ### Tag a background

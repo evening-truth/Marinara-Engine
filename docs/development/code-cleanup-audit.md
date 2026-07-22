@@ -61,7 +61,7 @@ The four unreachable modules, stale script, no-op runner, and task briefs alone 
 
 The audit combined several kinds of evidence:
 
-1. Inventory of all tracked files, extensions, major source areas, and largest files.
+1. Inventory of all tracked files, file types, major source areas, and largest files.
 2. TypeScript AST import/export analysis, including relative imports and repository aliases.
 3. Exact-symbol and filename searches across tracked source, scripts, documentation, manifests, and workflows.
 4. TypeScript compiler probes with `noUnusedLocals` and `noUnusedParameters` forced on for the client and server.

@@ -45,11 +45,6 @@ import {
   resolveTrackerPanelContentScale,
   resolveTrackerPanelDesktopWidth,
 } from "../../packages/client/src/lib/tracker-panel-layout.js";
-import {
-  compareExtensionVersions,
-  findExtensionsByName,
-  normalizeExtensionVersion,
-} from "../../packages/client/src/lib/extension-install.js";
 import { getApiErrorMessage } from "../../packages/client/src/lib/api-client.js";
 import { parseCustomParametersDraft } from "../../packages/client/src/lib/generation-custom-parameters.js";
 import { parseGenerationParameterDraft } from "../../packages/client/src/lib/generation-parameter-draft.js";
@@ -2702,25 +2697,6 @@ assert.equal(
   0.65,
   "Severely constrained Tracker contents should reflow before their text becomes unreadably small",
 );
-assert.equal(normalizeExtensionVersion(" 1.2.0 "), "1.2.0");
-assert.equal(normalizeExtensionVersion(3), "3");
-assert.equal(normalizeExtensionVersion(""), null);
-assert.equal(compareExtensionVersions("1.9", "2.0"), -1);
-assert.equal(compareExtensionVersions("2.0.0", "2"), 0);
-assert.equal(compareExtensionVersions("3.1", "3.0.9"), 1);
-assert.equal(compareExtensionVersions("nightly", "3.0"), null);
-assert.deepEqual(
-  findExtensionsByName(
-    [
-      { id: "first", name: "Example Extension" },
-      { id: "second", name: "example extension" },
-      { id: "other", name: "Other" },
-    ],
-    " example EXTENSION ",
-  ).map((extension) => extension.id),
-  ["first", "second"],
-);
-
 const backgroundSeedRoot = mkdtempSync(join(tmpdir(), "marinara-default-background-"));
 const backgroundSeedDir = join(backgroundSeedRoot, "backgrounds");
 try {

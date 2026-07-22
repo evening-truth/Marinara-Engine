@@ -938,120 +938,117 @@ test("desktop Tracker stays in the Roleplay gutter without shifting the chat col
   }
 });
 
-test("reinstalling an extension updates the existing record instead of creating a duplicate", async ({ page }) => {
-  const name = "Extension Reinstall Smoke";
-  let extensionId: string | null = null;
-
-  try {
-    const firstResponse = await page.request.post("/api/extensions", {
-      data: {
-        name,
-        version: "2.0.0",
-        description: "First install",
-        runtime: "client",
-        css: ".extension-reinstall-smoke { color: red; }",
-        enabled: false,
-      },
-    });
-    expect(firstResponse.ok()).toBeTruthy();
-    const first = (await firstResponse.json()) as { id: string; version?: string | null };
-    extensionId = first.id;
-
-    const replacementResponse = await page.request.post("/api/extensions", {
-      data: {
-        name: name.toLowerCase(),
-        version: "3.0.0",
-        description: "Replacement install",
-        runtime: "client",
-        css: ".extension-reinstall-smoke { color: blue; }",
-        enabled: false,
-      },
-    });
-    expect(replacementResponse.ok()).toBeTruthy();
-    const replacement = (await replacementResponse.json()) as { id: string; version?: string | null };
-    expect(replacement.id).toBe(first.id);
-    expect(replacement.version).toBe("3.0.0");
-
-    const listResponse = await page.request.get("/api/extensions");
-    expect(listResponse.ok()).toBeTruthy();
-    const extensions = (await listResponse.json()) as Array<{ id: string; name: string }>;
-    expect(extensions.filter((extension) => extension.name.trim().toLowerCase() === name.toLowerCase())).toEqual([
-      expect.objectContaining({ id: first.id }),
-    ]);
-  } finally {
-    if (extensionId) await page.request.delete(`/api/extensions/${extensionId}`);
+test("extension install and update APIs stay retired", async ({ page }) => {
+  for (const data of [
+    {
+      name: "Blocked Browser Code Smoke",
+      runtime: "client",
+      js: "globalThis.__marinaraBlockedExtensionMarker = true;",
+      enabled: false,
+    },
+    {
+      name: "Blocked Server Code Smoke",
+      runtime: "server",
+      serverJs: "throw new Error('must never execute');",
+      enabled: true,
+    },
+    {
+      name: "Blocked CSS Extension Smoke",
+      runtime: "client",
+      css: ".extension-security-css-smoke { color: red; }",
+      enabled: false,
+    },
+  ]) {
+    const response = await page.request.post("/api/extensions", { data });
+    expect(response.status()).toBe(410);
+    expect(await response.json()).toEqual(expect.objectContaining({ code: "EXTENSIONS_DISABLED" }));
   }
+
+  const updateResponse = await page.request.patch("/api/extensions/legacy-extension", {
+    data: { enabled: true },
+  });
+  expect(updateResponse.status()).toBe(410);
+  expect(await updateResponse.json()).toEqual(expect.objectContaining({ code: "EXTENSIONS_DISABLED" }));
 });
 
-test("extension import warns before replacing a newer installed version", async ({ page }, testInfo) => {
-  test.skip(!testInfo.project.name.includes("desktop"), "The Add-ons downgrade confirmation is covered on desktop.");
+test("stored legacy extensions stay inert and can only be removed", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "One browser proves the shared extension loader boundary.");
 
-  const name = "Extension Downgrade Warning Smoke";
-  let extensionId: string | null = null;
-  const importFile = {
-    name: "extension-downgrade-warning.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(
-      JSON.stringify({
-        kind: "marinara.extension",
-        version: 1,
-        config: {
-          name,
-          version: "1.0.0",
-          description: "Older release",
-          enabled: false,
-          css: ".extension-downgrade-warning { color: blue; }",
-        },
-      }),
+  const browserCodeName = "Legacy browser code";
+  const cssName = "Legacy extension CSS";
+  let records = [
+    {
+      id: "legacy-browser-code",
+      name: browserCodeName,
+      description: "Regression fixture",
+      runtime: "client",
+      css: null,
+      js: "globalThis.__marinaraBlockedExtensionMarker = true;",
+      serverJs: null,
+      enabled: true,
+      executionBlocked: true,
+      installedAt: new Date(0).toISOString(),
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    },
+    {
+      id: "legacy-css-extension",
+      name: cssName,
+      description: "Regression fixture",
+      runtime: "client",
+      css: "#marinara-blocked-extension-style-marker { display: block; }",
+      js: null,
+      serverJs: null,
+      enabled: true,
+      executionBlocked: true,
+      installedAt: new Date(0).toISOString(),
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    },
+  ];
+
+  await page.route(/\/api\/extensions(?:\/[^/?]+)?(?:\?.*)?$/, async (route) => {
+    const method = route.request().method();
+    if (method === "GET") {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(records) });
+      return;
+    }
+    if (method === "DELETE") {
+      const id = new URL(route.request().url()).pathname.split("/").pop();
+      records = records.filter((extension) => extension.id !== id);
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await expect(page.locator('[data-tour="panel-settings"]')).toBeVisible();
+  await page.waitForTimeout(250);
+  expect(
+    await page.evaluate(
+      () =>
+        (globalThis as typeof globalThis & { __marinaraBlockedExtensionMarker?: boolean })
+          .__marinaraBlockedExtensionMarker,
     ),
-  };
+  ).toBeUndefined();
+  await expect(page.locator("#marinara-ext-legacy-browser-code")).toHaveCount(0);
+  await expect(page.locator("#marinara-ext-legacy-css-extension")).toHaveCount(0);
 
-  try {
-    const installResponse = await page.request.post("/api/extensions", {
-      data: {
-        name,
-        version: "2.0.0",
-        description: "Newer release",
-        runtime: "client",
-        css: ".extension-downgrade-warning { color: red; }",
-        enabled: false,
-      },
-    });
-    expect(installResponse.ok()).toBeTruthy();
-    extensionId = ((await installResponse.json()) as { id: string }).id;
+  await page.locator('[data-tour="panel-settings"]').click();
+  await page.getByRole("tab", { name: "Addons" }).click();
+  await expect(page.getByText("Extensions have been removed.")).toBeVisible();
+  await expect(page.getByText(browserCodeName, { exact: true })).toBeVisible();
+  await expect(page.getByText(cssName, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Import CSS Extension/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Export extension/i })).toHaveCount(0);
 
-    await page.goto("/");
-    await page.locator('[data-tour="panel-settings"]').click();
-    await page.getByRole("tab", { name: "Addons" }).click();
-    const importButton = page.getByRole("button", { name: /Import Extension File/ });
-
-    let fileChooserPromise = page.waitForEvent("filechooser");
-    await importButton.click();
-    await (await fileChooserPromise).setFiles(importFile);
-    let downgradeDialog = page.getByRole("dialog", { name: "Install Older Extension Version?" });
-    await expect(downgradeDialog).toBeVisible();
-    await downgradeDialog.getByRole("button", { name: "Cancel" }).click();
-
-    let extensionResponse = await page.request.get("/api/extensions");
-    let extensions = (await extensionResponse.json()) as Array<{ name: string; version?: string | null }>;
-    expect(extensions.find((extension) => extension.name === name)?.version).toBe("2.0.0");
-
-    fileChooserPromise = page.waitForEvent("filechooser");
-    await importButton.click();
-    await (await fileChooserPromise).setFiles(importFile);
-    downgradeDialog = page.getByRole("dialog", { name: "Install Older Extension Version?" });
-    await downgradeDialog.getByRole("button", { name: "Install Older Version" }).click();
-
-    await expect
-      .poll(async () => {
-        extensionResponse = await page.request.get("/api/extensions");
-        extensions = (await extensionResponse.json()) as Array<{ name: string; version?: string | null }>;
-        return extensions.find((extension) => extension.name === name)?.version;
-      })
-      .toBe("1.0.0");
-  } finally {
-    if (extensionId) await page.request.delete(`/api/extensions/${extensionId}`);
-  }
+  await page.getByRole("button", { name: `Remove legacy extension record ${browserCodeName}` }).click();
+  const dialog = page.getByRole("dialog", { name: "Remove Legacy Extension Record" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Remove Record" }).click();
+  await expect(page.getByText(browserCodeName, { exact: true })).toHaveCount(0);
+  await expect(page.getByText(cssName, { exact: true })).toBeVisible();
 });
 
 test("Roleplay Active Context shows rich lorebook activation provenance", async ({ page, request }, testInfo) => {

@@ -195,7 +195,7 @@ The image, video, sprite, and ComfyUI timeouts are locked in at startup, so a ch
 
 ## Privileged APIs (ADMIN_SECRET)
 
-Some actions are destructive or high-risk, so they need an extra secret on top of the normal access checks. Examples are backups, clearing data, applying updates, and installing themes or extensions.
+Some actions are destructive or high-risk, so they need an extra secret on top of the normal access checks. Examples are backups, clearing data, applying updates, and installing themes.
 
 Set a long, random value for `ADMIN_SECRET` on the server:
 

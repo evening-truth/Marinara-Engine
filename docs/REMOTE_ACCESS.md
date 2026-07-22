@@ -174,7 +174,7 @@ You need a certificate and key before setting `SSL_CERT` and `SSL_KEY`. You can 
 
 ## Admin Access and privileged actions
 
-Some actions are extra sensitive: clearing data, creating or downloading backups, importing and exporting profiles, installing themes or extensions, and installing the Local Model runtime. These need a separate shared secret called the admin secret, on top of whichever access option you chose above.
+Some actions are extra sensitive: clearing data, creating or downloading backups, importing and exporting profiles, installing themes, and installing the Local Model runtime. These need a separate shared secret called the admin secret, on top of whichever access option you chose above.
 
 On the loopback machine, these actions usually work with no admin secret. From a remote device, you need to set the secret up. Follow these steps.
 

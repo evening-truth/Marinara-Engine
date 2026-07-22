@@ -21,14 +21,9 @@ import {
   type VisualTheme,
 } from "../../stores/ui.store";
 import { cn, copyToClipboard } from "../../lib/utils";
-import { useExtensions, useCreateExtension, useDeleteExtension, useUpdateExtension } from "../../hooks/use-extensions";
+import { useDeleteExtension, useExtensions } from "../../hooks/use-extensions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  ADMIN_SECRET_STORAGE_KEY,
-  ApiError,
-  api,
-  getPrivilegedActionErrorMessage,
-} from "../../lib/api-client";
+import { ADMIN_SECRET_STORAGE_KEY, ApiError, api, getPrivilegedActionErrorMessage } from "../../lib/api-client";
 import { chatBackgroundUrlToMetadata } from "../../lib/backgrounds";
 import { normalizeThemeCss, sanitizeAppCss } from "../../lib/theme-css";
 import { forceRefreshSpa } from "@/lib/browser-runtime";
@@ -51,7 +46,6 @@ import {
   createFolderEntry,
   getFolderImportEntries,
   getFolderManifestConfig,
-  isJsonRecord,
   type AppSettingsResponse,
   type ConversationCallCharacterVideoClipKind,
   type ImagePromptKind,
@@ -88,7 +82,6 @@ import {
   FileCode2,
   FileText,
   Power,
-  PowerOff,
   Paintbrush,
   AlertTriangle,
   Tag,
@@ -137,23 +130,11 @@ import { ExportFormatDialog, type ExportFormatChoice } from "../ui/ExportFormatD
 import { inspectCharacterFilesForEmbeddedLorebooks } from "../../lib/character-import";
 import { showConfirmDialog } from "../../lib/app-dialogs";
 import { downloadJsonFile, sanitizeExportFilenamePart } from "../../lib/download-json";
-import { downloadZipFile } from "../../lib/download-zip";
 import {
-  compareExtensionVersions,
-  findExtensionsByName,
-  normalizeExtensionVersion,
-} from "../../lib/extension-install";
-import { createExtensionFolderPackageFilename, createExtensionFolderPackageFiles } from "../../lib/extension-transfer";
-import {
-  collectFolderPackageEntries,
-  getPackagePathBasename,
-  readTextFilesFromFileList,
-  resolvePackageTextPaths,
-  type FolderPackageImportEntry,
-  type PackageTextFile,
-} from "../../lib/folder-package-transfer";
-import { HOST_DEVICE_FILE_MANAGER_MESSAGE, HostDeviceFileManagerError, isHostDeviceBrowser } from "../../lib/host-device";
-import { isZipFile as isZipArchiveFile, readTextFilesFromZip } from "../../lib/read-zip-text";
+  HOST_DEVICE_FILE_MANAGER_MESSAGE,
+  HostDeviceFileManagerError,
+  isHostDeviceBrowser,
+} from "../../lib/host-device";
 
 type CustomFontFace = {
   filename: string;
@@ -178,7 +159,7 @@ const TABS = [
     icon: WandSparkles,
     description: "Image/video defaults and prompt templates.",
   },
-  { id: "addons", label: "Addons", icon: Puzzle, description: "Themes, extensions, and custom behavior." },
+  { id: "addons", label: "Addons", icon: Puzzle, description: "Custom themes and legacy extension cleanup." },
   { id: "import", label: "Imports", icon: Download, description: "Imports, asset folders, and data transfer." },
   {
     id: "advanced",
@@ -410,9 +391,9 @@ const SETTINGS_SECTIONS: readonly SettingsSectionMeta[] = [
   {
     id: "extension-library",
     tab: "addons",
-    label: "Extension Library",
-    description: "Trusted browser and server extensions.",
-    aliases: ["extensions", "addons", "tools", "browser", "server"],
+    label: "Legacy Extension Cleanup",
+    description: "Remove disabled extension records left by older versions.",
+    aliases: ["extensions", "addons", "legacy", "remove", "cleanup", "security"],
   },
   {
     id: "theme-library",
@@ -4865,9 +4846,9 @@ function AddonsSettings() {
   return (
     <div className="flex flex-col gap-3">
       <SettingsIntro>
-        Extensions add trusted browser or server behavior; custom themes change Marinara's look.
+        Custom themes remain available. The extension feature has been removed for security.
       </SettingsIntro>
-      <ExtensionsSettings showIntro={false} />
+      <LegacyExtensionsCleanup />
       <ThemesSettings showIntro={false} />
     </div>
   );
@@ -5409,141 +5390,6 @@ function parseThemeJsonWithControlCharFallback(text: string) {
   }
 }
 
-function createInlineFolderPackageImportEntry(raw: unknown, path: string): FolderPackageImportEntry {
-  return {
-    raw,
-    path,
-    basePath: "",
-    resolveTextFile: () => null,
-  };
-}
-
-function getExtensionImportKind(raw: unknown) {
-  if (!isJsonRecord(raw)) return "";
-  const manifest = isJsonRecord(raw.manifest) ? raw.manifest : raw;
-  return typeof manifest.kind === "string" ? manifest.kind : "";
-}
-
-function getExtensionImportRuntime(raw: unknown, record: Record<string, unknown>): "client" | "server" {
-  const runtime = typeof record.runtime === "string" ? record.runtime.toLowerCase() : "";
-  const kind = getExtensionImportKind(raw).toLowerCase();
-  return runtime === "server" || kind === "marinara.server-extension" ? "server" : "client";
-}
-
-function normalizeExtensionImportEntry(entry: FolderPackageImportEntry, fallbackName: string) {
-  const source = getFolderManifestConfig(entry.raw);
-  if (!source || typeof source !== "object" || Array.isArray(source)) return null;
-  const record = source as Record<string, unknown>;
-  const folderName = getPackagePathBasename(entry.basePath) || fallbackName;
-  const name = typeof record.name === "string" && record.name.trim() ? record.name.trim() : folderName;
-  if (!name) return null;
-  const runtime = getExtensionImportRuntime(entry.raw, record);
-  const version = normalizeExtensionVersion(record.version);
-
-  if (runtime === "server") {
-    const serverJsFromFiles = resolvePackageTextPaths(
-      entry.resolveTextFile,
-      record.serverJsPath ?? record.serverJsPaths ?? record.jsPath ?? record.jsPaths,
-    );
-    return {
-      name,
-      version,
-      description: typeof record.description === "string" ? record.description : "",
-      runtime,
-      css: null,
-      js: null,
-      serverJs:
-        serverJsFromFiles ??
-        (typeof record.serverJs === "string" ? record.serverJs : typeof record.js === "string" ? record.js : null),
-      enabled: false,
-    };
-  }
-
-  return {
-    name,
-    version,
-    description: typeof record.description === "string" ? record.description : "",
-    runtime,
-    css:
-      resolvePackageTextPaths(entry.resolveTextFile, record.cssPath ?? record.cssPaths) ??
-      (typeof record.css === "string" ? record.css : null),
-    js:
-      resolvePackageTextPaths(entry.resolveTextFile, record.jsPath ?? record.jsPaths) ??
-      (typeof record.js === "string" ? record.js : null),
-    serverJs: null,
-    enabled: typeof record.enabled === "boolean" ? record.enabled : false,
-  };
-}
-
-function createLooseExtensionFolderImportEntries(
-  files: PackageTextFile[],
-  fallbackName: string,
-): FolderPackageImportEntry[] {
-  const serverJs = files
-    .filter((file) => /\.server\.(js|mjs|cjs)$/i.test(file.path))
-    .map((file) => file.text)
-    .join("\n\n");
-  if (serverJs) {
-    return [
-      createInlineFolderPackageImportEntry(
-        {
-          name: fallbackName || "extension",
-          description: "Server extension imported from folder",
-          runtime: "server",
-          serverJs,
-          enabled: false,
-        },
-        fallbackName || "extension",
-      ),
-    ];
-  }
-
-  const css = files
-    .filter((file) => file.path.toLowerCase().endsWith(".css"))
-    .map((file) => file.text)
-    .join("\n\n");
-  const js = files
-    .filter((file) => /\.(js|mjs|cjs)$/i.test(file.path) && !/\.server\.(js|mjs|cjs)$/i.test(file.path))
-    .map((file) => file.text)
-    .join("\n\n");
-  if (!css && !js) return [];
-  return [
-    createInlineFolderPackageImportEntry(
-      {
-        name: fallbackName || "extension",
-        description: "Extension imported from folder",
-        runtime: "client",
-        css: css || null,
-        js: js || null,
-        serverJs: null,
-        enabled: false,
-      },
-      fallbackName || "extension",
-    ),
-  ];
-}
-
-function getLooseExtensionFolderName(files: PackageTextFile[], fallbackName: string) {
-  const firstPath = files[0]?.path;
-  if (!firstPath) return fallbackName;
-  const firstSlash = firstPath.indexOf("/");
-  return firstSlash > 0 ? firstPath.slice(0, firstSlash) : fallbackName;
-}
-
-function describeExtensionImportError(error: unknown, name?: string) {
-  const rawMessage =
-    error instanceof ApiError && error.message
-      ? error.message
-      : error instanceof Error && error.message
-        ? error.message
-        : "Failed to import extension.";
-  const subject = name ? `Failed to install "${name}": ${rawMessage}` : rawMessage;
-  if (error instanceof ApiError && error.status === 403) {
-    return `${subject} Installing extensions requires loopback access or admin access. Open Marinara Engine through localhost, or set ADMIN_SECRET=<secret> in the server .env and paste the same value in Settings → Advanced → Admin Access. Marinara sends it as the X-Admin-Secret header.`;
-  }
-  return subject;
-}
-
 function triggerFilePicker(options: {
   accept?: string;
   multiple?: boolean;
@@ -5586,458 +5432,94 @@ function triggerFilePicker(options: {
   el.click();
 }
 
-function ExtensionsSettings({ showIntro = true }: { showIntro?: boolean } = {}) {
-  const { data: extensions, isLoading } = useExtensions();
-  const extensionList = extensions ?? [];
-  const createExtension = useCreateExtension();
-  const updateExtension = useUpdateExtension();
+function LegacyExtensionsCleanup() {
+  const { data: extensions = [], isLoading } = useExtensions();
   const deleteExtension = useDeleteExtension();
 
-  const installOrUpdateExtension = async (
-    normalized: NonNullable<ReturnType<typeof normalizeExtensionImportEntry>>,
-    installedAt: string,
-    candidates = extensionList,
-  ) => {
-    const matches = findExtensionsByName(candidates, normalized.name);
-    const existing = matches[0];
-    if (!existing) {
-      return {
-        extension: await createExtension.mutateAsync({ ...normalized, installedAt }),
-        status: "installed" as const,
-      };
-    }
-
-    if (compareExtensionVersions(normalized.version, existing.version) === -1) {
-      const confirmed = await showConfirmDialog({
-        title: "Install Older Extension Version?",
-        message: `Version ${normalized.version} of "${normalized.name}" is older than the installed version ${existing.version}. Replace it anyway?`,
-        confirmLabel: "Install Older Version",
-        tone: "destructive",
-      });
-      if (!confirmed) return { extension: existing, status: "cancelled" as const };
-    }
-
-    const updated = await updateExtension.mutateAsync({
-      id: existing.id,
-      ...normalized,
-      version: normalized.version ?? existing.version ?? null,
-      enabled: existing.runtime === normalized.runtime ? existing.enabled : false,
-    });
-    for (const duplicate of matches.slice(1)) {
-      await deleteExtension.mutateAsync(duplicate.id);
-    }
-    return { extension: updated, status: "updated" as const };
-  };
-
-  const importExtensionEntries = async (
-    entries: FolderPackageImportEntry[],
-    installedAt: string,
-    fallbackName: string,
-  ) => {
-    let installed = 0;
-    let updated = 0;
-    let importedEnabled = 0;
-    let failed = 0;
-    let skipped = 0;
-    let workingExtensions = extensionList;
-    const failureMessages: string[] = [];
-    for (const entry of entries) {
-      const normalized = normalizeExtensionImportEntry(entry, fallbackName);
-      if (!normalized) {
-        skipped++;
-        failureMessages.push("Skipped an extension entry because it did not contain importable extension data.");
-        continue;
-      }
-      try {
-        const result = await installOrUpdateExtension(normalized, installedAt, workingExtensions);
-        if (result.status === "cancelled") {
-          skipped++;
-          failureMessages.push(`Kept the installed version of "${normalized.name}".`);
-          continue;
-        }
-        if (result.status === "updated") updated++;
-        else installed++;
-        if (result.extension.enabled) importedEnabled++;
-        workingExtensions = [
-          result.extension,
-          ...workingExtensions.filter(
-            (extension) => extension.name.trim().toLowerCase() !== normalized.name.trim().toLowerCase(),
-          ),
-        ];
-      } catch (err) {
-        failed++;
-        failureMessages.push(describeExtensionImportError(err, normalized.name));
-        console.warn("[ExtensionsSettings] Failed to import extension entry:", normalized.name, err);
-      }
-    }
-    const completed = installed + updated;
-    if (completed === 0 && failed === 0 && skipped === 0) throw new Error("No valid extensions found in file");
-    const skipNote = skipped > 0 ? ` (${skipped} skipped)` : "";
-    const successSummary = [
-      installed > 0 ? `Installed ${installed} extension${installed === 1 ? "" : "s"}` : "",
-      updated > 0 ? `updated ${updated} extension${updated === 1 ? "" : "s"}` : "",
-    ]
-      .filter(Boolean)
-      .join(" and ");
-    // "Review before enabling" would be misleading when a manifest imported
-    // with enabled:true — those extensions are already running.
-    const reviewNote =
-      importedEnabled > 0
-        ? ` ${importedEnabled === completed ? "They are" : `${importedEnabled} of them are`} already enabled — review in the Extension Library.`
-        : " Review before enabling.";
-    if (failed > 0) {
-      const more = failureMessages.length > 1 ? ` (+${failureMessages.length - 1} more)` : "";
-      toast.error(
-        completed > 0
-          ? `${successSummary}${skipNote}; ${failed} failed — ${failureMessages[0]}${more}`
-          : `Failed to import ${failed} extension${failed === 1 ? "" : "s"}${skipNote} — ${failureMessages[0]}${more}`,
-        { duration: 12_000 },
-      );
-    } else if (skipped > 0) {
-      toast.warning(
-        completed > 0
-          ? `${successSummary}${skipNote}.${reviewNote}`
-          : `Skipped ${skipped} extension entr${skipped === 1 ? "y" : "ies"}.`,
-        {
-          description: failureMessages[0],
-          duration: 12_000,
-        },
-      );
-    } else {
-      toast.success(`${successSummary}${skipNote}.${reviewNote}`);
-    }
-  };
-
-  const handleImportExtensionFile = async (file: File) => {
-    try {
-      const installedAt = new Date().toISOString();
-      const fallbackName = file.name
-        .replace(/\.server\.(js|mjs|cjs)$/i, "")
-        .replace(/\.(json|css|js|mjs|cjs|zip)$/i, "");
-      const lowerName = file.name.toLowerCase();
-
-      if (isZipArchiveFile(file)) {
-        const files = await readTextFilesFromZip(file);
-        const entries = collectFolderPackageEntries(files, {
-          rootFilenames: ["marinara-extensions.json", "marinara-extension.json"],
-          collectionKeys: ["extensions"],
-        });
-        await importExtensionEntries(
-          entries.length > 0 ? entries : createLooseExtensionFolderImportEntries(files, fallbackName),
-          installedAt,
-          fallbackName,
-        );
-      } else if (lowerName.endsWith(".json")) {
-        const text = await file.text();
-        const parsed = JSON.parse(text);
-        const entries = getFolderImportEntries(parsed, ["extensions"]).map((entry) =>
-          createInlineFolderPackageImportEntry(entry, file.name),
-        );
-        await importExtensionEntries(entries, installedAt, fallbackName);
-      } else if (/\.server\.(js|mjs|cjs)$/i.test(lowerName)) {
-        const text = await file.text();
-        const name = file.name.replace(/\.server\.(js|mjs|cjs)$/i, "");
-        await importExtensionEntries(
-          [
-            createInlineFolderPackageImportEntry(
-              {
-                name,
-                description: "Server extension imported from file",
-                runtime: "server",
-                serverJs: text,
-                enabled: false,
-              },
-              file.name,
-            ),
-          ],
-          installedAt,
-          name,
-        );
-      } else if (/\.(js|mjs|cjs)$/i.test(lowerName)) {
-        const text = await file.text();
-        const name = file.name.replace(/\.(js|mjs|cjs)$/i, "");
-        await importExtensionEntries(
-          [
-            createInlineFolderPackageImportEntry(
-              {
-                name,
-                description: "JS extension imported from file",
-                runtime: "client",
-                js: text,
-                enabled: false,
-              },
-              file.name,
-            ),
-          ],
-          installedAt,
-          name,
-        );
-      } else if (lowerName.endsWith(".css")) {
-        const text = await file.text();
-        const name = file.name.replace(/\.css$/i, "");
-        await importExtensionEntries(
-          [
-            createInlineFolderPackageImportEntry(
-              {
-                name,
-                description: "CSS extension imported from file",
-                runtime: "client",
-                css: text,
-                enabled: false,
-              },
-              file.name,
-            ),
-          ],
-          installedAt,
-          name,
-        );
-      } else {
-        toast.error(
-          "Only .zip, .json, .css, .js, .mjs, .cjs, .server.js, .server.mjs, and .server.cjs files are supported.",
-        );
-      }
-    } catch (err) {
-      toast.error(getPrivilegedActionErrorMessage(err, "Failed to import extension."));
-    }
-  };
-
-  const handleImportExtensionFolder = async (selectedFiles: FileList | null) => {
-    try {
-      const installedAt = new Date().toISOString();
-      const files = await readTextFilesFromFileList(selectedFiles);
-      const folderName = getLooseExtensionFolderName(files, "extension");
-      const entries = collectFolderPackageEntries(files, {
-        rootFilenames: ["marinara-extensions.json", "marinara-extension.json"],
-        collectionKeys: ["extensions"],
-      });
-      await importExtensionEntries(
-        entries.length > 0 ? entries : createLooseExtensionFolderImportEntries(files, folderName),
-        installedAt,
-        folderName,
-      );
-    } catch (err) {
-      toast.error(getPrivilegedActionErrorMessage(err, "Failed to import extension folder."));
-    }
-  };
-
-  const handleToggleExtension = async (ext: InstalledExtension) => {
-    const nextEnabled = !ext.enabled;
-    if (nextEnabled && ext.runtime === "server") {
-      const confirmed = await showConfirmDialog({
-        title: "Enable Server Extension",
-        message: `Enable "${ext.name}"? This runs trusted JavaScript inside the Marinara Node.js server process and can affect this server until disabled. Only enable code you trust.`,
-        confirmLabel: "Enable Server Extension",
-        tone: "destructive",
-      });
-      if (!confirmed) return;
-    } else if (nextEnabled && ext.js?.trim()) {
-      const confirmed = await showConfirmDialog({
-        title: "Enable Extension",
-        message: `Enable "${ext.name}"? This runs the extension's JavaScript inside Marinara Engine.`,
-        confirmLabel: "Enable",
-        tone: "destructive",
-      });
-      if (!confirmed) return;
-    }
-
-    try {
-      await updateExtension.mutateAsync({ id: ext.id, enabled: nextEnabled });
-    } catch (err) {
-      toast.error(getPrivilegedActionErrorMessage(err, "Failed to update extension."));
-    }
-  };
-
-  const handleDeleteExtension = async (ext: InstalledExtension) => {
+  const handleDeleteExtension = async (extension: InstalledExtension) => {
     const confirmed = await showConfirmDialog({
-      title: "Delete Extension",
-      message: `Delete "${ext.name}"? This permanently removes its saved extension code from this server.`,
-      confirmLabel: "Delete",
+      title: "Remove Legacy Extension Record",
+      message: `Remove "${extension.name}" and its saved extension data? Extensions are already disabled.`,
+      confirmLabel: "Remove Record",
       tone: "destructive",
     });
     if (!confirmed) return;
 
     try {
-      await deleteExtension.mutateAsync(ext.id);
-      toast.success(`Extension "${ext.name}" removed`);
+      await deleteExtension.mutateAsync(extension.id);
+      toast.success(`Legacy extension record "${extension.name}" removed`);
     } catch (err) {
-      toast.error(getPrivilegedActionErrorMessage(err, "Failed to remove extension."));
+      toast.error(getPrivilegedActionErrorMessage(err, "Failed to remove legacy extension record."));
     }
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      {showIntro && (
-        <SettingsIntro>Install browser or trusted server extensions to add custom behavior or styling.</SettingsIntro>
-      )}
+    <SettingsSection
+      title="Legacy Extension Cleanup"
+      description="Remove disabled extension records left by older Marinara versions."
+      icon={<Puzzle size="0.875rem" />}
+      {...getSettingsSectionAnchorProps("extension-library")}
+    >
+      <div className="flex flex-col gap-3">
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-2.5 text-[0.6875rem] leading-relaxed text-amber-100"
+        >
+          <AlertTriangle size="0.875rem" className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
+          <span>
+            <strong>Extensions have been removed.</strong> Marinara does not load extension code or styles. Records
+            below are inert and retained only so you can delete them.
+          </span>
+        </div>
 
-      <SettingsSection
-        title="Extension Library"
-        description="Import, enable, disable, export, or remove installed extensions."
-        icon={<Puzzle size="0.875rem" />}
-        {...getSettingsSectionAnchorProps("extension-library")}
-      >
-        <div className="flex flex-col gap-3">
-          {/* Import button */}
-          <button
-            onClick={() => {
-              triggerFilePicker({
-                accept:
-                  ".zip,.json,.css,.js,.mjs,.cjs,.server.js,.server.mjs,.server.cjs,application/zip,application/json",
-                onSelect: (files) => {
-                  const file = files[0];
-                  if (file) void handleImportExtensionFile(file);
-                },
-              });
-            }}
-            className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
-          >
-            <Download size="0.875rem" /> Import Extension File (.zip, .json, .css, .js, .mjs, .cjs, or .server.js)
-          </button>
-          <button
-            onClick={() => {
-              triggerFilePicker({
-                multiple: true,
-                webkitdirectory: true,
-                onSelect: (files) => void handleImportExtensionFolder(files),
-              });
-            }}
-            className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-[var(--border)] p-3 text-xs text-[var(--muted-foreground)] transition-all hover:border-[var(--primary)]/40 hover:bg-[var(--secondary)]/50"
-          >
-            <FolderOpen size="0.875rem" /> Import Extension Folder
-          </button>
-
-          {/* Extension list */}
+        {isLoading ? (
+          <p className="mari-chrome-text-muted py-2 text-center text-[0.625rem]">Checking for legacy records…</p>
+        ) : extensions.length === 0 ? (
+          <p className="mari-chrome-text-muted py-2 text-center text-[0.625rem]">No legacy extension records remain.</p>
+        ) : (
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium">Installed Extensions</span>
-
-            {extensionList.map((ext) => (
+            <span className="text-[0.625rem] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+              Disabled records
+            </span>
+            {extensions.map((extension) => (
               <div
-                key={ext.id}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-all",
-                  ext.enabled
-                    ? "bg-[var(--secondary)] text-[var(--secondary-foreground)]"
-                    : "bg-[var(--secondary)]/40 text-[var(--muted-foreground)]",
-                )}
+                key={extension.id}
+                className="flex items-start justify-between gap-3 rounded-lg bg-[var(--secondary)]/50 p-2.5 ring-1 ring-[var(--border)]"
               >
-                <button
-                  onClick={() => void handleToggleExtension(ext)}
-                  className={cn(
-                    "rounded p-0.5 transition-colors",
-                    ext.enabled
-                      ? "text-emerald-400 hover:text-emerald-300"
-                      : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]",
-                  )}
-                  title={ext.enabled ? "Disable extension" : "Enable extension"}
-                >
-                  {ext.enabled ? <Power size="0.75rem" /> : <PowerOff size="0.75rem" />}
-                </button>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <span className="mari-chrome-text truncate font-medium">{ext.name}</span>
-                    {ext.version && (
-                      <span className="shrink-0 text-[0.5625rem] text-[var(--muted-foreground)]">
-                        v{ext.version}
-                      </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="truncate text-xs font-medium text-[var(--foreground)]">{extension.name}</span>
+                    {extension.version && (
+                      <span className="text-[0.625rem] text-[var(--muted-foreground)]">v{extension.version}</span>
                     )}
-                    <span
-                      className={cn(
-                        "shrink-0 rounded px-1 py-px text-[0.5625rem] font-semibold",
-                        ext.runtime === "server"
-                          ? "bg-amber-500/12 text-amber-300 ring-1 ring-amber-500/20"
-                          : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]",
-                      )}
-                    >
-                      {ext.runtime === "server" ? "Server" : "Browser"}
+                    <span className="rounded bg-[var(--secondary)] px-1.5 py-0.5 text-[0.5625rem] font-medium text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
+                      Disabled
                     </span>
-                    {ext.runtime === "server" && ext.enabled && (
-                      <span
-                        className={cn(
-                          "shrink-0 rounded px-1 py-px text-[0.5625rem] font-semibold ring-1",
-                          ext.serverStatus === "running"
-                            ? "bg-emerald-500/12 text-emerald-300 ring-emerald-500/20"
-                            : ext.serverStatus === "error"
-                              ? "bg-[var(--destructive)]/12 text-[var(--destructive)] ring-[var(--destructive)]/20"
-                              : "bg-[var(--secondary)] text-[var(--muted-foreground)] ring-[var(--border)]",
-                        )}
-                      >
-                        {ext.serverStatus === "running"
-                          ? "Running"
-                          : ext.serverStatus === "error"
-                            ? "Error"
-                            : "Stopped"}
-                      </span>
-                    )}
                   </div>
-                  {ext.description && (
-                    <span className="truncate text-[0.625rem] text-[var(--muted-foreground)]">{ext.description}</span>
-                  )}
-                  {ext.runtime === "server" && ext.serverError && (
-                    <span className="truncate text-[0.625rem] text-[var(--destructive)]">{ext.serverError}</span>
+                  {extension.description && (
+                    <p className="mt-1 line-clamp-2 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)]">
+                      {extension.description}
+                    </p>
                   )}
                 </div>
                 <button
-                  onClick={() => {
-                    downloadZipFile(
-                      createExtensionFolderPackageFiles([
-                        {
-                          name: ext.name,
-                          version: ext.version ?? null,
-                          description: ext.description ?? "",
-                          runtime: ext.runtime,
-                          css: ext.css ?? null,
-                          js: ext.js ?? null,
-                          serverJs: ext.serverJs ?? null,
-                          enabled: ext.enabled,
-                        },
-                      ]),
-                      createExtensionFolderPackageFilename(ext.name, "extension"),
-                    );
-                  }}
-                  className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-emerald-500/10 hover:text-emerald-400"
-                  title="Export extension"
+                  type="button"
+                  onClick={() => void handleDeleteExtension(extension)}
+                  disabled={deleteExtension.isPending}
+                  aria-label={`Remove legacy extension record ${extension.name}`}
+                  title="Remove legacy record"
+                  className="shrink-0 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Upload size="0.6875rem" />
-                </button>
-                <button
-                  onClick={() => void handleDeleteExtension(ext)}
-                  className="rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--foreground)]"
-                  title="Remove extension"
-                >
-                  <Trash2 size="0.6875rem" />
+                  <Trash2 size="0.75rem" />
                 </button>
               </div>
             ))}
-
-            {!isLoading && extensionList.length === 0 && (
-              <p className="mari-chrome-text-muted py-2 text-center text-[0.625rem]">
-                No extensions installed. Import an extension file or folder above.
-              </p>
-            )}
           </div>
-
-          {/* Info box */}
-          <div className="rounded-lg bg-[var(--secondary)]/50 p-2.5 text-[0.625rem] text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-            <strong>Folder format:</strong>{" "}
-            <code className="rounded bg-[var(--secondary)] px-1">Extensions/My Extension/manifest.json</code>. Browser
-            extensions can include CSS and/or JavaScript files to modify the UI.
-          </div>
-          <div className="rounded-lg bg-[var(--secondary)]/50 p-2.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-            <strong>Server extensions:</strong> use{" "}
-            <code className="rounded bg-[var(--secondary)] px-1">runtime: "server"</code> with{" "}
-            <code className="rounded bg-[var(--secondary)] px-1">serverJsPath</code>, or import a{" "}
-            <code className="rounded bg-[var(--secondary)] px-1">.server.js</code> file. They run in the Node.js server
-            process and should only come from trusted sources.
-          </div>
-          <div className="rounded-lg bg-[var(--secondary)]/35 p-2.5 text-[0.625rem] leading-relaxed text-[var(--muted-foreground)] ring-1 ring-[var(--border)]">
-            Extensions can be downloaded from the official Marinara Engine Discord server.
-          </div>
-        </div>
-      </SettingsSection>
-    </div>
+        )}
+      </div>
+    </SettingsSection>
   );
 }
-
 type ProfileImportStats = {
   characters?: number;
   personas?: number;

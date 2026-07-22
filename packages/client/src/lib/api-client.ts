@@ -47,7 +47,7 @@ export const PRIVILEGED_ACCESS_HINT =
   "This action needs loopback access or admin access. Open the app through localhost, or set ADMIN_SECRET=<secret> in the server .env and paste the same value in Settings → Advanced → Admin Access. Marinara sends it as the X-Admin-Secret header.";
 
 /**
- * Build a user-facing message for a privileged-gated action (extension install,
+ * Build a user-facing message for a privileged-gated action (theme install,
  * Professor Mari workspace mutation, etc.). The privileged gate replies 403 with a
  * terse server message that doesn't tell the user how to recover, so surface the
  * admin-secret hint for 403s; otherwise pass through the server/error message.

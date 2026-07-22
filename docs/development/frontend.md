@@ -285,7 +285,7 @@ Each resource type has a full-page editor that replaces the chat area:
 
 | Editor            | File                                          | Manages                                                                         |
 | ----------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| Character Editor  | `components/characters/CharacterEditor.tsx`   | Character card fields, avatar, greeting, personality, system prompt, extensions |
+| Character Editor  | `components/characters/CharacterEditor.tsx`   | Character card fields, avatar, greeting, personality, system prompt, metadata   |
 | Lorebook Editor   | `components/lorebooks/LorebookEditor.tsx`     | Lorebook metadata and entries with keys, activation rules, injection settings   |
 | Preset Editor     | `components/presets/PresetEditor.tsx`         | Prompt sections, groups, markers, generation parameters, choice blocks          |
 | Connection Editor | `components/connections/ConnectionEditor.tsx` | API provider, base URL, model, context window, flags                            |
@@ -410,7 +410,7 @@ All input validation uses Zod schemas from `packages/shared/src/schemas/`. Repre
 | Schema file             | Entities                                                           |
 | ----------------------- | ------------------------------------------------------------------ |
 | `agent.schema.ts`       | AgentConfig create and update, agent phases, result types          |
-| `character.schema.ts`   | Character card, extensions, character books, groups                |
+| `character.schema.ts`   | Character cards, compatibility metadata, character books, groups   |
 | `chat.schema.ts`        | Chat create, message create, generation request                   |
 | `connection.schema.ts`  | API connection create and update                                   |
 | `custom-tool.schema.ts` | Custom tool definitions                                            |
@@ -418,7 +418,7 @@ All input validation uses Zod schemas from `packages/shared/src/schemas/`. Repre
 | `prompt.schema.ts`      | Preset, section, group, choice block, generation parameters        |
 | `regex.schema.ts`       | Regex script create and update                                     |
 
-The folder also holds schemas for app settings, chat presets, conversation calls, custom emojis and stickers, extensions, Noodle, and themes.
+The folder also holds schemas for app settings, chat presets, conversation calls, custom emojis and stickers, Noodle, and themes.
 
 ### Types
 
@@ -427,7 +427,7 @@ Entity type definitions live in `packages/shared/src/types/`. A sample of the ke
 | Type file             | Key interfaces                                                                                              |
 | --------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `agent.ts`            | `AgentConfig`, `AgentResult`, `AgentContext`, `ToolDefinition`, `ToolCall`, `ToolResult`, `BUILT_IN_AGENTS` |
-| `character.ts`        | `Character`, `CharacterCardV2`, `CharacterData`, `CharacterExtensions`, `RPGStatsConfig`                    |
+| `character.ts`        | `Character`, `CharacterCardV2`, `CharacterData`, `RPGStatsConfig`                                           |
 | `chat.ts`             | `Chat`, `ChatMetadata`, `Message`, `MessageExtra`, `GenerationInfo`, `StreamEvent`                          |
 | `connection.ts`       | `APIConnection`, `ModelInfo`, `ModelCapabilities`, `ConnectionTestResult`                                   |
 | `combat-encounter.ts` | `CombatPartyMember`, `CombatEnemy`, `CombatActionResult`, `EncounterSettings`                               |
@@ -526,7 +526,7 @@ Agent memory tools use `/api/agents/memory/:agentType/:chatId`, where `agentType
 | `/api/import/*`                 | SillyTavern and Marinara profile import |
 | `/api/admin/clear-all`          | Full data clear                         |
 | `/api/themes`                   | Synced custom themes                    |
-| `/api/extensions`               | Installed extensions                    |
+| `/api/extensions`               | Legacy metadata/deletion cleanup; create/update return `410 Gone` |
 | `/api/app-settings`             | Server-side app settings                |
 | `/api/sidecar`                  | Local model runtime                     |
 | `/api/chat-presets`             | Chat settings presets                   |
