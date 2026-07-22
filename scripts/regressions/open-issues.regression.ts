@@ -1510,9 +1510,28 @@ const replayStoryboardFrames = [
   { id: "frame-1", index: 0, sectionStartIndex: 0, sectionEndIndex: 1 },
   { id: "frame-3", index: 2, sectionStartIndex: 5, sectionEndIndex: 5 },
 ] as Parameters<typeof findReplayStoryboardKeyframe>[0];
+assert.equal(findReplayStoryboardKeyframe([], 0), null);
 assert.equal(findReplayStoryboardKeyframe(replayStoryboardFrames, null)?.id, "frame-1");
 assert.equal(findReplayStoryboardKeyframe(replayStoryboardFrames, 3)?.id, "frame-2");
 assert.equal(findReplayStoryboardKeyframe(replayStoryboardFrames, 4)?.id, "frame-3");
+
+const unanchoredReplayStoryboardFrames = [
+  { id: "unanchored-2", index: 2 },
+  { id: "unanchored-1", index: 1 },
+] as Parameters<typeof findReplayStoryboardKeyframe>[0];
+assert.equal(findReplayStoryboardKeyframe(unanchoredReplayStoryboardFrames, 4)?.id, "unanchored-1");
+
+const overlappingReplayStoryboardFrames = [
+  { id: "overlap-2", index: 2, sectionStartIndex: 1, sectionEndIndex: 5 },
+  { id: "overlap-1", index: 1, sectionStartIndex: 2, sectionEndIndex: 4 },
+] as Parameters<typeof findReplayStoryboardKeyframe>[0];
+assert.equal(findReplayStoryboardKeyframe(overlappingReplayStoryboardFrames, 3)?.id, "overlap-1");
+
+const tiedReplayStoryboardFrames = [
+  { id: "right", index: 2, sectionStartIndex: 6, sectionEndIndex: 6 },
+  { id: "left", index: 1, sectionStartIndex: 2, sectionEndIndex: 2 },
+] as Parameters<typeof findReplayStoryboardKeyframe>[0];
+assert.equal(findReplayStoryboardKeyframe(tiedReplayStoryboardFrames, 4)?.id, "left");
 
 const replaySessionChats = [
   {

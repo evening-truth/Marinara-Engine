@@ -3330,7 +3330,7 @@ test("Roleplay setup points empty agent libraries to the Agents tab", async ({ p
     await nextButton.click();
     const participantsHeading = page.getByRole("heading", { name: "Persona & Characters", exact: true });
     const choiceDialog = page.getByRole("dialog", { name: "Configure Preset Variables" });
-    await expect(choiceDialog.or(participantsHeading)).toBeVisible();
+    await expect(choiceDialog.or(participantsHeading).first()).toBeVisible();
     if (await choiceDialog.isVisible()) {
       await choiceDialog.getByRole("button", { name: "Skip", exact: true }).click();
     }

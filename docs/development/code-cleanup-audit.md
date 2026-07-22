@@ -267,7 +267,7 @@ Run the proof appropriate to each change:
 - PNG import consolidation: direct import regressions covering valid and malformed character cards.
 - Release/version files, if unexpectedly touched: `pnpm version:check` and `pnpm credits:check`.
 
-Do not cite the current generic `pnpm test` result as test evidence until the zero-test issue is corrected.
+Before this cleanup, the generic `pnpm test` result could not be cited as test evidence because it completed successfully without running tests.
 
 ## 10. Audit validation and limitations
 
