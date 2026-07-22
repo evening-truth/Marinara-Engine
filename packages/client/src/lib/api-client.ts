@@ -31,10 +31,10 @@ export class ApiError extends Error {
 }
 
 /**
- * Thrown by `streamEvents({ disconnectOnResume })` when the tab resumes from the
- * background mid-stream. The socket is likely half-open, so the caller should
- * fall back to a refetch of the server-persisted result rather than treating it
- * as a real failure.
+ * Thrown by `streamEvents({ disconnectOnResume })` when an SSE reader makes no
+ * progress for a grace period after the tab resumes. The socket is likely
+ * half-open, so the caller should fall back to a refetch of the server-persisted
+ * result rather than treating it as a real failure.
  */
 export class StreamResumeDisconnectError extends Error {
   constructor() {
@@ -428,7 +428,7 @@ export const api = {
     path: string,
     body?: unknown,
     signal?: AbortSignal,
-    options?: { disconnectOnResume?: boolean },
+    options?: { disconnectOnResume?: boolean; resumeDisconnectGraceMs?: number },
   ): AsyncGenerator<{ type: string; data: unknown } & Record<string, unknown>> {
     const res = await apiFetch(path, {
       method: "POST",
@@ -454,30 +454,58 @@ export const api = {
     let buffer = "";
     let completed = false;
 
-    // A backgrounded tab often leaves the underlying socket half-open: after the
-    // tab resumes, reader.read() may never settle again and the stream hangs
-    // forever. When asked, surface a normal disconnect on the first hidden→visible
-    // flip so the caller falls back to its refetch/recovery path instead of
-    // stalling. Safe worst case: a false positive just downgrades live streaming
-    // to a post-generation refetch.
+    // A backgrounded tab can leave the underlying socket half-open: after the
+    // tab resumes, reader.read() may never settle again and the stream hangs.
+    // Give a healthy stream enough time to deliver either content or the server's
+    // 15-second SSE keepalive before detaching. Disconnecting immediately on
+    // resume replaces a live typewriter with the fully persisted reply.
     const watchResume = options?.disconnectOnResume === true && typeof document !== "undefined";
+    const resumeDisconnectGraceMs = Math.max(0, options?.resumeDisconnectGraceMs ?? 20_000);
     let wasHidden = watchResume && document.visibilityState === "hidden";
+    let readPending = false;
     let rejectOnResume: ((error: Error) => void) | null = null;
+    let resumeDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
     const resumeDisconnect = watchResume
       ? new Promise<never>((_, reject) => {
           rejectOnResume = reject;
         })
       : null;
+    const clearResumeDisconnectTimer = () => {
+      if (resumeDisconnectTimer === null) return;
+      clearTimeout(resumeDisconnectTimer);
+      resumeDisconnectTimer = null;
+    };
+    const startResumeDisconnectTimer = () => {
+      if (!wasHidden || !readPending || resumeDisconnectTimer !== null) return;
+      resumeDisconnectTimer = setTimeout(() => {
+        resumeDisconnectTimer = null;
+        rejectOnResume?.(new StreamResumeDisconnectError());
+      }, resumeDisconnectGraceMs);
+    };
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") wasHidden = true;
-      else if (wasHidden) rejectOnResume?.(new StreamResumeDisconnectError());
+      if (document.visibilityState === "hidden") {
+        wasHidden = true;
+        clearResumeDisconnectTimer();
+      } else {
+        startResumeDisconnectTimer();
+      }
     };
     if (watchResume) document.addEventListener("visibilitychange", onVisibility);
 
     try {
       while (true) {
         const read = reader.read();
-        const { done, value } = resumeDisconnect ? await Promise.race([read, resumeDisconnect]) : await read;
+        readPending = true;
+        if (watchResume && document.visibilityState === "visible") startResumeDisconnectTimer();
+        let result: ReadableStreamReadResult<Uint8Array>;
+        try {
+          result = resumeDisconnect ? await Promise.race([read, resumeDisconnect]) : await read;
+        } finally {
+          readPending = false;
+          clearResumeDisconnectTimer();
+        }
+        const { done, value } = result;
+        if (watchResume && document.visibilityState === "visible") wasHidden = false;
         if (done) {
           completed = true;
           buffer += decoder.decode();
@@ -508,6 +536,7 @@ export const api = {
       }
     } finally {
       if (watchResume) document.removeEventListener("visibilitychange", onVisibility);
+      clearResumeDisconnectTimer();
       await releaseSseReader(reader, completed);
     }
   },

@@ -67,6 +67,7 @@ import {
   parseDeferredConditionalPayload,
   resolveDeferredCharacterMacros,
   selectConditionalPayloadBranch,
+  SPOTIFY_RECENT_TRACK_HISTORY_LIMIT,
 } from "../../packages/shared/src/index.js";
 import { replaceBuiltInAgentDefinitions as replaceBuiltInAgentDefinitionsDist } from "../../packages/shared/dist/index.js";
 import {
@@ -1145,6 +1146,75 @@ const cases: RegressionCase[] = [
 
       assert.equal(results[0]?.success, true);
       assert.equal(savedContent, longContent);
+    },
+  },
+  {
+    name: "Spotify playlist candidates suppress the extended recent-track window",
+    async run() {
+      const originalFetch = globalThis.fetch;
+      const recentTrackUris = Array.from(
+        { length: SPOTIFY_RECENT_TRACK_HISTORY_LIMIT },
+        (_, index) => `spotify:track:recent${index}`,
+      );
+      const freshTrackUris = Array.from({ length: 50 }, (_, index) => `spotify:track:fresh${index}`);
+      const allTrackUris = [...recentTrackUris, ...freshTrackUris];
+
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const limit = Number(url.searchParams.get("limit") ?? 50);
+        const pageUris = allTrackUris.slice(offset, offset + limit);
+        const nextOffset = offset + pageUris.length;
+        return new Response(
+          JSON.stringify({
+            items: pageUris.map((uri, index) => ({
+              item: {
+                uri,
+                name: `Track ${offset + index}`,
+                artists: [{ name: "Regression Artist" }],
+                album: { name: "Regression Album" },
+              },
+            })),
+            total: allTrackUris.length,
+            next: nextOffset < allTrackUris.length ? `https://api.spotify.com/next?offset=${nextOffset}` : null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }) as typeof fetch;
+
+      try {
+        const results = await executeToolCalls(
+          [
+            {
+              id: "call_spotify_candidates",
+              type: "function",
+              function: {
+                name: "spotify_get_playlist_tracks",
+                arguments: JSON.stringify({ playlistId: "regression-playlist", candidateLimit: 50 }),
+              },
+            },
+          ],
+          {
+            spotify: { accessToken: "regression-token" },
+            chatMeta: { spotifyRecentTracks: recentTrackUris },
+          },
+        );
+
+        assert.equal(results[0]?.success, true);
+        const payload = JSON.parse(results[0]!.result) as {
+          tracks?: Array<{ uri?: string }>;
+          indexedTrackCount?: number;
+          recentAvoidedCount?: number;
+        };
+        assert.equal(payload.indexedTrackCount, allTrackUris.length);
+        assert.equal(payload.recentAvoidedCount, recentTrackUris.length);
+        assert.deepEqual(
+          new Set((payload.tracks ?? []).map((track) => track.uri)),
+          new Set(freshTrackUris),
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     },
   },
   {

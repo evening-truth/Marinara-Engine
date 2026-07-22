@@ -136,6 +136,7 @@ import {
   parseTrackerHiddenFields,
   normalizeRpgStatPools,
   resolveGameSetupArtStylePrompt,
+  SPOTIFY_RECENT_TRACK_HISTORY_LIMIT,
   createTacticalCombat,
   applyAction as applyTacticalAction,
   runEnemyPhase as runTacticalEnemyPhase,
@@ -9683,7 +9684,9 @@ export async function gameRoutes(app: FastifyInstance) {
 
   function normalizeSpotifyTrackHistory(value: unknown): string[] {
     return Array.isArray(value)
-      ? value.filter((uri): uri is string => typeof uri === "string" && uri.startsWith("spotify:track:")).slice(0, 20)
+      ? value
+          .filter((uri): uri is string => typeof uri === "string" && uri.startsWith("spotify:track:"))
+          .slice(0, SPOTIFY_RECENT_TRACK_HISTORY_LIMIT)
       : [];
   }
 

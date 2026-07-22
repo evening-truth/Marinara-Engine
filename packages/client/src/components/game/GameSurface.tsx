@@ -144,6 +144,7 @@ import {
   GAME_STORYBOARD_KEYFRAME_COUNT_MAX,
   GAME_STORYBOARD_KEYFRAME_COUNT_MIN,
   PROFESSOR_MARI_ID,
+  SPOTIFY_RECENT_TRACK_HISTORY_LIMIT,
   formatTextQuotes,
   normalizeRpgStatPools,
   normalizeTextForMatch,
@@ -2152,7 +2153,6 @@ function getSceneBackgroundTags(assetKeys: string[]): string[] {
 }
 
 const RECENT_MUSIC_HISTORY_LIMIT = 8;
-const RECENT_SPOTIFY_TRACK_HISTORY_LIMIT = 12;
 const GAME_START_GENERATION_GUIDE =
   "Begin the game now with the first visible GM VN narration/dialogue segment. This is an invisible startup trigger, not a player action. Do not mention a start command.";
 const SYNTHETIC_GAME_START_MESSAGE_RE = /^\s*\[start(?:\s+the)?\s+game\]\s*$/i;
@@ -2170,13 +2170,13 @@ function normalizeRecentSpotifyTrackHistory(value: unknown): string[] {
   return Array.isArray(value)
     ? value
         .filter((uri): uri is string => typeof uri === "string" && uri.startsWith("spotify:track:"))
-        .slice(0, RECENT_SPOTIFY_TRACK_HISTORY_LIMIT)
+        .slice(0, SPOTIFY_RECENT_TRACK_HISTORY_LIMIT)
     : [];
 }
 
 function appendRecentSpotifyTrack(history: string[], uri: string | null | undefined): string[] {
-  if (!uri?.startsWith("spotify:track:")) return history.slice(0, RECENT_SPOTIFY_TRACK_HISTORY_LIMIT);
-  return [uri, ...history.filter((entry) => entry !== uri)].slice(0, RECENT_SPOTIFY_TRACK_HISTORY_LIMIT);
+  if (!uri?.startsWith("spotify:track:")) return history.slice(0, SPOTIFY_RECENT_TRACK_HISTORY_LIMIT);
+  return [uri, ...history.filter((entry) => entry !== uri)].slice(0, SPOTIFY_RECENT_TRACK_HISTORY_LIMIT);
 }
 
 function formatCombatLogContent(message: Message): string {

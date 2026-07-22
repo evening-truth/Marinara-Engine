@@ -13,7 +13,10 @@ import { safeFetch } from "../../utils/security.js";
 import { logger } from "../../lib/logger.js";
 import { normalizeSpotifySearchQuery } from "../spotify/spotify.service.js";
 import { buildSpotifyCandidateTokens, normalizeSpotifyText } from "../spotify/spotify-query-tokens.js";
-import { appendChatSummaryEntryToMetadata } from "@marinara-engine/shared";
+import {
+  appendChatSummaryEntryToMetadata,
+  SPOTIFY_RECENT_TRACK_HISTORY_LIMIT,
+} from "@marinara-engine/shared";
 
 export interface ToolExecutionResult {
   toolCallId: string;
@@ -81,7 +84,6 @@ const SPOTIFY_TRACK_INDEX_TTL_MS = 20 * 60_000;
 const SPOTIFY_TRACK_INDEX_CACHE_MAX = 24;
 const SPOTIFY_TRACK_INDEX_MAX_TRACKS = 2_500;
 const SPOTIFY_TRACK_PAGE_SIZE = 50;
-const SPOTIFY_RECENT_TRACK_HISTORY_LIMIT = 24;
 const SPOTIFY_RECENT_TRACK_PROMPT_LIMIT = 12;
 const SPOTIFY_PLAYBACK_SETTLE_MS = 650;
 const SPOTIFY_PLAYBACK_VERIFY_DELAYS_MS = [0, SPOTIFY_PLAYBACK_SETTLE_MS, 900, 1500, 2500, 4000] as const;
