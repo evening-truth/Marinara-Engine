@@ -27,7 +27,7 @@ import {
 import { useAgentStore } from "../../packages/client/src/stores/agent.store.js";
 import { advanceWeatherFrameClock } from "../../packages/client/src/lib/weather-frame-clock.js";
 import { trackerEditableText } from "../../packages/client/src/features/tracker-panel/lib/tracker-display.js";
-import { api } from "../../packages/client/src/lib/api-client.js";
+import { api, StreamResumeDisconnectError } from "../../packages/client/src/lib/api-client.js";
 import { executeAgentBatch } from "../../packages/server/src/services/agents/agent-executor.js";
 import { resolveAgentPipelineAgents } from "../../packages/server/src/services/generation/agent-resolution.js";
 import {
@@ -104,6 +104,91 @@ try {
 assert.ok(capturedAbortRequest, "the shared API client should send an abort request");
 assert.equal(String(capturedAbortRequest.input), "/api/generate/abort");
 assert.equal(new Headers(capturedAbortRequest.init?.headers).get(CSRF_HEADER), CSRF_HEADER_VALUE);
+
+class VisibilityDocument extends EventTarget {
+  visibilityState: DocumentVisibilityState = "visible";
+
+  setVisibility(state: DocumentVisibilityState) {
+    this.visibilityState = state;
+    this.dispatchEvent(new Event("visibilitychange"));
+  }
+}
+
+function sseFrame(type: string, data: unknown) {
+  return new TextEncoder().encode(`data: ${JSON.stringify({ type, data })}\n\n`);
+}
+
+const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+const visibilityDocument = new VisibilityDocument();
+Object.defineProperty(globalThis, "document", {
+  configurable: true,
+  value: visibilityDocument,
+});
+
+let healthyStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+globalThis.fetch = (async () =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        healthyStreamController = controller;
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  )) as typeof fetch;
+try {
+  const events = api.streamEvents("/generate", {}, undefined, {
+    disconnectOnResume: true,
+    resumeDisconnectGraceMs: 50,
+  });
+  const firstEvent = events.next();
+  healthyStreamController!.enqueue(sseFrame("token", "First"));
+  assert.deepEqual(await firstEvent, { done: false, value: { type: "token", data: "First" } });
+
+  const resumedEvent = events.next();
+  visibilityDocument.setVisibility("hidden");
+  visibilityDocument.setVisibility("visible");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  healthyStreamController!.enqueue(sseFrame("token", " second"));
+  assert.deepEqual(
+    await resumedEvent,
+    { done: false, value: { type: "token", data: " second" } },
+    "a healthy stream must survive tab resume instead of being replaced by the persisted full reply",
+  );
+  healthyStreamController!.close();
+  assert.equal((await events.next()).done, true);
+
+  let stalledStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+  globalThis.fetch = (async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          stalledStreamController = controller;
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      },
+    )) as typeof fetch;
+  const stalledEvents = api.streamEvents("/generate", {}, undefined, {
+    disconnectOnResume: true,
+    resumeDisconnectGraceMs: 5,
+  });
+  const initialStalledEvent = stalledEvents.next();
+  stalledStreamController!.enqueue(sseFrame("token", "Before hiding"));
+  assert.deepEqual(await initialStalledEvent, {
+    done: false,
+    value: { type: "token", data: "Before hiding" },
+  });
+  const stalledRead = stalledEvents.next();
+  visibilityDocument.setVisibility("hidden");
+  visibilityDocument.setVisibility("visible");
+  await assert.rejects(stalledRead, StreamResumeDisconnectError);
+} finally {
+  globalThis.fetch = originalFetch;
+  if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+  else Reflect.deleteProperty(globalThis, "document");
+}
 assert.match(
   generateRouteSource,
   /type: "illustration_queued"/u,
