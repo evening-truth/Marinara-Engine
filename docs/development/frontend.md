@@ -526,6 +526,7 @@ Agent memory tools use `/api/agents/memory/:agentType/:chatId`, where `agentType
 | `/api/import/*`                 | SillyTavern and Marinara profile import |
 | `/api/admin/clear-all`          | Full data clear                         |
 | `/api/themes`                   | Synced custom themes                    |
+| `/api/extensions`               | Legacy metadata/deletion cleanup; create/update return `410 Gone` |
 | `/api/app-settings`             | Server-side app settings                |
 | `/api/sidecar`                  | Local model runtime                     |
 | `/api/chat-presets`             | Chat settings presets                   |
