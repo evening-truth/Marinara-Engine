@@ -416,6 +416,58 @@ test("provider concurrency errors appear in generation toasts", async ({ page },
   }
 });
 
+test("typographic quotes do not pull the Roleplay caret behind later text", async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes("desktop"), "Roleplay quote caret behavior is covered on desktop.");
+
+  const chatResponse = await page.request.post("/api/chats", {
+    data: { name: "Roleplay Quote Caret Smoke", mode: "roleplay", characterIds: [] },
+  });
+  expect(chatResponse.ok()).toBeTruthy();
+  const chat = (await chatResponse.json()) as { id: string };
+
+  try {
+    await page.addInitScript((chatId) => {
+      const persisted = JSON.parse(localStorage.getItem("marinara-engine-ui") ?? '{"state":{},"version":65}') as {
+        state: Record<string, unknown>;
+        version: number;
+      };
+      persisted.state.hasCompletedOnboarding = true;
+      persisted.state.quoteFormat = "typographic";
+      localStorage.setItem("marinara-engine-ui", JSON.stringify(persisted));
+      localStorage.setItem("marinara-active-chat-id", chatId);
+    }, chat.id);
+    await page.goto("/");
+
+    const input = page.locator("textarea.mari-chat-input-textarea");
+    const waitForDelayedSelectionRestores = () =>
+      input.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+
+    await input.focus();
+    await page.keyboard.type("wasn't");
+    await waitForDelayedSelectionRestores();
+
+    await expect(input).toHaveValue("wasn’t");
+    await expect.poll(() => input.evaluate((element) => element.selectionStart)).toBe(6);
+    await expect.poll(() => input.evaluate((element) => element.selectionEnd)).toBe(6);
+
+    await input.fill("");
+    await input.focus();
+    await page.keyboard.type('"t');
+    await waitForDelayedSelectionRestores();
+
+    await expect(input).toHaveValue("“t");
+    await expect.poll(() => input.evaluate((element) => element.selectionStart)).toBe(2);
+    await expect.poll(() => input.evaluate((element) => element.selectionEnd)).toBe(2);
+  } finally {
+    await page.request.delete(`/api/chats/${chat.id}`);
+  }
+});
+
 test("generation fallbacks identify the replacement connection in a toast", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes("desktop"), "Fallback toast regression is covered on desktop.");
 
