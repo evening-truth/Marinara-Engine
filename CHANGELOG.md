@@ -20,6 +20,7 @@ This file is the release-notes source of truth for Marinara Engine. Reuse these 
 
 ### Fixed
 
+- Prevented imported agent files from installing bundled custom functions, granting themselves tool access, or overwriting a curated Agent by reusing its internal type. Agent exports no longer bundle function definitions, and imported agents receive a fresh custom identity that requires the user to review and explicitly attach tools afterward (#3953).
 - Removed the Background agent's obsolete image-generation toggle and runtime path. The agent now only selects existing library backgrounds, while Illustrator owns automatic and Gallery background generation. Gallery-generated backgrounds are applied to the active Roleplay chat instead of being attached as ordinary illustrations.
 - Stopped Roleplay generation immediately when **Stop** is pressed by sending the explicit server cancellation through the authenticated API client instead of allowing CSRF protection to discard it.
 - Made renamed Chat Summary preset markers use their authored wrapper name and resolved character-dependent summary macros against each individual group responder, allowing conditional summary knowledge to remain scoped to its intended character.

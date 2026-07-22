@@ -104,7 +104,6 @@ import {
   createAgentFolderPackageFiles,
   sanitizeAgentSettingsForTransfer,
 } from "../../lib/agent-transfer";
-import { serializeCustomToolForTransfer } from "../../lib/custom-tool-transfer";
 import { downloadZipFile } from "../../lib/download-zip";
 
 function parseActivationKeywordsText(value: string): string[] {
@@ -411,12 +410,6 @@ function normalizePositiveInteger(value: unknown, fallback: number, max: number)
 
 function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
-}
-
-function getReferencedCustomTools(toolNames: string[], customTools: CustomToolRow[]) {
-  if (toolNames.length === 0 || customTools.length === 0) return [];
-  const referenced = new Set(toolNames);
-  return customTools.filter((tool) => referenced.has(tool.name));
 }
 
 // ═══════════════════════════════════════════════
@@ -1273,28 +1266,21 @@ export function AgentEditor() {
       ...(localImagePositivePrompt.trim() ? { imagePositivePrompt: localImagePositivePrompt.trim() } : {}),
       ...(localImageNegativePrompt.trim() ? { imageNegativePrompt: localImageNegativePrompt.trim() } : {}),
     });
-    const bundledCustomTools = getReferencedCustomTools(
-      Array.isArray(settings.enabledTools) ? settings.enabledTools.filter((tool): tool is string => typeof tool === "string") : [],
-      (customToolsRaw as CustomToolRow[] | undefined) ?? [],
-    ).map(serializeCustomToolForTransfer);
     downloadZipFile(
-      createAgentFolderPackageFiles(
-        [
-          {
-            type: agentType,
-            name: localName,
-            description: localDescription,
-            phase: savedPhase,
-            enabled: true,
-            connectionId: null,
-            imagePath: null,
-            promptTemplate: localPrompt,
-            settings,
-            ...(isEditingCustomAgent ? { resultType: localResultType } : {}),
-          },
-        ],
-        { customTools: bundledCustomTools },
-      ),
+      createAgentFolderPackageFiles([
+        {
+          type: agentType,
+          name: localName,
+          description: localDescription,
+          phase: savedPhase,
+          enabled: true,
+          connectionId: null,
+          imagePath: null,
+          promptTemplate: localPrompt,
+          settings,
+          ...(isEditingCustomAgent ? { resultType: localResultType } : {}),
+        },
+      ]),
       createAgentFolderPackageFilename(localName || agentType, "agent"),
     );
     toast.success(`Exported ${localName || "agent"}`);

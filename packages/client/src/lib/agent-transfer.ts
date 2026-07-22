@@ -1,9 +1,10 @@
-import { sanitizeFolderSegment } from "@marinara-engine/shared";
-import type { ZipFileInput } from "./download-zip";
 import {
-  createCustomToolFolderPackageEntries,
-  type CustomToolTransferConfig,
-} from "./custom-tool-transfer";
+  getFolderManifestConfig,
+  normalizeAgentPhaseForType,
+  normalizeAgentPhaseValue,
+  sanitizeFolderSegment,
+} from "@marinara-engine/shared";
+import type { ZipFileInput } from "./download-zip";
 import { reservePackageFolderSegment } from "./folder-package-transfer";
 
 export type AgentTransferConfig = {
@@ -32,6 +33,7 @@ const TRANSFER_UNSAFE_AGENT_SETTING_KEYS = new Set([
   "targetLorebookId",
   "imageConnectionId",
   "lorebookWriteEnabled",
+  "customAgentRepositorySource",
 ]);
 
 const TRANSFER_UNSAFE_ENABLED_TOOLS = new Set(["save_lorebook_entry"]);
@@ -51,10 +53,84 @@ export function sanitizeAgentSettingsForTransfer(settings: Record<string, unknow
   return sanitized;
 }
 
-export function createAgentFolderPackageFiles(
-  agents: AgentTransferConfig[],
-  options: { customTools?: CustomToolTransferConfig[] } = {},
-): ZipFileInput[] {
+/** Imported agents never receive tool access from the file they came from. */
+export function sanitizeAgentSettingsForImport(settings: Record<string, unknown>) {
+  const sanitized = sanitizeAgentSettingsForTransfer(settings);
+  delete sanitized.enabledTools;
+  return sanitized;
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseAgentSettings(value: unknown): Record<string, unknown> {
+  if (isJsonRecord(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return isJsonRecord(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function createImportedAgentType(sourceType: string): string {
+  const slug =
+    sourceType
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "agent";
+  const suffix =
+    globalThis.crypto && "randomUUID" in globalThis.crypto
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `custom-import-${slug}-${suffix}`;
+}
+
+export function normalizeAgentImportEntry(entry: unknown, resolveTextFile?: (path: unknown) => string | null) {
+  const source = getFolderManifestConfig(entry);
+  if (!isJsonRecord(source)) return null;
+
+  const sourceType = typeof source.type === "string" ? source.type.trim() : "";
+  const name = typeof source.name === "string" ? source.name.trim() : "";
+  const description = typeof source.description === "string" ? source.description : "";
+  if (!sourceType || !name) return null;
+  const type = createImportedAgentType(sourceType);
+  const phase = normalizeAgentPhaseForType(type, normalizeAgentPhaseValue(source.phase));
+
+  const settingsText = resolveTextFile?.(source.settingsPath);
+  const settings = sanitizeAgentSettingsForImport(parseAgentSettings(settingsText ?? source.settings));
+  if (typeof source.author === "string" && !settings.author) {
+    settings.author = source.author;
+  }
+  if (Array.isArray(source.promptTemplates) && settings.promptTemplates === undefined) {
+    settings.promptTemplates = source.promptTemplates;
+  }
+  if (typeof settings.author !== "string" || !settings.author.trim()) {
+    settings.author = "Unknown";
+  }
+  const resultType = typeof source.resultType === "string" ? source.resultType : settings.resultType;
+
+  return {
+    type,
+    name,
+    description,
+    phase,
+    enabled: true,
+    connectionId: null,
+    imagePath: null,
+    promptTemplate:
+      resolveTextFile?.(source.promptTemplatePath) ??
+      (typeof source.promptTemplate === "string" ? source.promptTemplate : ""),
+    settings,
+    ...(typeof resultType === "string" ? { resultType } : {}),
+  };
+}
+
+export function createAgentFolderPackageFiles(agents: AgentTransferConfig[]): ZipFileInput[] {
   const usedSegments = new Set<string>();
   const entries = agents.map((agent) => {
     const segment = reservePackageFolderSegment(agent.type || agent.name, "agent", usedSegments);
@@ -83,18 +159,12 @@ export function createAgentFolderPackageFiles(
       config,
     };
   });
-  const functionEntries =
-    options.customTools && options.customTools.length > 0
-      ? createCustomToolFolderPackageEntries(options.customTools)
-      : [];
-
   const envelope = {
     kind: "marinara.agent-folder",
     version: 1 as const,
     exportedAt: new Date().toISOString(),
     folderName: "Agents",
     agents: entries.map(({ entry }) => entry),
-    ...(functionEntries.length > 0 ? { functions: functionEntries.map(({ entry }) => entry) } : {}),
   };
 
   return [
@@ -104,7 +174,6 @@ export function createAgentFolderPackageFiles(
       { path: `${folderPath}/${promptTemplatePath}`, content: config.promptTemplate },
       { path: `${folderPath}/${settingsPath}`, content: JSON.stringify(config.settings, null, 2) },
     ]),
-    ...functionEntries.flatMap(({ files }) => files),
   ];
 }
 

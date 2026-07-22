@@ -120,6 +120,8 @@ To attach tools, open the **Tools / Function Calling** section and toggle each t
 
 Tools only work if the chat itself allows them. In **Chat Settings**, open the **Function Calling** section and turn on **Enable Tool Use**. Without that chat setting, the agent's tools stay off even when you toggle them here.
 
+Imported agent files do not grant tool access. After importing an agent, inspect its prompt and settings, then select any tools you want it to use yourself.
+
 ## Named prompt options
 
 A single agent can hold several prompt variants. This is the **Named prompt options** feature. A chat can then pick one variant without you editing the agent globally.
@@ -176,11 +178,11 @@ Marinara reads `editedText` and swaps it into the reply. You see the message in 
 
 You can share a custom agent as a file.
 
-To export from the editor, click the **Export agent** button (the upload icon) in the top bar. This saves the agent as a package. If the agent uses custom tools, those tool definitions are bundled in.
+To export from the editor, click the **Export agent** button (the upload icon) in the top bar. This saves the agent's prompt and configuration as a package. Agent packages never include custom-tool definitions.
 
 To export several agents at once, use **Select agents** in the **Agents** panel, pick the agents you want, and export the group.
 
-To import, open the **Agents** panel and click **Import agents** for a single file, or **Import agent folder** to pick a whole folder. Any bundled custom tools are imported too.
+To import, open the **Agents** panel and click **Import agents** for a single file, or **Import agent folder** to pick a whole folder. Each file import becomes a new custom agent, so it cannot replace a curated Agent with the same internal type. For safety, Marinara also ignores bundled functions and clears tool selections from imported agent settings. Import trusted functions separately from **Function Calls**, review them, and explicitly attach them to the agent afterward.
 
 ## Related guides
 

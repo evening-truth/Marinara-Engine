@@ -179,7 +179,7 @@ You can move tools between installs.
 - To export every tool, click **Export functions to ZIP** in the **Functions** section.
 - To import, click **Import functions from ZIP or JSON** and pick a `.json` or `.zip` file. A message reports how many tools imported.
 
-An import skips any tool whose name clashes with an existing tool or a built-in tool name. When you export an agent, any custom tools that agent uses are bundled in. This way the agent still works after you import it elsewhere.
+An import skips any tool whose name clashes with an existing tool or a built-in tool name. Agent packages do not bundle or import custom tools: export trusted functions separately, review them in **Function Calls**, and explicitly attach them after importing the agent.
 
 ## Reserved names
 
