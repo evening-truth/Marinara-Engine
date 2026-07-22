@@ -30,6 +30,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Thrown by `streamEvents({ disconnectOnResume })` when the tab resumes from the
+ * background mid-stream. The socket is likely half-open, so the caller should
+ * fall back to a refetch of the server-persisted result rather than treating it
+ * as a real failure.
+ */
+export class StreamResumeDisconnectError extends Error {
+  constructor() {
+    super("Stream disconnected while the tab was in the background");
+    this.name = "StreamResumeDisconnectError";
+  }
+}
+
 export const PRIVILEGED_ACCESS_HINT =
   "This action needs loopback access or admin access. Open the app through localhost, or set ADMIN_SECRET=<secret> in the server .env and paste the same value in Settings → Advanced → Admin Access. Marinara sends it as the X-Admin-Secret header.";
 
@@ -415,6 +428,7 @@ export const api = {
     path: string,
     body?: unknown,
     signal?: AbortSignal,
+    options?: { disconnectOnResume?: boolean },
   ): AsyncGenerator<{ type: string; data: unknown } & Record<string, unknown>> {
     const res = await apiFetch(path, {
       method: "POST",
@@ -440,9 +454,30 @@ export const api = {
     let buffer = "";
     let completed = false;
 
+    // A backgrounded tab often leaves the underlying socket half-open: after the
+    // tab resumes, reader.read() may never settle again and the stream hangs
+    // forever. When asked, surface a normal disconnect on the first hidden→visible
+    // flip so the caller falls back to its refetch/recovery path instead of
+    // stalling. Safe worst case: a false positive just downgrades live streaming
+    // to a post-generation refetch.
+    const watchResume = options?.disconnectOnResume === true && typeof document !== "undefined";
+    let wasHidden = watchResume && document.visibilityState === "hidden";
+    let rejectOnResume: ((error: Error) => void) | null = null;
+    const resumeDisconnect = watchResume
+      ? new Promise<never>((_, reject) => {
+          rejectOnResume = reject;
+        })
+      : null;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") wasHidden = true;
+      else if (wasHidden) rejectOnResume?.(new StreamResumeDisconnectError());
+    };
+    if (watchResume) document.addEventListener("visibilitychange", onVisibility);
+
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        const read = reader.read();
+        const { done, value } = resumeDisconnect ? await Promise.race([read, resumeDisconnect]) : await read;
         if (done) {
           completed = true;
           buffer += decoder.decode();
@@ -472,6 +507,7 @@ export const api = {
         if (parsed.type === "error") return;
       }
     } finally {
+      if (watchResume) document.removeEventListener("visibilitychange", onVisibility);
       await releaseSseReader(reader, completed);
     }
   },
