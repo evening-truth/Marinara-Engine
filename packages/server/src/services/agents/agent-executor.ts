@@ -28,7 +28,7 @@ import {
   resolveMacros,
 } from "@marinara-engine/shared";
 import { getMaxToolRounds, isDebugAgentsEnabled } from "../../config/runtime-config.js";
-import { logger } from "../../lib/logger.js";
+import { logger, logDebugOverride } from "../../lib/logger.js";
 import { wrapContent } from "../prompt/format-engine.js";
 import { sanitizePromptLeaf } from "../prompt/prompt-escaping.js";
 import { settleAgentJobsWithConcurrencyLimit } from "./agent-concurrency.js";
@@ -563,6 +563,17 @@ function debugUsage(usage?: LLMUsage): Partial<AgentCallDebugEvent> {
 }
 
 function emitAgentDebug(context: AgentContext, event: AgentCallDebugEvent): void {
+  if ((event.stage === "response" || event.stage === "retry_response") && typeof event.response === "string") {
+    logDebugOverride(
+      Boolean(context.agentDebug) || isDebugAgentsEnabled(),
+      "[agent-debug] %s %s response (%d chars):\n%s",
+      event.agentType,
+      event.stage === "retry_response" ? "retry" : "raw",
+      event.response.length,
+      event.response,
+    );
+  }
+
   try {
     context.agentDebug?.(event);
   } catch (err) {
