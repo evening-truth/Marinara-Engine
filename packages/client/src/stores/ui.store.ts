@@ -413,12 +413,8 @@ export interface CustomTheme {
 }
 
 /**
- * Pre-migration shape of a browser-local extension. Only used to read
- * existing localStorage state and replay it against the server
- * (`/api/extensions`) on first load — see `useLegacyExtensionMigration`.
- * New extensions go directly through the server-synced hooks in
- * `use-extensions.ts` and use the canonical `InstalledExtension` type
- * exported from `@marinara-engine/shared`.
+ * Retired browser-local extension shape. Only used to remove legacy records
+ * from localStorage during startup; extension payloads are never replayed.
  */
 export interface LegacyInstalledExtension {
   id: string;
@@ -733,9 +729,9 @@ interface UIState {
   customThemes: CustomTheme[];
   /** True once legacy browser-local themes have been migrated to the server. */
   hasMigratedCustomThemesToServer: boolean;
-  /** Legacy browser-local extensions. Migration only — see useLegacyExtensionMigration. */
+  /** Retired browser-local extensions. Cleanup only — see useLegacyExtensionCleanup. */
   installedExtensions: LegacyInstalledExtension[];
-  /** True once legacy browser-local extensions have been migrated to the server. */
+  /** True once legacy browser-local extension records have been permanently cleared. */
   hasMigratedExtensionsToServer: boolean;
 
   // ── Onboarding ──
@@ -983,7 +979,7 @@ interface UIState {
   /** Legacy migration helpers for browser-local custom themes. */
   setHasMigratedCustomThemesToServer: (v: boolean) => void;
   clearLegacyCustomThemes: () => void;
-  /** Legacy migration helpers for browser-local extensions. */
+  /** Legacy cleanup helpers for retired browser-local extensions. */
   setHasMigratedExtensionsToServer: (v: boolean) => void;
   clearLegacyExtensions: () => void;
   setHasCompletedOnboarding: (v: boolean) => void;
@@ -1051,7 +1047,7 @@ function normalizePersistedMainSurface(persisted: Record<string, unknown>) {
  * Returns the subset of UI state that is synced to the server so it persists
  * across devices and browsers. Excludes device-local sizing preferences,
  * legacy migration flags, auto-computed fields (userStatus), and items tracked
- * via their own server resources (custom themes, extensions).
+ * via their own server resources (custom themes).
  */
 export function pickSyncedSettings(state: UIState) {
   return {
@@ -2418,7 +2414,7 @@ export const useUIStore = create<UIState>()(
             persisted.intuitiveSwipeRerollLatest = false;
           }
         }
-        // v17 -> v18: add legacy extension migration completion flag.
+        // v17 -> v18: add retired add-on cleanup completion flag.
         if (version <= 17) {
           if (persisted.hasMigratedExtensionsToServer === undefined) {
             persisted.hasMigratedExtensionsToServer = false;

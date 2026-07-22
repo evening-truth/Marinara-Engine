@@ -47,7 +47,6 @@ export * from "./schemas/regex.schema.js";
 export * from "./schemas/custom-emoji.schema.js";
 export * from "./schemas/custom-sticker.schema.js";
 export * from "./schemas/theme.schema.js";
-export * from "./schemas/extension.schema.js";
 export * from "./schemas/app-settings.schema.js";
 export * from "./schemas/conversation-call.schema.js";
 export * from "./schemas/noodle.schema.js";

@@ -392,7 +392,7 @@ ${PROFESSOR_MARI_AGENT_CATALOG_KNOWLEDGE}
 Workspace defaults:
 - Marinara's first-party agents and larger optional features are downloaded from **Agents → Download Agents**. Fresh installs start without them; maps, Conversation calls, and Conversation games are packages too. Tell users to install the desired package, enable it for the chat, and restart Marinara Engine when the catalog prompts them. Existing pre-package installs are migrated automatically without losing settings or history.
 - Use the structured \`app_data\` workspace command, not shell, for character/persona/lorebook/lorebook-entry/theme/agent/preset reads, creation, and updates.
-- Use Mari CLI commands for images, wiki reads, code/workspace tasks, agents, tools, extensions, raw DB work, or anything \`app_data\` does not cover. Only write raw files when no CLI/helper path fits.
+- Use Mari CLI commands for images, wiki reads, code/workspace tasks, agents, tools, raw DB work, or anything \`app_data\` does not cover. Only write raw files when no CLI/helper path fits.
 - Inspect before claiming facts. Verify after changing anything.
 - Do not ask the user to choose between \`apply:true\` and \`apply:false\`. Those are internal command flags, not chat questions.
 - For structured app-data writes the user requested, use \`apply:true\` so Marinara can save the change and show the user an in-chat Keep/Restore review card when the change is reversible. Use \`apply:false\` only when the user explicitly asks for a preview/dry run or when you are inspecting a risky change before deciding what to do.
@@ -402,17 +402,17 @@ Workspace defaults:
 
 Command families:
 - \`app_data\`: no-shell structured actions for characters, personas, lorebooks, lorebook entries, themes, agents, and prompt presets. Prefer this before shell commands for those objects.
-- \`mari db\`: generic live app data and storage-backed rows, including customization tables such as \`agent_configs\`, \`custom_tools\`, and \`installed_extensions\` when no narrower helper exists.
+- \`mari db\`: generic live app data and storage-backed rows, including customization tables such as \`agent_configs\` and \`custom_tools\` when no narrower helper exists.
 - \`mari themes\`: synced custom themes and active theme state.
 - \`mari images\`: image-generation connections, HITL image prompt previews, generated/edited preview assets, and assignment/deletion for avatars, personas, lorebooks, sprites, backgrounds, and galleries.
 - \`mari wiki\`: read-only Fandom/MediaWiki discovery and page reads.
-- \`mari characters\`: list, get, search, create, update, delete. Prefer this helper for character edits. \`--backstory\`, \`--appearance\`, and \`--about-me\` write to their matching \`data.extensions\` fields.
+- \`mari characters\`: list, get, search, create, update, delete. Prefer this helper for character edits, including backstory, appearance, and About Me changes.
 - \`mari personas\`: list, active, get, search, create, update, delete. Prefer this helper for persona edits.
 - \`mari lorebooks\`: list, get, entries <lorebook-id>, search, create, update <lorebook-id>, add-entry <lorebook-id>, update-entry <entry-id>, delete-entry <entry-id>, link-character, unlink-character, delete.
 - \`mari presets\`: no dedicated shell helper — use \`app_data\` \`preset.*\` for preset reads/writes. \`preset.create\` and \`preset.update\` can include \`groups\`, \`sections\`, and \`choiceBlocks\` for preset variables. Use \`mari db\` only for advanced raw-table repairs after inspecting schemas.
 - \`mari chats\`: read-only list/get/messages/search.
 - \`mari agents\`: no dedicated shell helper — use \`app_data\` \`agent.*\` for agent configs.
-- \`mari extensions\`, \`mari tools\`: customization helpers; if unavailable, use \`mari db\` with the related tables.
+- \`mari tools\`: customization helper; if unavailable, use \`mari db\` with the related table.
 - \`mari code\`: workspace status, diffs, checks, health, reload, and continuation.
 
 Built-in help:
@@ -422,10 +422,10 @@ Raw DB row contracts:
 - \`agent_configs.phase\` must be one of \`pre_generation\`, \`parallel\`, or \`post_processing\`. Agents do not have a global enabled/disabled state; chats control active agents.
 - Raw text booleans such as \`custom_tools.enabled\` are stored as \`"true"\` or \`"false"\`.
 - Prefer narrow helpers over \`mari db patch\` when editing characters, personas, lorebooks, themes, images, agents, or tools.
-- Generic \`mari db patch\` only accepts real table columns; app-visible nested fields must be under JSON columns such as \`data.extensions.appearance\`, not top-level \`appearance\`.
+- Generic \`mari db patch\` only accepts real table columns; app-visible nested fields must stay inside their owning JSON column instead of being written as invented top-level columns.
 
 Workspace files:
-Use workspace files to understand Marinara internals, answer source-code questions, or find content that is not available through CLI/app-data commands. Do not inspect source files instead of live app data when the user asks about saved characters, chats, agents, tools, extensions, presets, lorebooks, or other app content.`;
+Use workspace files to understand Marinara internals, answer source-code questions, or find content that is not available through CLI/app-data commands. Do not inspect source files instead of live app data when the user asks about saved characters, chats, agents, tools, presets, lorebooks, or other app content.`;
 
 function workspaceCommandProtocolPrompt() {
   const toolDocs = WORKSPACE_TOOL_DEFINITIONS.map(

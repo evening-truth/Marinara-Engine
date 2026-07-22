@@ -202,8 +202,6 @@ The full guide library is browsable inside the app: open **Documentation** from 
 | [docs/agents/knowledge-sources.md](docs/agents/knowledge-sources.md)                 | Knowledge Sources, RAG, Retrieval vs Router, and embedder notes                                                    |
 | [docs/characters/bot-browser.md](docs/characters/bot-browser.md)                     | Multi-site Card Browser search and character import guide                                                          |
 | [docs/conversation/emoji-stickers-gifs.md](docs/conversation/emoji-stickers-gifs.md) | Custom emoji/sticker uploads and selection modes                                                                   |
-| [docs/extending/extensions.md](docs/extending/extensions.md)                         | Installing and managing browser and server extensions                                                              |
-| [docs/development/writing-extensions.md](docs/development/writing-extensions.md)     | Writing extensions: manifest format and the marinara API                                                           |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)                                   | Common issues and fixes                                                                                            |
 | [docs/FAQ.md](docs/FAQ.md)                                                           | Frequently asked questions (LAN access, etc.)                                                                      |
 | [docs/prompts/macros.md](docs/prompts/macros.md)                                     | Prompt macro syntax, including weighted random choices                                                             |

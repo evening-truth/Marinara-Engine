@@ -106,7 +106,7 @@ const STEPS: TourStep[] = [
   {
     target: "panel-settings",
     title: "Settings",
-    body: "Settings control the whole app: appearance, behavior, imports, themes, image defaults, notifications, extensions, data tools, and other global preferences.",
+    body: "Settings control the whole app: appearance, behavior, imports, themes, image defaults, notifications, data tools, and other global preferences.",
     side: "bottom",
     openPanel: "settings",
     settingsTab: "general",

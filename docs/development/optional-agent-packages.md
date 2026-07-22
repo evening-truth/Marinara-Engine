@@ -48,7 +48,7 @@ objects remain private to Engine.
 - Tic-Tac-Toe;
 - Rock-Paper-Scissors.
 
-The base keeps the package manager, catalog client, generic agent pipeline contracts, generic turn-game host contracts, and inert extension points. Concrete implementations belong to packages.
+The base keeps the package manager, catalog client, generic agent pipeline contracts, generic turn-game host contracts, and inert host interfaces. Concrete implementations belong to packages.
 
 ## Trust and installation
 

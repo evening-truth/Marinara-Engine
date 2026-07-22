@@ -212,7 +212,7 @@ export async function buildApp(https?: { cert: Buffer; key: Buffer }) {
   // as soon as their verified files are installed.
   await initializeCapabilityAgentRegistry();
 
-  // ── Server extensions ──
+  // ── Retired extension cleanup ──
   await serverExtensionRuntime.start(app, db);
 
   // ── Server-side autonomous conversation scheduler ──

@@ -92,7 +92,7 @@ const HOME_FAQ_ITEMS: HomeFaqItem[] = [
     category: "Setup",
     question: "Where can I find documentation?",
     answer:
-      "Marinara ships full guides with every install: installation, configuration, troubleshooting, macros, extensions, Game Mode, and more. You can read them without leaving the app.",
+      "Marinara ships full guides with every install: installation, configuration, troubleshooting, macros, Game Mode, and more. You can read them without leaving the app.",
     bullets: [
       "Use the Open Documentation button below, or the Documentation button at the bottom of the home page, to browse every guide in-app.",
       "The same guides live on disk as regular markdown files, at the folder path shown below.",
@@ -493,7 +493,7 @@ const HOME_FAQ_ITEMS: HomeFaqItem[] = [
     answer: "Yes. There is built-in support for OpenAI-compatible TTS providers now.",
     bullets: [
       "Set it up from the Connections area and the TTS settings card.",
-      "If you expected older advice saying TTS was extension-only, that is out of date now.",
+      "If you expected older advice saying TTS required a separate add-on, that is out of date now.",
     ],
   },
   {
