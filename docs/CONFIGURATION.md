@@ -248,7 +248,7 @@ This section lists the remaining settings, grouped by purpose. The tables above 
 | `PORT` | `7860` | The port the server listens on. Keep Android, Docker, and Termux on the same value. |
 | `HOST` | `127.0.0.1` (`0.0.0.0` in the shell launchers) | The network interface to bind. Use `0.0.0.0` for LAN access. |
 | `AUTO_OPEN_BROWSER` | `true` | Whether the shell launchers open the app URL for you. Set `false` to stop this. |
-| `AUTO_UPDATE_ENABLED` | `true` | Whether Git-based Windows, macOS/Linux, and Termux launchers fetch and apply Engine updates before startup. Set `false` for a persistent opt-out; this takes effect on the next launch and does not disable manual update checks, in-app apply, package updates, or model updates. |
+| `AUTO_UPDATE_ENABLED` | `true` | Whether Git-based Windows, macOS/Linux, and Termux launchers fetch and apply Engine updates before startup. Set `false` for a persistent opt-out; this takes effect on the next launch. The launcher still performs a read-only check for newer published releases and prints a download reminder when one is available, while manual checks, in-app apply, package updates, and model updates remain available. Use `--skip-update` to skip both launcher checks for one start. |
 | `MARINARA_ENV_FILE` | project-root `.env` | Optional path override for the `.env` file. Set it before startup. |
 | `TZ` | system default | Host fallback timezone for server-side jobs. Conversation schedules use the global timezone selected in their schedule controls when one has been saved. Leave `TZ` unset to inherit the host timezone; an empty `TZ=` is also treated as unset. |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Browser origins allowed to make cross-origin requests. |

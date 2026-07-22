@@ -82,10 +82,12 @@ test("What's New opens once for each Marinara Engine version", async ({ page }) 
   const announcement = page.getByRole("dialog", { name: "What's New?" });
   await expect(announcement).toBeVisible();
   await expect(announcement.getByText(`Version ${APP_VERSION}`, { exact: true })).toBeVisible();
-  await expect(announcement.getByRole("heading", { name: "We fixed the most glaring issues." })).toBeVisible();
-  await expect(announcement.getByText(/We’re sorry for the inconvenience/)).toBeVisible();
+  await expect(announcement.getByRole("heading", { name: "A safer engine with finer control." })).toBeVisible();
+  await expect(announcement.getByText(/retired Extensions and sealed their unsafe code path/)).toBeVisible();
+  await expect(announcement.getByText(/new prompt macros/)).toBeVisible();
+  await expect(announcement.getByText(/character-specific Hide From AI controls/)).toBeVisible();
+  await expect(announcement.getByText(/Grouped or Individual response handling/)).toBeVisible();
   await expect(announcement.getByText("Marinara Engine has been updated.", { exact: true })).toHaveCount(0);
-  await expect(announcement.getByText(/Hierarchical Maps/)).toBeVisible();
   await expect(announcement.getByText("Tactical Combat Mode in Games")).toHaveCount(0);
   await expect(announcement.getByRole("link", { name: "View release" })).toHaveAttribute(
     "href",

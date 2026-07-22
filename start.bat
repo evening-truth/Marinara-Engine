@@ -128,6 +128,7 @@ if defined SKIP_UPDATE (
 )
 if defined AUTO_UPDATE_DISABLED (
     echo  [OK] Automatic Engine updates disabled by AUTO_UPDATE_ENABLED=false.
+    node scripts\check-launcher-update.mjs
     goto :skip_update
 )
 if not exist ".git" goto :skip_update

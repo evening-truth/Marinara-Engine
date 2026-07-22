@@ -113,7 +113,7 @@ cd "$HOME/Marinara-Engine"
 ```
 
 To skip the update check and start the already-installed local copy, run `./start-termux.sh --skip-update`.
-To skip automatic Engine updates on every launch, add `AUTO_UPDATE_ENABLED=false` to the project `.env`; manual update controls remain available.
+To skip automatic Engine updates on every launch, add `AUTO_UPDATE_ENABLED=false` to the project `.env`; the launcher still checks for a newer published release and prints its download link when one is available, while manual update controls remain available.
 
 Then open the **Marinara Engine** app from your home screen. The app shows "Connecting..." until the local server is ready, then loads automatically.
 
